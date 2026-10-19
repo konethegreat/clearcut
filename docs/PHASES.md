@@ -29,7 +29,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P1-08 OpenAPI from code; TS types generated from JSON Schema; contract tests
 
 ## Phase 2 — Ingestion & understanding (≈6–8 weeks) ⭐ core
-- ⬜ P2-01 **Gold set:** collect and anonymise 200+ real SA invoices; label fields (with MB's consent and POPIA review)
+- ⬜ P2-01 **Gold set:** collect and anonymise 200+ real SA invoices; label fields (with the document owners' consent and a POPIA review)
 - ⬜ P2-02 Document intake: type sniffing, page count, text-layer detection, de-duplication by hash
 - ⬜ P2-03 Embedded-structured-data reader (UBL/CII/Factur-X XML inside PDFs)
 - ⬜ P2-04 Python worker skeleton (gRPC/HTTP), provider trait, no business rules
@@ -98,6 +98,6 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 
 ## Open decisions for Kone
 - Are uploaded invoices mainly **supplier invoices received**, **invoices issued**, or both? (We assume both; ingestion is direction-agnostic.)
-- Which model provider(s) are acceptable given POPIA s72 and MB's client confidentiality?
+- Which model provider(s) are acceptable given POPIA s72 and client-confidentiality obligations?
 - Required export formats beyond JSON/CSV/XLSX/PDF.
 - Agreed accuracy targets (see research 05 §7).

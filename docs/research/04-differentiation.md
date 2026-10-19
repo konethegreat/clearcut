@@ -25,4 +25,4 @@ Positioning: **the open-source, agent-native invoicing engine built for South Af
 - Time from "agent drafts" to "customer receives a compliant invoice".
 - % of invoices auto-reconciled without human touch.
 - Zero compliance defects against the rule test-suite.
-- DSO reduction for pilot users (MB internal pilot first).
+- DSO reduction for pilot users (first pilot users).

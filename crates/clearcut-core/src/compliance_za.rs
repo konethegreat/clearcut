@@ -150,7 +150,7 @@ mod tests {
     fn complete() -> InvoiceHeader {
         InvoiceHeader {
             supplier_name: Some("Acme (Pty) Ltd".into()),
-            supplier_address: Some("1 Main Rd, Houghton".into()),
+            supplier_address: Some("1 Main Rd, Rosebank".into()),
             supplier_vat_number: Some("4123456789".into()),
             recipient_name: Some("Client Co".into()),
             recipient_address: Some("2 High St, Sandton".into()),

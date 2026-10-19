@@ -99,7 +99,7 @@ Exports are generated from the stored events, so they never disagree with each o
 ## 7. Evaluation plan (non-negotiable)
 
 - Build a **gold set of 200+ real, anonymised SA invoices** (mixed suppliers, scans, multi-page, statements, credit notes, handwritten notes). Measure **field-level** accuracy, not "document looks right".
-- Targets to agree with Kone and MB: critical fields (totals, VAT, dates, supplier) ≥ the human baseline; **zero silent errors** (every wrong value must have been flagged).
+- Targets to agree with Kone and pilot users: critical fields (totals, VAT, dates, supplier) ≥ the human baseline; **zero silent errors** (every wrong value must have been flagged).
 - Re-run on every prompt, model or OCR change (regression suite in CI).
 
 ## 8. Privacy and POPIA
@@ -107,7 +107,7 @@ Exports are generated from the stored events, so they never disagree with each o
 Per [Michalsons](https://www.michalsons.com/blog/how-popia-affects-ai/76842) (secondary source; get legal review):
 - **s71**: people can challenge decisions made **solely** by automated means with legal or significant effect → keep a human in the loop for consequential outcomes.
 - **s10 / s13**: purpose limitation and minimisation → send models only what they need; redact bank and ID numbers where possible.
-- **s72**: cross-border transfer → using a model API hosted outside South Africa needs an adequacy basis or consent; do due diligence on the provider and keep an operator agreement. MB is a **law and forensics firm**, so client confidentiality adds to this. A self-hosted or in-region extraction option should be on the roadmap.
+- **s72**: cross-border transfer → using a model API hosted outside South Africa needs an adequacy basis or consent; do due diligence on the provider and keep an operator agreement. Many target users (law, forensics and advisory practices) owe their clients confidentiality, which adds to this. A self-hosted or in-region extraction option should be on the roadmap.
 
 ## 9. Competitive note
 Existing tools split into *AP capture* (extract and post) and *AR* (issue and collect). Few present **a narrated, cited, grouped timeline** of what an invoice says as the product. That story-with-evidence is a credible differentiator, and it fits forensics and advisory work. _(inferred; competitor scan was not exhaustive)_
