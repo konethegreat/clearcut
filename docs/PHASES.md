@@ -41,7 +41,13 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-10 Evaluation harness in CI: field-level accuracy, "zero silent errors" gate
 - ⬜ P2-11 MCP tools: `upload_document`, `get_extraction`, `review_extraction`
 - ⬜ P2-12 Cost guardrails: token estimate, per-tenant budget, batch mode
-- ⬜ P2-13 Provider options for POPIA s72: document the cross-border position; spike a self-hosted/in-region model
+- ⬜ P2-13 Anthropic provider adapter (behind the provider trait); API key via env/secret manager; per-tenant budgets
+- ⬜ P2-14 **Model router + escalation ladder** (Haiku 5.5 → Sonnet 5.5 → Opus 5.5 → Fable 5.1 → human review) driven by validation failures, disagreement, low confidence, truncation; escalation policy as config
+- ⬜ P2-15 Adaptive thinking + effort per tier; log tokens, tier, effort, cache hits, escalation reason per call
+- ⬜ P2-16 Prompt caching for the static prefix (instructions, schema, SA rules, examples); Batch API mode for bulk uploads
+- ⬜ P2-17 Memory store (memory tool): written only from human-confirmed corrections; path validation, size caps, expiry, per-tenant
+- ⬜ P2-18 Terminal-state guarantee: every job ends `done` or `needs_review`; chaos tests (timeouts, truncation, provider outage)
+- ⬜ P2-19 POPIA: redaction of bank/ID numbers before sending, privacy notice and consent text, verify retention/ZDR terms with Anthropic, legal review
 
 ## Phase 3 — Events, grouping and narration (≈4–5 weeks) ⭐ core
 - ⬜ P3-01 Event model in `clearcut-core`: type, group, date, payload (integer cents), citation, extractor, confidence
@@ -57,12 +63,14 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 
 ## Phase 4 — Export (≈2–3 weeks) ⭐ core
 - ⬜ P4-01 Export framework: all formats rendered from stored events only
-- ⬜ P4-02 JSON (canonical) and CSV (events, lines)
-- ⬜ P4-03 XLSX with grouped events, lines and validation sheets
-- ⬜ P4-04 PDF narrative report with citations (evaluate PDF/A)
-- ⬜ P4-05 Markdown/HTML
-- ⬜ P4-06 Batch export (many documents → one workbook/zip)
-- ⬜ P4-07 MCP tool: `export_document`; SDK helpers
+- ⬜ P4-02 Shared **export schema** (document → groups → events → lines → checks → sources) with per-format layout spec and golden-file tests
+- ⬜ P4-03 PDF report (narrative, grouped events, citations)
+- ⬜ P4-04 Excel: Summary · Events · Line items · Checks · Sources sheets; real numeric cells
+- ⬜ P4-05 Word (.docx) editable report
+- ⬜ P4-06 CSV (events, lines) and JSON (canonical)
+- ⬜ P4-07 Plain text, Markdown and HTML
+- ⬜ P4-08 Batch export (many documents → one workbook/zip)
+- ⬜ P4-09 MCP tool: `export_document`; SDK helpers
 
 ## Phase 5 — Dashboard and review UX (≈4 weeks)
 - ⬜ P5-01 TypeScript web app: upload, progress, review queue, side-by-side page + extracted fields
@@ -96,8 +104,13 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 2. **P2-01:** start the gold set now, in parallel with code. It is the long pole.
 3. **P3-01:** write the event model and its tests in `clearcut-core`; it is pure Rust and de-risks Phase 3 early.
 
-## Open decisions for Kone
-- Are uploaded invoices mainly **supplier invoices received**, **invoices issued**, or both? (We assume both; ingestion is direction-agnostic.)
-- Which model provider(s) are acceptable given POPIA s72 and client-confidentiality obligations?
-- Required export formats beyond JSON/CSV/XLSX/PDF.
-- Agreed accuracy targets (see research 05 §7).
+## Decisions made (19 Oct 2026)
+- **Provider:** Anthropic API; model escalation; adaptive high thinking on higher tiers; caching + memory ([ADR-0005](adr/0005-model-strategy-escalation.md)).
+- **Exports:** PDF, Excel, Word, CSV, JSON, text/Markdown/HTML, all from one structured schema.
+- **Accuracy:** proposed defaults in [research 05 §7](research/05-ingestion-narration-export.md); calibrate after the first gold-set run.
+
+## Still open
+- Confirm what "boosted memory" should mean (we assumed prompt caching + chunking + a memory store fed by human corrections; see ADR-0005 §4).
+- Whether uploaded invoices are supplier invoices received, issued, or both (assumed both).
+- Who operates ClearCut commercially (needed for the POPIA Information Officer and operator agreements).
+- Verify Anthropic retention / zero-data-retention terms for the models we use.

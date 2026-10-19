@@ -85,24 +85,41 @@ A verifier that is a different (or larger) model is an optional extra, not a sub
 
 | Format | Purpose | Phase |
 |---|---|---|
+| **PDF report** | What most people open and share: narrative, grouped events, citations | 4 |
+| **Excel (.xlsx)** | Sheets: Summary · Events (by group) · Line items · Checks · Sources | 4 |
+| **Word (.docx)** | Editable narrative report for advisers and clients | 4 |
+| **CSV** | Events and line items for any spreadsheet, import or BI tool | 4 |
 | **JSON** | Canonical, lossless; the API format | 4 |
-| **CSV** | Events and line items for spreadsheets/BI | 4 |
-| **XLSX** | Grouped events + lines + checks on separate sheets | 4 |
-| **PDF report** | Human-readable narrative with citations; add PDF/A for archiving | 4 |
-| **Markdown/HTML** | Docs and email | 4 |
+| **Plain text / Markdown / HTML** | Email bodies, notes, web pages | 4 |
 | **UBL 2.1 / Peppol PINT** | E-invoicing | 6 |
 | **Factur-X/ZUGFeRD (PDF/A-3 + CII XML)** | Hybrid invoice; XML is authoritative | 6 (evaluate) |
 | **Accounting imports** (Xero, QuickBooks, Sage) | Hand-off to ledgers | 8 — verify each vendor's current import format first |
 
 Exports are generated from the stored events, so they never disagree with each other.
 
+**Decision (Kone, 19 Oct 2026):** ship the popular everyday formats, each well structured: **PDF, Excel, Word, CSV, JSON, text/Markdown/HTML**. "Well structured" means one shared **export schema** (document → groups → events → lines → checks → sources) with a fixed column/section layout per format, the same field names everywhere, ISO dates, amounts shown both as numbers (Excel/CSV/JSON cells are real numbers, not text) and formatted as Rand in the PDF/Word views, and a source citation on every row. Open formats beyond these (e.g. ODS, Google Sheets export) are deferred.
+
 ## 7. Evaluation plan (non-negotiable)
 
 - Build a **gold set of 200+ real, anonymised SA invoices** (mixed suppliers, scans, multi-page, statements, credit notes, handwritten notes). Measure **field-level** accuracy, not "document looks right".
-- Targets to agree with Kone and pilot users: critical fields (totals, VAT, dates, supplier) ≥ the human baseline; **zero silent errors** (every wrong value must have been flagged).
+- **Targets (proposed; Kone has no number yet, so these are defaults to be calibrated after the first gold-set run):**
+
+| Metric | Proposed target | Why |
+|---|---|---|
+| **Silent critical errors** (a wrong total, VAT, date, invoice number or supplier identity that was *not* flagged) | **0 on the gold set**; any occurrence blocks release | A flagged error is a review task; a silent one is a financial error |
+| Critical-field accuracy **before** review | Measure first; aim ≥ 97% initially, then raise | Establishes the real baseline; avoids inventing a number |
+| Critical-field accuracy **after** review | ≥ 99.5% | Human-in-the-loop closes the gap |
+| Non-critical fields (descriptions, notes, bank details) | ≥ 95% | Lower financial risk |
+| Narration | **100%** of numbers and dates traceable to cited events (number guard is a hard gate) | Narrated figures must be real |
+| Completion | **100%** of jobs end in a terminal state (`done` or `needs_review`), none stuck or silently failed | Matches "every task runs to completion" |
+| Review rate | Track; aim to fall over time as memory and prompts improve | Cost and speed |
+
+Re-baseline after the first measurements; if the human baseline on the same documents is better or worse, adjust. Accuracy numbers in vendor material (§1) are not targets.
 - Re-run on every prompt, model or OCR change (regression suite in CI).
 
 ## 8. Privacy and POPIA
+
+> **Decision update:** the provider is Anthropic's API; escalation, thinking and memory design and the cross-border position are in [ADR-0005](../adr/0005-model-strategy-escalation.md).
 
 Per [Michalsons](https://www.michalsons.com/blog/how-popia-affects-ai/76842) (secondary source; get legal review):
 - **s71**: people can challenge decisions made **solely** by automated means with legal or significant effect → keep a human in the loop for consequential outcomes.

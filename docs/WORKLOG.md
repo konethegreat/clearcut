@@ -2,6 +2,16 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-19 (evening) — Provider, escalation, exports, accuracy decisions
+**Decisions from Kone:** Anthropic API; escalate from smaller to larger models on failure; high thinking and "boosted memory" so tasks complete; popular export formats; accuracy targets unknown.
+**Done**
+- [ADR-0005](adr/0005-model-strategy-escalation.md): Haiku 5.5 → Sonnet 5.5 → Opus 5.5 → Fable 5.1 → human review; validation-driven escalation; adaptive thinking; prompt caching, chunking and a memory tool; budgets; ZAR cost illustration; POPIA position.
+- Research 05: export formats now PDF, Excel, Word, CSV, JSON, text/Markdown/HTML on a shared schema; proposed accuracy targets table.
+- PHASES.md: added P2-13…P2-19 and rewrote Phase 4 export tasks.
+**Pushback recorded:** high thinking on every call does not guarantee completion; guarantees come from validation, retries, escalation and a `needs_review` terminal state. Memory must not be written from uploaded-document text (prompt-injection persistence).
+**Findings:** no South African/African inference region is documented by Anthropic (global or US only); third-party source says default retention is 30 days and ZDR is by request; all unverified with Anthropic.
+**No code changed.**
+
 ## 2026-10-19 (later) — Gap review: ingestion, narration, grouping, export
 **Trigger:** Kone asked whether "narration" was in the research. It was not: research 01–04 only covered issuing invoices.
 **Done**
