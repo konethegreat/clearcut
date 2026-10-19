@@ -38,7 +38,19 @@ Current models use **adaptive thinking** (`thinking: {type: "adaptive"}` + `outp
 - Do **not** set high effort on every call: it multiplies output cost and latency, and does not by itself guarantee a correct number. (Pushback: "completion" comes from the orchestration above, not from thinking depth.)
 - Keep the thinking config stable within a cached prefix; changing it invalidates prompt-cache breakpoints.
 
-### 4. "Boosted memory" = three separate mechanisms
+### 4. "Boosted memory" = resource completeness (Kone's definition, 19 Oct 2026)
+**Principle:** the model must be given every resource it needs to finish its task. Nothing it needs is withheld, and a failed task should never be traceable to missing context. "Everything else we deal with as we go."
+
+Per-task **context pack**, assembled by the Rust orchestrator (what the model needs, not simply everything):
+- the page **image and text layer**, plus neighbouring pages and document-level context (page count, running totals, earlier extracted fields);
+- the **output schema** and field definitions, the **South African VAT/invoice rules**, and worked examples;
+- **supplier history** and past human corrections for this tenant (from the memory store);
+- **tools it can call**: the deterministic validator and VAT/totals calculator from `clearcut-core` (so it checks its own arithmetic), a document-page fetcher, and a lookup for supplier master data;
+- on escalation, the **failure report** from the previous tier (which checks failed and why), so the next model does not repeat the mistake.
+
+Limit ("need", not "everything"): POPIA data minimisation and prompt-injection safety still apply, so unrelated tenants' data and unneeded personal identifiers are never included. The pack is logged per call so any failure can be audited as "was context missing?".
+
+Mechanisms that deliver this:
 1. **Prompt caching** for the static prefix (instructions, JSON schema, SA VAT rules, few-shot examples). Cache reads cost a small fraction of input price. Biggest, safest saving.
 2. **Chunking over giant context.** Per-page/section calls beat one huge prompt for accuracy and cost; Haiku 5.5 also costs more above 100k-token prompts.
 3. **Memory tool** (client-side, files we store) for cross-job learning: supplier layouts, field quirks, reviewer corrections.

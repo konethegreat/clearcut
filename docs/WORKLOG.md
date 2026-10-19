@@ -2,6 +2,9 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-19 (night) — "Boosted memory" defined
+Kone: the AI must be given every resource it needs to achieve its task; everything else as we go. Recorded as the **context-pack / resource-completeness** principle in ADR-0005 §4 and task P2-16b. Kept two limits: include what the task needs (POPIA minimisation, no cross-tenant data) and keep memory writes human-confirmed. No code changed.
+
 ## 2026-10-19 (evening) — Provider, escalation, exports, accuracy decisions
 **Decisions from Kone:** Anthropic API; escalate from smaller to larger models on failure; high thinking and "boosted memory" so tasks complete; popular export formats; accuracy targets unknown.
 **Done**

@@ -45,6 +45,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-14 **Model router + escalation ladder** (Haiku 5.5 → Sonnet 5.5 → Opus 5.5 → Fable 5.1 → human review) driven by validation failures, disagreement, low confidence, truncation; escalation policy as config
 - ⬜ P2-15 Adaptive thinking + effort per tier; log tokens, tier, effort, cache hits, escalation reason per call
 - ⬜ P2-16 Prompt caching for the static prefix (instructions, schema, SA rules, examples); Batch API mode for bulk uploads
+- ⬜ P2-16b **Context-pack builder** ("resource completeness"): page image + text, neighbours, schema, SA rules, examples, supplier history, validator/calculator tools, previous-tier failure report; logged per call
 - ⬜ P2-17 Memory store (memory tool): written only from human-confirmed corrections; path validation, size caps, expiry, per-tenant
 - ⬜ P2-18 Terminal-state guarantee: every job ends `done` or `needs_review`; chaos tests (timeouts, truncation, provider outage)
 - ⬜ P2-19 POPIA: redaction of bank/ID numbers before sending, privacy notice and consent text, verify retention/ZDR terms with Anthropic, legal review
@@ -105,12 +106,12 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 3. **P3-01:** write the event model and its tests in `clearcut-core`; it is pure Rust and de-risks Phase 3 early.
 
 ## Decisions made (19 Oct 2026)
+- **Boosted memory:** the model gets every resource it needs for its task (context pack); details otherwise handled as we go.
 - **Provider:** Anthropic API; model escalation; adaptive high thinking on higher tiers; caching + memory ([ADR-0005](adr/0005-model-strategy-escalation.md)).
 - **Exports:** PDF, Excel, Word, CSV, JSON, text/Markdown/HTML, all from one structured schema.
 - **Accuracy:** proposed defaults in [research 05 §7](research/05-ingestion-narration-export.md); calibrate after the first gold-set run.
 
 ## Still open
-- Confirm what "boosted memory" should mean (we assumed prompt caching + chunking + a memory store fed by human corrections; see ADR-0005 §4).
 - Whether uploaded invoices are supplier invoices received, issued, or both (assumed both).
 - Who operates ClearCut commercially (needed for the POPIA Information Officer and operator agreements).
 - Verify Anthropic retention / zero-data-retention terms for the models we use.
