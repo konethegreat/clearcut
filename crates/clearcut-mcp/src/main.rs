@@ -8,7 +8,7 @@ use clearcut_core::{
 };
 use rmcp::{
     handler::server::wrapper::Parameters,
-    model::{Implementation, ServerCapabilities, ServerInfo},
+    model::{Implementation, ServerCapabilities, ServerConfig},
     tool, tool_handler, tool_router, Json, ServerHandler, ServiceExt,
 };
 use schemars::JsonSchema;
@@ -93,8 +93,8 @@ impl ClearCut {
 
 #[tool_handler]
 impl ServerHandler for ClearCut {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("clearcut", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "Invoicing tools for South African VAT. Amounts are integer cents; never use floats.",
