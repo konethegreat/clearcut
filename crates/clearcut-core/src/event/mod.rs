@@ -10,8 +10,9 @@
 
 mod kind;
 mod payload;
+pub mod view;
 
-pub use kind::{EventGroup, EventType};
+pub use kind::{EventGroup, EventType, Severity};
 pub use payload::{DuplicateReason, EventPayload, TotalField};
 
 use crate::error::{Error, Result};
@@ -256,6 +257,11 @@ impl Event {
     /// The group is derived from the type, never stored, so the two cannot disagree.
     pub fn group(&self) -> EventGroup {
         self.event_type().group()
+    }
+
+    /// Likewise derived from the type.
+    pub fn severity(&self) -> Severity {
+        self.event_type().severity()
     }
 }
 

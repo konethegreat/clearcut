@@ -52,7 +52,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 
 ## Phase 3 — Events, grouping and narration (≈4–5 weeks) ⭐ core
 - ✅ P3-01 Event model in `clearcut-core`: type, group, date, payload (integer cents), citation, extractor, confidence (`crates/clearcut-core/src/event/`; immutable events, corrections via `supersedes`; 24 tests)
-- ⬜ P3-02 Event taxonomy and deterministic grouping; views by date, party, document, severity
+- ✅ P3-02 Event taxonomy and deterministic grouping; views by date, party, document, severity (`event/view`: current/timeline/by group/document/severity + derived `Severity`, 13 tests; **party view deferred to P3-03** since events have no party field yet)
 - ⬜ P3-03 Event derivation from validated extractions (incl. stated-vs-recomputed mismatch events)
 - ⬜ P3-04 Template narrator (deterministic, cited sentences)
 - ⬜ P3-05 LLM prose smoothing behind the provider trait
@@ -103,7 +103,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 ## Immediate next three tasks (hand-off to Claude Code)
 1. **P1-01 / P1-02:** Postgres schema and upload storage (keep migrations small and reviewed).
 2. **P2-01:** start the gold set now, in parallel with code. It is the long pole.
-3. ~~**P3-01:** event model~~ ✅ done 19 Oct 2026. Next in Phase 3: **P3-02** taxonomy views/grouping, then **P3-04/P3-06** template narrator and number guard (all pure Rust, no infrastructure needed).
+3. ~~**P3-01:** event model~~ ✅ done 19 Oct 2026. ~~**P3-02**~~ ✅ done. Next in Phase 3: **P3-04/P3-06** template narrator and number guard (pure Rust, no infrastructure needed), then P3-03 event derivation (also adds the party view).
 
 ## Decisions made (19 Oct 2026)
 - **Boosted memory:** the model gets every resource it needs for its task (context pack); details otherwise handled as we go.

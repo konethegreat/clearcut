@@ -65,6 +65,34 @@ fn every_event_type_maps_to_its_group() {
 }
 
 #[test]
+fn severity_is_derived_from_the_event_type() {
+    use EventType::*;
+    use Severity::*;
+    let expected = [
+        (SupplierIdentified, Info),
+        (LineItemBilled, Info),
+        (VatCalculated, Info),
+        (TotalsStated, Info),
+        (TotalsMismatch, Critical),
+        (DueDateStated, Info),
+        (CreditNoteReferenced, Info),
+        (ComplianceIssueFound, Warning),
+        (PossibleDuplicate, Warning),
+    ];
+    for (event_type, severity) in expected {
+        assert_eq!(event_type.severity(), severity, "{event_type:?}");
+    }
+    assert_eq!(EventType::ALL.len(), expected.len());
+    assert!(Info < Warning && Warning < Critical);
+}
+
+#[test]
+fn an_event_reports_its_severity() {
+    let event = Event::new(parts(mismatch_payload())).unwrap();
+    assert_eq!(event.severity(), Severity::Critical);
+}
+
+#[test]
 fn groups_follow_the_fixed_taxonomy_order() {
     use EventGroup::*;
     assert_eq!(

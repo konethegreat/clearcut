@@ -51,6 +51,21 @@ impl EventGroup {
     ];
 }
 
+/// How much attention an event needs. Derived from the event type, never
+/// stored or judged by a model. `Ord` runs from least to most severe, so
+/// `Info < Warning < Critical`.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Severity {
+    /// A plain fact.
+    Info,
+    /// Needs a look: a compliance gap or a possible duplicate.
+    Warning,
+    /// The document contradicts itself (a stated total differs from the recomputed one).
+    Critical,
+}
+
 /// The kind of an event. This is the payload's variant name without its data,
 /// which makes it cheap to copy, compare, sort and use as a map key.
 ///
@@ -96,6 +111,21 @@ impl EventType {
             EventType::CreditNoteReferenced => EventGroup::Adjustments,
             EventType::ComplianceIssueFound => EventGroup::Compliance,
             EventType::PossibleDuplicate => EventGroup::Risk,
+        }
+    }
+
+    /// How much attention this kind of event needs. As with `group`, there is
+    /// no wildcard arm, so every new kind must be given a severity.
+    pub fn severity(self) -> Severity {
+        match self {
+            EventType::TotalsMismatch => Severity::Critical,
+            EventType::ComplianceIssueFound | EventType::PossibleDuplicate => Severity::Warning,
+            EventType::SupplierIdentified
+            | EventType::LineItemBilled
+            | EventType::VatCalculated
+            | EventType::TotalsStated
+            | EventType::DueDateStated
+            | EventType::CreditNoteReferenced => Severity::Info,
         }
     }
 }

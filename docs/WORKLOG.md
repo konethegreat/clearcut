@@ -2,6 +2,18 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-19 (Windows session, part 2) — P3-02 grouping views
+**Done** (tests first; 13 new, core now 54, workspace 57)
+- `Severity` (`Info < Warning < Critical`), derived from the event type like `group`: totals mismatch is Critical; compliance issue and possible duplicate are Warning; the rest Info. `Event::severity()`.
+- `clearcut-core::event::view`: `current` (drops superseded events, follows correction chains), `timeline` (date, undated last, then group, then ID), `by_group` (taxonomy order), `by_document`, `by_severity` (most severe first). Empty buckets are omitted. Every view applies `current` first so a corrected event never sits beside its replacement. Output order is fully deterministic (ID is the final tie-break).
+
+**Decisions / findings**
+- **Party view deferred to P3-03**: events have no party field, so grouping by party now would be a guess. Revisit once derivation decides how parties attach to events.
+- A `supersedes` link to an event not in the slice is ignored. A cycle (A supersedes B and B supersedes A) would hide both events; that can only come from corrupt stored data, so the store should prevent it (note for P1-01).
+- Rust lesson of the session: `by_document` returns references into the events, so the helper needed an explicit lifetime (`'a`) to say the keys borrow from the same slice.
+
+**Next**: P3-04 template narrator, then P3-06 number guard. Nothing pushed yet (2 local commits ahead of origin/main; P3-02 is still uncommitted).
+
 ## 2026-10-19 (Windows session) — Rust toolchain, P3-01 event model
 **Done**
 - Local `main` was 6 commits behind `origin/main` (no `CLAUDE.md`, research 05, ADR-0004/0005); fast-forwarded.
