@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "clearcut": {
+      "command": "cargo",
+      "args": ["run", "--quiet", "--release", "-p", "clearcut-mcp"]
+    }
+  }
+}

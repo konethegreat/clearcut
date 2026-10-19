@@ -1,0 +1,11 @@
+name: Bug report
+description: Something is wrong or miscalculated
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened?, description: Include inputs (amounts in cents) and expected vs actual output }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Version or commit }

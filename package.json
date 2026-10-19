@@ -1,0 +1,11 @@
+{
+  "name": "clearcut-monorepo",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "author": "Kone Tshivhinda",
+  "license": "Apache-2.0"
+}

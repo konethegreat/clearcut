@@ -1,0 +1,8 @@
+{
+  "name": "clearcut",
+  "version": "0.1.0",
+  "description": "Automated invoicing for AI agents: VAT-correct invoices, lifecycle and South African compliance via MCP.",
+  "author": { "name": "Kone Tshivhinda" },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/konethegreat/clearcut"
+}

@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/clearcut-core", "crates/clearcut-server", "crates/clearcut-mcp"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+authors = ["Kone Tshivhinda"]
+repository = "https://github.com/konethegreat/clearcut"
+homepage = "https://github.com/konethegreat/clearcut"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

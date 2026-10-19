@@ -1,0 +1,19 @@
+{
+  "name": "@clearcut/sdk",
+  "version": "0.1.0",
+  "description": "Typed TypeScript client for the ClearCut invoicing API.",
+  "license": "Apache-2.0",
+  "author": "Kone Tshivhinda",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test dist/"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,19 @@
+// Written by Kone Tshivhinda & Claude
+//! # clearcut-core
+//!
+//! Pure, I/O-free invoicing domain logic: money, tax, invoices, lifecycle and
+//! South African VAT compliance. Everything else (REST API, MCP host, SDKs)
+//! is a thin layer over this crate.
+
+pub mod compliance_za;
+pub mod error;
+pub mod invoice;
+pub mod money;
+pub mod status;
+pub mod tax;
+
+pub use error::{Error, Result};
+pub use invoice::{Invoice, InvoiceTotals, LineItem};
+pub use money::{Currency, Money};
+pub use status::InvoiceStatus;
+pub use tax::TaxCategory;
