@@ -2,6 +2,21 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-19 (Windows session, part 3) — P3-04 template narrator
+**Done** (tests first; 24 new, core now 78, workspace 81)
+- `clearcut-core::narration`: `narrate_event` (one sentence per event, citing it), `narrate_timeline` (current events in timeline order), `Sentence` (private fields; `Sentence::new` rejects an empty citation list, so an uncited sentence cannot exist) and `Narrative` (serialises to `{"sentences":[{"text","cites"}]}`). One template per event kind, with no wildcard arm so a new kind will not compile without wording.
+- `narration::format`: Rand as `R15 000.00` (no-break-space thousands separators), `-R5.00`, other currencies as `USD 10.00`; quantities from thousandths and rates from basis points with trailing zeros dropped; dates as `31 March 2026`.
+- New `Error::InvalidNarration`.
+
+**Decisions / findings**
+- Templates print **only numbers present in the cited events**. A mismatch sentence shows stated and recomputed amounts but never their difference: a computed figure no event contains would fail the number guard (P3-06).
+- Formatting lives in one public module so P3-06 can format the cited events' facts the same way and require every narrated figure to match one exactly, instead of guessing at number formats.
+- Free-text fields (supplier name, compliance message) are inserted verbatim. They come from untrusted documents, so the LLM-smoothing step (P3-05) must treat narration text as data, never as instructions.
+- A test of mine was too loose (`"R2 250.01"` contains `"0.01"`); tightened to `"R0.01"`. Clippy's `is_multiple_of` suggestion was avoided by rewriting the digit grouping, since I could not confirm the method exists on the declared minimum Rust (1.88).
+- Open for P3-06: dates are written out in words, so the guard must recognise "31 March 2026" as one date, not as the numbers 31 and 2026.
+
+**Next**: P3-06 number guard. Nothing pushed; P3-02 is committed, P3-04 is not.
+
 ## 2026-10-19 (Windows session, part 2) — P3-02 grouping views
 **Done** (tests first; 13 new, core now 54, workspace 57)
 - `Severity` (`Info < Warning < Critical`), derived from the event type like `group`: totals mismatch is Critical; compliance issue and possible duplicate are Warning; the rest Info. `Event::severity()`.

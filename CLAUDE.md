@@ -44,10 +44,10 @@ Kone develops on **Windows** (`C:\Users\Kone\ClearCut`). Rust and Docker may nee
 - Current tool versions: rmcp 2.2.0 in `clearcut-mcp` speaks protocol 2025-06-18; moving to the 2026-07-28 stateless spec is task P1-06.
 
 ## Status at hand-off (19 Oct 2026)
-Built and tested: `clearcut-core` (money, VAT, totals, lifecycle, SA thresholds, **event model and grouping views**; 54 tests), `clearcut-server` (REST, 3 tests), `clearcut-mcp` (3 tools over stdio), `@clearcut/sdk` (2 tests), CI green, repo public. The event model and views (P3-01, P3-02) exist; **nothing for ingestion, narration or export exists yet.** Minimum Rust is now 1.88 (the `time` crate).
+Built and tested: `clearcut-core` (money, VAT, totals, lifecycle, SA thresholds, **event model, grouping views, template narrator**; 78 tests), `clearcut-server` (REST, 3 tests), `clearcut-mcp` (3 tools over stdio), `@clearcut/sdk` (2 tests), CI green, repo public. The event model, views and template narrator (P3-01, P3-02, P3-04) exist; **nothing for ingestion, LLM prose, the number guard or export exists yet.** Minimum Rust is now 1.88 (the `time` crate).
 
 ## Start here
-1. ~~P3-01 event model, P3-02 views~~ done. Next pure-Rust wins: P3-04 + P3-06 (template narrator, number guard).
+1. ~~P3-01 event model, P3-02 views, P3-04 narrator~~ done. Next pure-Rust win: P3-06 (number guard; reuse `narration::format` to format cited facts and compare against narrated figures).
 2. P1-01/P1-02 (Postgres schema, upload storage) — keep migrations small, show Kone the schema before applying.
 3. Help Kone start P2-01 (gold set of real, anonymised SA invoices) — the long pole; needs consent and POPIA care.
 Open items: confirm invoices are received vs issued (assumed both); who operates ClearCut commercially (POPIA Information Officer); verify Anthropic retention/ZDR terms.

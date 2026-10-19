@@ -21,4 +21,6 @@ pub enum Error {
     InvalidQuantity,
     #[error("invalid event: {0}")]
     InvalidEvent(&'static str),
+    #[error("invalid narration: {0}")]
+    InvalidNarration(&'static str),
 }

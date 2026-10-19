@@ -10,6 +10,7 @@ pub mod error;
 pub mod event;
 pub mod invoice;
 pub mod money;
+pub mod narration;
 pub mod status;
 pub mod tax;
 
