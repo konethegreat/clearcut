@@ -13,7 +13,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough and
 - ✅ P0-06 `clearcut-mcp` stdio prototype with 3 tools
 - ✅ P0-07 TypeScript SDK skeleton
 - ✅ P0-08 Licence (Apache-2.0), CI, templates, security policy
-- 🔄 P0-09 Public GitHub repo created and pushed _(blocked until the repo exists on GitHub; see WORKLOG)_
+- ✅ P0-09 Public GitHub repo created, pushed, licence detected, CI green, topics and security features set
 
 ## Phase 1 — Persistent API + MCP host (≈4–6 weeks)
 - ⬜ P1-01 Postgres schema + migrations (`sqlx`): suppliers, customers, invoices, lines, audit log, outbox
@@ -57,6 +57,6 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough and
 - ⬜ P5-05 Plugin published; docs site; v1.0 criteria
 
 ## Immediate next three tasks
-1. P0-09 repo on GitHub.
+1. P0-10 Branch protection / ruleset on `main` once a second contributor or PR workflow starts.
 2. P1-01 schema design, reviewed with Theo or a colleague at MB before coding.
 3. P1-06 spike on rmcp upgrade to the stateless spec.

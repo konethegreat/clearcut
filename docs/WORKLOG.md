@@ -17,7 +17,11 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - Sources disagree on SA e-invoicing dates (2028 vs. mandatory from 2030). Plan for the earlier date.
 - TypeScript types are hand-mirrored from Rust; drift risk (P1-08).
 
-**Blockers**
-- The build environment could not create a new GitHub repository itself (sessions are bound to existing repos), and the browser was not signed in to GitHub. Repo creation needs the owner to sign in or create an empty repo `konethegreat/clearcut`.
+**GitHub setup (same day)**
+- Repo `konethegreat/clearcut` created by the owner (the build sandbox cannot create repos), pushed from the sandbox after the Claude GitHub App was granted access.
+- Apache-2.0 detected by GitHub; first CI run green.
+- Description, 10 topics and 6 labels set. Dependency graph, Dependabot alerts, private vulnerability reporting enabled; secret scanning and push protection were already on.
+- Not done: branch protection / rulesets, Dependabot security-update toggle not verified.
+- Note: repo-settings writes are blocked via the sandbox API proxy, so settings were changed through the signed-in browser.
 
 **Next**: see "Immediate next three tasks" in PHASES.md.
