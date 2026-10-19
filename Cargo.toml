@@ -5,7 +5,7 @@ members = ["crates/clearcut-core", "crates/clearcut-server", "crates/clearcut-mc
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "Apache-2.0"
 authors = ["Kone Tshivhinda"]
 repository = "https://github.com/konethegreat/clearcut"

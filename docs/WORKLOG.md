@@ -2,6 +2,27 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-19 (Windows session) — Rust toolchain, P3-01 event model
+**Done**
+- Local `main` was 6 commits behind `origin/main` (no `CLAUDE.md`, research 05, ADR-0004/0005); fast-forwarded.
+- Installed Rust via `winget install Rustlang.Rustup` (rustc/cargo 1.99.1, stable-msvc; MSVC Build Tools were already present). Baseline before changes: 17 core + 3 server tests green, fmt and clippy clean. Docker CLI 29.5.2 is installed but Docker Desktop was not running (not needed until P1-01/P1-07).
+- **P3-01** `clearcut-core::event`, tests first (red = compile errors, then green): `Event` (immutable, private fields, built via `Event::new(EventParts)`), `EventPayload` (9 typed variants over 8 of the 10 groups), `EventType`/`EventGroup` taxonomy, `Citation` (1-based `NonZeroU32` page, optional text span or per-mille bounding box), `Extractor`, `Confidence` (integer 0–1000), `EventId`/`DocumentId` newtypes. 24 new tests including a golden-JSON test; core now has 41 tests, workspace 44.
+- Fixed a false-green SDK test script: `node --test dist/` ran 1 vacuous test; now `node --test "dist/**/*.test.js"` runs the real 2.
+
+**Design decisions**
+- Payload is an enum with typed fields, not a JSON map; amounts are `Money` (ADR-0002). `group` is derived from the type, never stored, so they cannot disagree.
+- Corrections are new events with `supersedes` (append-only, ADR-0004). Deserialising JSON re-runs the same validation as `Event::new` (`serde(try_from)`).
+- Dates use the `time` crate (`Option<Date>`, ISO `YYYY-MM-DD`): the date is the fact's date and may be absent.
+- `money_fields()` on a payload exists for the future number guard (P3-06).
+- IDs are supplied by the caller; the core never generates them (stays I/O-free).
+
+**Findings**
+- `time` 0.3.55 needs Rust 1.88, so workspace `rust-version` was raised from 1.85 to 1.88. CI uses `stable` so it was unaffected.
+- With the workspace `schemars` feature on (server/mcp enable it), `EventParts` needs `JsonSchema` too because `Event` deserialises through it.
+- `EventGroup` has `Document` and `Payments` but no event types yet; added when ingestion (P2) and payments exist.
+
+**Not done / next**: nothing committed or pushed yet. Next pure-Rust steps: P3-02 grouping views, P3-04 template narrator, P3-06 number guard. P2-01 gold set is still the long pole.
+
 ## 2026-10-19 (night) — "Boosted memory" defined
 Kone: the AI must be given every resource it needs to achieve its task; everything else as we go. Recorded as the **context-pack / resource-completeness** principle in ADR-0005 §4 and task P2-16b. Kept two limits: include what the task needs (POPIA minimisation, no cross-tenant data) and keep memory writes human-confirmed. No code changed.
 

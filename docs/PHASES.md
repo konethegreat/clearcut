@@ -51,7 +51,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-19 POPIA: redaction of bank/ID numbers before sending, privacy notice and consent text, verify retention/ZDR terms with Anthropic, legal review
 
 ## Phase 3 — Events, grouping and narration (≈4–5 weeks) ⭐ core
-- ⬜ P3-01 Event model in `clearcut-core`: type, group, date, payload (integer cents), citation, extractor, confidence
+- ✅ P3-01 Event model in `clearcut-core`: type, group, date, payload (integer cents), citation, extractor, confidence (`crates/clearcut-core/src/event/`; immutable events, corrections via `supersedes`; 24 tests)
 - ⬜ P3-02 Event taxonomy and deterministic grouping; views by date, party, document, severity
 - ⬜ P3-03 Event derivation from validated extractions (incl. stated-vs-recomputed mismatch events)
 - ⬜ P3-04 Template narrator (deterministic, cited sentences)
@@ -103,7 +103,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 ## Immediate next three tasks (hand-off to Claude Code)
 1. **P1-01 / P1-02:** Postgres schema and upload storage (keep migrations small and reviewed).
 2. **P2-01:** start the gold set now, in parallel with code. It is the long pole.
-3. **P3-01:** write the event model and its tests in `clearcut-core`; it is pure Rust and de-risks Phase 3 early.
+3. ~~**P3-01:** event model~~ ✅ done 19 Oct 2026. Next in Phase 3: **P3-02** taxonomy views/grouping, then **P3-04/P3-06** template narrator and number guard (all pure Rust, no infrastructure needed).
 
 ## Decisions made (19 Oct 2026)
 - **Boosted memory:** the model gets every resource it needs for its task (context pack); details otherwise handled as we go.

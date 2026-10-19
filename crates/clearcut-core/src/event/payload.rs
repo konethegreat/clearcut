@@ -1,0 +1,133 @@
+// Written by Kone Tshivhinda & Claude
+//! The structured facts an event carries. Each kind of event has its own typed
+//! fields; amounts are always `Money` (integer cents), never floats.
+
+use super::{DocumentId, EventType};
+use crate::{Money, TaxCategory};
+use serde::{Deserialize, Serialize};
+use time::Date;
+
+/// Which of the three invoice totals a mismatch is about.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TotalField {
+    Net,
+    Vat,
+    Gross,
+}
+
+/// Why two documents look like the same invoice (research 05 §3).
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicateReason {
+    /// Byte-identical content (same hash).
+    ContentHash,
+    /// Same supplier, invoice number, date and total.
+    SupplierNumberDateTotal,
+}
+
+/// The data of an event. In Rust an `enum` can carry different fields in each
+/// variant, so the compiler checks every place that handles an event kind.
+///
+/// JSON form: `{"type": "totals_mismatch", "field": "vat", ...}`.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EventPayload {
+    /// A supplier was identified on the document.
+    SupplierIdentified {
+        name: String,
+        vat_number: Option<String>,
+    },
+    /// A line item was billed. `quantity_milli` is in thousandths (1000 = 1.000).
+    LineItemBilled {
+        description: String,
+        quantity_milli: i64,
+        unit_price: Money,
+        line_total: Money,
+        tax_category: TaxCategory,
+    },
+    /// VAT for one tax category, as stated or calculated.
+    VatCalculated {
+        category: TaxCategory,
+        taxable: Money,
+        rate_bps: u32,
+        vat: Money,
+    },
+    /// The totals printed on the document.
+    TotalsStated { net: Money, vat: Money, gross: Money },
+    /// A stated total differs from what ClearCut recomputed. Both values are
+    /// kept; the stated one is never silently "fixed" (research 05 §3).
+    TotalsMismatch {
+        field: TotalField,
+        stated: Money,
+        recomputed: Money,
+    },
+    /// A due date or payment terms printed on the document.
+    DueDateStated {
+        #[cfg_attr(feature = "schemars", schemars(with = "String"))]
+        due: Date,
+        terms: Option<String>,
+    },
+    /// A credit note refers back to an earlier invoice.
+    CreditNoteReferenced {
+        original_invoice_number: String,
+        amount: Money,
+    },
+    /// A compliance check failed (e.g. a required field is missing).
+    ComplianceIssueFound { field: String, message: String },
+    /// Another document looks like a duplicate of this one.
+    PossibleDuplicate {
+        matching_document: DocumentId,
+        reason: DuplicateReason,
+    },
+}
+
+impl EventPayload {
+    /// The kind of this payload.
+    pub fn event_type(&self) -> EventType {
+        match self {
+            EventPayload::SupplierIdentified { .. } => EventType::SupplierIdentified,
+            EventPayload::LineItemBilled { .. } => EventType::LineItemBilled,
+            EventPayload::VatCalculated { .. } => EventType::VatCalculated,
+            EventPayload::TotalsStated { .. } => EventType::TotalsStated,
+            EventPayload::TotalsMismatch { .. } => EventType::TotalsMismatch,
+            EventPayload::DueDateStated { .. } => EventType::DueDateStated,
+            EventPayload::CreditNoteReferenced { .. } => EventType::CreditNoteReferenced,
+            EventPayload::ComplianceIssueFound { .. } => EventType::ComplianceIssueFound,
+            EventPayload::PossibleDuplicate { .. } => EventType::PossibleDuplicate,
+        }
+    }
+
+    /// Every amount in this payload, in field order. The number guard
+    /// (P3-06) uses this to check narrated figures against cited events.
+    pub fn money_fields(&self) -> Vec<Money> {
+        match self {
+            EventPayload::LineItemBilled {
+                unit_price,
+                line_total,
+                ..
+            } => vec![*unit_price, *line_total],
+            EventPayload::VatCalculated { taxable, vat, .. } => vec![*taxable, *vat],
+            EventPayload::TotalsStated { net, vat, gross } => vec![*net, *vat, *gross],
+            EventPayload::TotalsMismatch {
+                stated, recomputed, ..
+            } => vec![*stated, *recomputed],
+            EventPayload::CreditNoteReferenced { amount, .. } => vec![*amount],
+            EventPayload::SupplierIdentified { .. }
+            | EventPayload::DueDateStated { .. }
+            | EventPayload::ComplianceIssueFound { .. }
+            | EventPayload::PossibleDuplicate { .. } => Vec::new(),
+        }
+    }
+
+    /// True when every amount in the payload uses the same currency.
+    pub(crate) fn has_single_currency(&self) -> bool {
+        let amounts = self.money_fields();
+        amounts
+            .first()
+            .is_none_or(|first| amounts.iter().all(|m| m.currency == first.currency))
+    }
+}
