@@ -2,6 +2,16 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-19 (later) — Gap review: ingestion, narration, grouping, export
+**Trigger:** Kone asked whether "narration" was in the research. It was not: research 01–04 only covered issuing invoices.
+**Done**
+- Added [research 05](research/05-ingestion-narration-export.md): OCR vs LLM vs hybrid, long-document strategy, validation, event taxonomy, guarded narration, export formats, evaluation plan, POPIA.
+- Added [ADR-0004](adr/0004-ingestion-and-narration-pipeline.md); revised ADR-0001 (Python worker moves to Phase 2).
+- Rewrote PHASES.md: ingestion → events/narration → export now come before issuing, e-invoicing and payments. Task IDs were renumbered.
+**Decisions taken on Kone's behalf (to confirm):** support both received and issued invoices; narration is template-first with a number guard; events are the single source of truth.
+**Risks logged:** accuracy figures are vendor claims; model hallucination on numbers; POPIA s72 cross-border processing and MB client confidentiality; gold set needs real invoices.
+**No code changed** in this entry.
+
 ## 2026-10-19 — Research, scaffold, first working slice
 **Done**
 - Researched the invoicing market, SA VAT/e-invoicing, MCP 2026-07-28 and Rust MCP SDK (`docs/research/01–04`).

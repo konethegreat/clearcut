@@ -2,7 +2,7 @@
 
 # ClearCut
 
-**Agent-native invoicing for South Africa.** One Rust core exposed as a REST API, an MCP server and a Claude plugin.
+**Upload any invoice. ClearCut reads it, explains it, groups what happened, and exports it.**<br>Agent-native invoicing for South Africa: one Rust core exposed as a REST API, an MCP server and a Claude plugin.
 
 [![CI](https://github.com/konethegreat/clearcut/actions/workflows/ci.yml/badge.svg)](https://github.com/konethegreat/clearcut/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -10,10 +10,11 @@
 
 </div>
 
-> ⚠️ **Alpha.** Calculation, lifecycle rules and a stdio MCP server work today. Persistence, PDFs, e-invoicing and payments are on the [roadmap](docs/PHASES.md). Not tax advice.
+> ⚠️ **Alpha.** Today: invoice calculation, lifecycle rules, SA VAT thresholds and a stdio MCP server. **Not built yet:** document ingestion, narration and export (designed in [research 05](docs/research/05-ingestion-narration-export.md) and [ADR-0004](docs/adr/0004-ingestion-and-narration-pipeline.md)), persistence, e-invoicing, payments. See the [roadmap](docs/PHASES.md). Not tax advice.
 
 ## Why ClearCut
 
+- **Reads and narrates any invoice, of any length.** Cited extraction → grouped events → narration checked against the source numbers → export to JSON, CSV, XLSX, PDF. _(in design: Phases 2–4)_
 - **Built for agents, governed for finance.** Agents draft; policy and humans approve. Idempotent, audited tools. _(approval flow: Phase 1)_
 - **South African VAT as tested code.** R5 000 / R50 thresholds, 15% VAT, VAT-number checks, cited rules.
 - **E-invoicing ready.** Data model designed to map to EN 16931 / Peppol PINT ahead of SARS's digital VAT model.
@@ -53,12 +54,12 @@ crates/clearcut-server   Rust  REST API (axum)
 crates/clearcut-mcp      Rust  MCP server (rmcp)
 packages/sdk             TS    typed client
 plugin/                  Claude plugin manifest
-services/analytics       Python (planned)
+services/worker          Python OCR/model worker (planned, Phase 2)
 docs/                    research, architecture, ADRs, phases, worklog
 ```
 
 ## Roadmap
-Persistence & auth → PDFs & credit notes → e-invoicing → payments & reconciliation → integrations. Details: [docs/PHASES.md](docs/PHASES.md). Progress log: [docs/WORKLOG.md](docs/WORKLOG.md).
+Platform foundation → **ingestion & understanding** → **events & narration** → **export** → dashboard → issuing → e-invoicing → payments. Details: [docs/PHASES.md](docs/PHASES.md). Progress log: [docs/WORKLOG.md](docs/WORKLOG.md).
 
 ## Contributing
 Read [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).

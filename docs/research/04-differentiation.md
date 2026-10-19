@@ -6,6 +6,7 @@ Positioning: **the open-source, agent-native invoicing engine built for South Af
 
 | # | Differentiator | Why it is real | Evidence / risk |
 |---|---|---|---|
+| 0 | **Reads and explains any invoice** | Upload any length → cited extraction → grouped events → guarded narration → multi-format export | Few competitors present a narrated, cited timeline _(inferred)_; needs gold-set benchmarking (research 05) |
 | 1 | **MCP-native from day one** | Same core exposed as REST, MCP tools and a plugin | Xero's MCP wraps an existing ledger; we own the lifecycle (research 03) |
 | 2 | **Governed agents** | Draft→approve→send workflow, spend/void limits, idempotency, full audit | Rarely described in competitor material _(inferred)_ |
 | 3 | **Compliance as code** | SA thresholds, VAT-number checks and note wording tested and cited | Rules must be kept current; see research 02 |
