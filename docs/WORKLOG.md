@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-20 (part 6) — Re-extraction runs in event IDs (decision from ADR-0006)
+**Done** (own branch and PR; tests first; 10 new, core now 191)
+- `derive_events(extraction, run, earlier)`: IDs are now `<document>:r<run>:<slug>`. Each new event supersedes the *current head* of the same slug from an earlier run (run 3 supersedes run 2, not run 1). Events of other documents, and of this or later runs, are ignored, so re-deriving the same run (a retried job) gives identical events.
+- A fact a person confirmed or corrected (`Extractor::Human` head) is never superseded by a machine re-run; both stay current for a reviewer to reconcile.
+- Mutation-checked: human protection, later-run filtering and the same-run boundary each fail a test when broken; the same-run case was a missing test, now added.
+
+**Known limits (documented in the module and ADR-0006)**: a fact the new run no longer finds stays current (no retraction yet), so a stale finding such as a mismatch a better model fixed will linger until a reviewer deals with it. A retraction event may be added if this proves noisy (P2-09).
+
 ## 2026-10-20 (part 5) — P1-01 schema proposal (docs only)
 **Done**
 - Checked the environment for P1-01: Docker Desktop is now running, but there is no Postgres image locally and a native Postgres is already listening on port 5432 (not ours; left alone). Nothing was downloaded or started.
