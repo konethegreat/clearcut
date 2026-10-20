@@ -17,7 +17,9 @@ jobs:
         image: postgres:17
         env:
           POSTGRES_USER: clearcut
-          POSTGRES_PASSWORD: clearcut_ci
+          # The service only lives for this job and is reachable only from it, so
+          # it needs no password (and there is no credential to leak).
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: clearcut
         ports:
           - 5432:5432
@@ -27,7 +29,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://clearcut:clearcut_ci@localhost:5432/clearcut
+      DATABASE_URL: postgres://clearcut@localhost:5432/clearcut
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
