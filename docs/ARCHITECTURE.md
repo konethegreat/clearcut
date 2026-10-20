@@ -39,6 +39,7 @@ See [adr/](adr/):
 - [0003 MCP host design](adr/0003-mcp-host-design.md)
 - [0004 Ingestion, event and narration pipeline](adr/0004-ingestion-and-narration-pipeline.md)
 - [0005 Model provider, escalation, thinking and memory](adr/0005-model-strategy-escalation.md)
+- [0006 Postgres schema v1](adr/0006-postgres-schema.md)
 
 ## Ingestion → narration → export pipeline (Phases 1–4)
 ```
