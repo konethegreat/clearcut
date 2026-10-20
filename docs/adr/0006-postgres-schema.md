@@ -1,7 +1,7 @@
 # ADR-0006: Postgres schema v1 (tenants, documents, events, audit log)
 
-Status: **Proposed, awaiting review by Kone Tshivhinda** · Date: 2026-10-20 · Deciders: Kone Tshivhinda, Claude
-Implements task P1-01. Nothing here has been applied to any database yet.
+Status: **Accepted** (schema approved by Kone Tshivhinda, 2026-10-20) · Date: 2026-10-20 · Deciders: Kone Tshivhinda, Claude
+Implements task P1-01. The three open questions below were decided on approval.
 
 ## Context
 Phase 1 needs durable storage for the pipeline in [ADR-0004](0004-ingestion-and-narration-pipeline.md): uploaded documents, the **events** that are the source of truth, and an audit trail. `clearcut-core` already defines what an event is and derives events with deterministic string IDs (`<document>:line-2`). The schema should store events faithfully, make them append-only, and keep one customer's data away from another's (POPIA, ADR-0005).
@@ -102,10 +102,10 @@ create trigger audit_log_append_only before update or delete on audit_log
 - **Hash uniqueness per tenant, not global**, so two customers uploading the same public form never learn about each other.
 - **Truncate is not blocked by row triggers.** The application database role (P1-04) must not hold `TRUNCATE`; noted here so it is not forgotten.
 
-## Open questions (need a decision, not a guess)
-1. **Re-extraction.** Derived event IDs are `<document>:<slug>`. If a document is extracted a second time (better model, new prompt), the same IDs would collide with the first run. Options: (a) put a run number in the ID (`<doc>:r2:line-2`) and supersede the old events; (b) treat re-extraction as a new document version. I lean to (a), but it affects P2-06 and P3-09, so I would rather decide with the worker design.
-2. **Erasure.** Is hard deletion on request (POPIA) the right default, or should we anonymise in place? The `clearcut.erasure` escape hatch assumes hard deletion of a tenant's or a document's rows.
-3. **Retention.** SARS requires 5-year retention of tax invoices. Whether uploaded *received* invoices fall under the same expectation for our customers is a question for the operator and legal review; the schema stores no expiry yet.
+## Decisions on the open questions (Kone, 2026-10-20)
+1. **Re-extraction: a run number in the event ID, and the new events supersede the old.** Derived IDs become  (for example ). When a document is extracted again, each new event whose slug matches a current event from an earlier run carries  pointing at it. Known limit: a fact that the new run no longer produces (say a mismatch that a better model fixed) has no counterpart to supersede and stays current until a reviewer deals with it. Nothing is silently dropped; a way to retract an event may be added if this proves noisy.
+2. **Erasure is hard deletion** on request (POPIA), through the  escape hatch inside one transaction. Anonymising in place is not planned.
+3. **No expiry column yet.** Retention periods (SARS five years for tax invoices) depend on who operates ClearCut and on legal review; add a retention policy when that is known.
 
 ## Consequences
 - Reading events back is `serde_json::from_value::<Event>(body)`, so stored data is re-validated every time it is read.
