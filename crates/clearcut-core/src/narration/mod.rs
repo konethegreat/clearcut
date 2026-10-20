@@ -12,6 +12,7 @@
 //!   smooth the prose *between* these facts (P3-05).
 
 pub mod format;
+pub mod guard;
 
 use crate::error::{Error, Result};
 use crate::event::view;
@@ -53,6 +54,12 @@ pub struct Narrative {
 }
 
 impl Narrative {
+    /// Wraps sentences into a narrative. Each [`Sentence`] already carries its
+    /// citations, so there is nothing more to check here.
+    pub fn new(sentences: Vec<Sentence>) -> Self {
+        Self { sentences }
+    }
+
     pub fn sentences(&self) -> &[Sentence] {
         &self.sentences
     }

@@ -2,6 +2,22 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-20 — Dependabot PRs cleared; P3-06 number guard
+**Done**
+- Merged Dependabot PRs #3, #4, #5; fixed and merged #1 (rmcp 3.5.1: `ServerInfo` → `ServerConfig`; MCP smoke-tested over stdio) and #2 (TypeScript 7.0.2: needs `"types": ["node"]` in `packages/sdk/tsconfig.json`). Note rmcp 3.5.1 still speaks protocol 2025-06-18, so P1-06 is unchanged.
+- **P3-06 number guard** (`clearcut-core::narration::guard`), tests first, on its own branch and PR. 36 new tests; core now 114, workspace 117. Mutation-checked: disabling the date check or the sign handling makes tests fail.
+  - `check(narrative, events)` returns violations; `guard(candidate, events)` returns the candidate if clean, else template sentences for the cited events (once each, in citation order).
+  - Per sentence, the allowed facts are the figures and dates in the template wording of the cited events plus their own dates. Because it reuses the narrator's wording, guard and narrator cannot disagree on formats.
+  - Dates are checked as whole units (`30 May 2026` fails if the event says 30 April, even though 30 and 2026 are both "present"); ISO dates are accepted when they are the same day; impossible dates fail. Signs are part of the number. Cited events must exist and not be superseded.
+
+**Decisions / findings**
+- Deliberately strict: `R1500` (no decimals), `R15 000.00` with an ordinary space, abbreviated months and `1,500.00` are rejected. A false rejection only means falling back to template text; a false acceptance would put a wrong number in a financial narrative.
+- Known limits, written into the module docs: numbers written as words ("ten") are not seen, and a sentence can mislead while every figure in it is real. Template wording of facts is the main defence; the guard is the second.
+- `INV-0042` scans as `-0042` (a hyphen before digits reads as a sign). That is consistent between template and candidate, so it only matters if a rewrite drops the hyphen, which is then rejected (safe direction).
+- A first sed-based mutation silently did not apply and looked like a passing test; re-did it with a real edit. Lesson: confirm a mutation actually changed the file.
+
+**Next**: P3-07 narration modes (summary, timeline, grouped report) and P3-03 event derivation. P3-05 (LLM smoothing) waits for the provider trait (Phase 2). P2-01 gold set is still the long pole.
+
 ## 2026-10-19 (Windows session, part 3) — P3-04 template narrator
 **Done** (tests first; 24 new, core now 78, workspace 81)
 - `clearcut-core::narration`: `narrate_event` (one sentence per event, citing it), `narrate_timeline` (current events in timeline order), `Sentence` (private fields; `Sentence::new` rejects an empty citation list, so an uncited sentence cannot exist) and `Narrative` (serialises to `{"sentences":[{"text","cites"}]}`). One template per event kind, with no wildcard arm so a new kind will not compile without wording.
