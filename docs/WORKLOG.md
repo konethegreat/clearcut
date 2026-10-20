@@ -2,6 +2,19 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-20 (part 2) — P3-07 narration modes
+**Done** (own branch and PR; tests first; 16 new, core now 130, workspace 133)
+- `clearcut-core::narration::report`: `narrate(events, NarrationMode)` returns a `Report` of `Section`s. `Timeline` is one untitled section (same sentences as `narrate_timeline`); `GroupedReport` is one titled section per non-empty group in taxonomy order (headings: Parties, Charges, VAT, Totals, Payment terms, Adjustments, Compliance, Risks, …); `Summary` is one untitled section with the key facts first (supplier, stated totals, due date, credit notes) then Critical then Warning events, leaving line detail out.
+- `Report::to_narrative()` flattens any mode so the number guard can check it; a test runs the guard over all three modes.
+- Mutation-checked: breaking the summary filter fails 2 tests.
+
+**Decisions**
+- Modes never add connective sentences such as "3 issues were found": a count is in no event, so the number guard would reject it, and an uncited sentence cannot exist. Summary and headings therefore carry no derived numbers.
+- Empty input gives no sections rather than one empty section.
+- `NarrationMode` is serde snake_case (`summary`, `timeline`, `grouped_report`) so it can be the parameter of the future `narrate_document` MCP tool (P3-10).
+
+**Next**: P3-03 (event derivation, party view) is the last pure-Rust Phase 3 item and needs a minimal validated-extraction shape, best designed with P2-08. After that the work needs infrastructure (P1-01/P1-02 schema and storage; Docker Desktop must be running) or the gold set (P2-01).
+
 ## 2026-10-20 — Dependabot PRs cleared; P3-06 number guard
 **Done**
 - Merged Dependabot PRs #3, #4, #5; fixed and merged #1 (rmcp 3.5.1: `ServerInfo` → `ServerConfig`; MCP smoke-tested over stdio) and #2 (TypeScript 7.0.2: needs `"types": ["node"]` in `packages/sdk/tsconfig.json`). Note rmcp 3.5.1 still speaks protocol 2025-06-18, so P1-06 is unchanged.

@@ -13,6 +13,7 @@
 
 pub mod format;
 pub mod guard;
+pub mod report;
 
 use crate::error::{Error, Result};
 use crate::event::view;
