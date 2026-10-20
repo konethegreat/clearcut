@@ -10,6 +10,15 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 
 **Known limits (documented in the module and ADR-0006)**: a fact the new run no longer finds stays current (no retraction yet), so a stale finding such as a mismatch a better model fixed will linger until a reviewer deals with it. A retraction event may be added if this proves noisy (P2-09).
 
+## 2026-10-20 (part 5) — P1-01 schema proposal (docs only)
+**Done**
+- Checked the environment for P1-01: Docker Desktop is now running, but there is no Postgres image locally and a native Postgres is already listening on port 5432 (not ours; left alone). Nothing was downloaded or started.
+- Drafted [ADR-0006](adr/0006-postgres-schema.md): `tenants`, `documents`, `events`, `audit_log`; events stored as canonical core `Event` JSON with generated `event_type`/`supersedes` columns; append-only enforced by triggers (with a POPIA erasure escape hatch); tenant safety via composite foreign keys; hash de-duplication per tenant. Status: **Proposed**. CLAUDE.md requires Kone to see the schema before it is applied.
+
+**Push-back recorded**: `jobs` is left to P1-03 (queue semantics decide its columns) and there is no `extractions` table until P2-06 / P3-09.
+**Open questions in the ADR**: re-extraction and event-ID collisions, erasure vs anonymisation, retention.
+**Next (after review)**: pull the official `postgres` image and run a dev container on a spare port (needs permission; it is a download), then write the two migrations, a small `clearcut-store` crate with a round-trip test (derive events, store, load, compare), and a Postgres service in CI.
+
 ## 2026-10-20 (part 4) — P3-03 event derivation
 **Done** (own branch and PR, stacked on the P2-08 PR; tests first; core now 181, workspace 184)
 - `extraction::derive_events(&Extraction) -> Result<Derived { validation, events }>`: runs `validate`, then derives events in a fixed order: supplier, each line (as printed), VAT per tax category present, stated totals, due date, credit-note reference, then one event per finding.
