@@ -44,7 +44,7 @@ Kone develops on **Windows** (`C:\Users\Kone\ClearCut`). Rust and Docker may nee
 - Current tool versions: rmcp 3.5.1 in `clearcut-mcp` still speaks protocol 2025-06-18; moving to the 2026-07-28 stateless spec is task P1-06. TypeScript is 7.x (needs `"types": ["node"]` in tsconfig).
 
 ## Status at hand-off (19 Oct 2026)
-Built and tested: `clearcut-core` (money, VAT, totals, lifecycle, SA thresholds, **event model, grouping views, template narrator, number guard, narration modes**; 130 tests), `clearcut-server` (REST, 3 tests), `clearcut-mcp` (3 tools over stdio), `@clearcut/sdk` (2 tests), CI green, repo public. The event model, views, template narrator, number guard and narration modes (P3-01, P3-02, P3-04, P3-06, P3-07) exist; **nothing for ingestion, LLM prose or export exists yet.** Minimum Rust is now 1.88 (the `time` crate).
+Built and tested: `clearcut-core` (money, VAT, totals, lifecycle, SA thresholds, **event model, grouping views, template narrator, number guard, narration modes, extraction validation**; 157 tests), `clearcut-server` (REST, 3 tests), `clearcut-mcp` (3 tools over stdio), `@clearcut/sdk` (2 tests), CI green, repo public. The event model, views, template narrator, number guard and narration modes (P3-01, P3-02, P3-04, P3-06, P3-07) exist; **nothing for ingestion, LLM prose or export exists yet.** Minimum Rust is now 1.88 (the `time` crate).
 
 ## Start here
 1. ~~P3-01, P3-02, P3-04, P3-06, P3-07~~ done. The last pure-Rust item in Phase 3 is P3-03 (event derivation + party view), which needs a minimal validated-extraction shape (design it with P2-08). After that the work needs infrastructure: P1-01/P1-02, then Phase 2. Workflow now: branch per task, PR, merge when CI is green.

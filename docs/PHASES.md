@@ -36,7 +36,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-05 Text-layer extraction + OCR fallback for scans
 - ⬜ P2-06 LLM/vision structuring with JSON-Schema output, per-page chunking, page-level provenance
 - ⬜ P2-07 Map-reduce for long documents: page-spanning tables, carried balances, statement totals
-- ⬜ P2-08 **Deterministic validation** in `clearcut-core` (line/VAT/total checks, SA field rules, duplicate detection)
+- 🔄 P2-08 **Deterministic validation** in `clearcut-core` (line/VAT/total checks, SA field rules, duplicate detection) — done: `extraction::{Extraction, validate}` (line arithmetic, stated vs recomputed totals, due-before-issue, `compliance_za` rules; exact to the cent; 27 tests). Remaining: duplicate detection (needs other documents as input)
 - ⬜ P2-09 Confidence scoring + human review queue (approve / correct / reject; corrections feed the gold set)
 - ⬜ P2-10 Evaluation harness in CI: field-level accuracy, "zero silent errors" gate
 - ⬜ P2-11 MCP tools: `upload_document`, `get_extraction`, `review_extraction`

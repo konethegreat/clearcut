@@ -2,6 +2,21 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-20 (part 3) — Extraction model and deterministic validation (P2-08, first half)
+**Done** (own branch and PR; tests first; 27 new, core now 157, workspace 160)
+- `clearcut-core::extraction`: `Extraction` is what an extractor reports for one document (untrusted; JSON-friendly; only document, extractor and currency required). Every value is `Sourced<T>` = value + page + optional locator + confidence, so each fact can later be cited. Derives `schemars::JsonSchema` under the feature, ready to become the structured-output schema for the worker (P2-06).
+- `validate(&Extraction) -> Validation { recomputed, findings }`, never fails and never edits: no lines, line currency mismatch, non-positive quantity, amounts out of range, line total vs quantity x price, printed net/VAT/gross vs totals rebuilt from the lines, sums out of range, due date before invoice date, and the `compliance_za` field rules (on the printed gross, else the recomputed one; rand only). Findings come in a fixed order. Both the printed and recomputed values are kept in each finding.
+- Mutation-checked three rules (VAT comparison, rand-only, due-date boundary); each is caught.
+
+**Decisions**
+- Exact-to-the-cent comparison: a one-cent difference from per-line vs per-category VAT rounding is reported as a finding (safe direction); the gold set (P2-01) will tell us whether to allow a tolerance.
+- Totals are rebuilt from quantity x unit price, not from the printed line totals; a wrong printed line total is its own finding.
+- Compliance rules are skipped when no amount is known or the currency is not ZAR (thresholds are in rand).
+- The by-party view deferred in P3-02 is dropped for now: a party needs an identity that survives across documents, which belongs with storage.
+- Not done in P2-08: duplicate detection (needs other documents as input).
+
+**Next**: P3-03 derive events from an extraction plus its validation (deterministic event IDs, new `LineTotalMismatch` event type).
+
 ## 2026-10-20 (part 2) — P3-07 narration modes
 **Done** (own branch and PR; tests first; 16 new, core now 130, workspace 133)
 - `clearcut-core::narration::report`: `narrate(events, NarrationMode)` returns a `Report` of `Section`s. `Timeline` is one untitled section (same sentences as `narrate_timeline`); `GroupedReport` is one titled section per non-empty group in taxonomy order (headings: Parties, Charges, VAT, Totals, Payment terms, Adjustments, Compliance, Risks, …); `Summary` is one untitled section with the key facts first (supplier, stated totals, due date, credit notes) then Critical then Warning events, leaving line detail out.
