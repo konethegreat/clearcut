@@ -19,7 +19,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P0-11 Branch protection on `main` (when PR workflow starts)
 
 ## Phase 1 — Platform foundation (≈3–4 weeks)
-- 🔄 P1-01 Postgres + `sqlx` migrations: tenants, documents, jobs, events, audit log — schema accepted in [ADR-0006](adr/0006-postgres-schema.md); migrations and store crate in progress (`jobs` deferred to P1-03)
+- ✅ P1-01 Postgres + `sqlx` migrations: tenants, documents, jobs, events, audit log — done per [ADR-0006](adr/0006-postgres-schema.md): `crates/clearcut-store` (migrations, `Store` API, 22 tests against a real Postgres, CI service container). `jobs` is deferred to P1-03; API keys and row-level security come with P1-04
 - ⬜ P1-02 Object storage abstraction (local disk + S3-compatible); resumable/chunked upload endpoint
 - ⬜ P1-03 Durable job queue (Postgres-backed) with retries, progress and cancellation
 - ⬜ P1-04 AuthN/Z: API keys, tenant isolation (row-level)

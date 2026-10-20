@@ -25,6 +25,7 @@ ClearCut: **upload any invoice (any length) → it is read and understood → ev
 
 ## Commands
 ```
+# needs DATABASE_URL for the clearcut-store tests (docker command in CONTRIBUTING.md; container name clearcut-pg, port 54329)
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 npm ci && npm run build && npm test          # TypeScript SDK
 cargo run -p clearcut-server                 # REST on 127.0.0.1:8080
@@ -44,10 +45,10 @@ Kone develops on **Windows** (`C:\Users\Kone\ClearCut`). Rust and Docker may nee
 - Current tool versions: rmcp 3.5.1 in `clearcut-mcp` still speaks protocol 2025-06-18; moving to the 2026-07-28 stateless spec is task P1-06. TypeScript is 7.x (needs `"types": ["node"]` in tsconfig).
 
 ## Status at hand-off (19 Oct 2026)
-Built and tested: `clearcut-core` (money, VAT, totals, lifecycle, SA thresholds, **event model, grouping views, template narrator, number guard, narration modes, extraction validation and event derivation**; 191 tests), `clearcut-server` (REST, 3 tests), `clearcut-mcp` (3 tools over stdio), `@clearcut/sdk` (2 tests), CI green, repo public. The event model, views, template narrator, number guard, narration modes, extraction validation and event derivation (P3-01, P3-02, P3-03, P3-04, P3-06, P3-07, P2-08 part 1) exist; **nothing for ingestion, LLM prose or export exists yet.** Minimum Rust is now 1.88 (the `time` crate).
+Built and tested: `clearcut-core` (money, VAT, totals, lifecycle, SA thresholds, **event model, grouping views, template narrator, number guard, narration modes, extraction validation and event derivation**; 191 tests), `clearcut-store` (Postgres: tenants, documents, append-only events, audit log; 22 tests, need `DATABASE_URL`), `clearcut-server` (REST, 3 tests), `clearcut-mcp` (3 tools over stdio), `@clearcut/sdk` (2 tests), CI green, repo public. The event model, views, template narrator, number guard, narration modes, extraction validation and event derivation (P3-01, P3-02, P3-03, P3-04, P3-06, P3-07, P2-08 part 1) exist; **nothing for ingestion, LLM prose or export exists yet.** Minimum Rust is now 1.88 (the `time` crate).
 
 ## Start here
-1. The pure-Rust part of Phase 3 is done (P3-01 to P3-04, P3-06, P3-07; P2-08 first half). Next needs infrastructure: P1-01/P1-02 (Postgres schema and storage; Docker Desktop must be running; show Kone the schema first). Still open in pure Rust: P2-08 duplicate detection (needs other documents as input). Workflow: branch per task, PR, merge when CI is green (auto-merge is off in repo settings).
-2. P1-01/P1-02 (Postgres schema, upload storage) — keep migrations small, show Kone the schema before applying.
+1. Done so far: the pure-Rust part of Phase 3, P2-08 first half, and P1-01 (store crate). Next: P1-02 object storage and upload endpoint; P1-03 job queue (decides the `jobs` table); P2-04 worker skeleton and provider trait; P2-01 gold set (needs Kone). Still open in pure Rust: P2-08 duplicate detection (needs other documents as input). Workflow: branch per task, PR, merge when CI is green (auto-merge is off in repo settings). Local Postgres: container `clearcut-pg` on 127.0.0.1:54329 (see CONTRIBUTING.md).
+2. P1-02/P1-03 — keep migrations small; show Kone any schema change before applying (ADR-0006 is the baseline).
 3. Help Kone start P2-01 (gold set of real, anonymised SA invoices) — the long pole; needs consent and POPIA care.
 Open items: confirm invoices are received vs issued (assumed both); who operates ClearCut commercially (POPIA Information Officer); verify Anthropic retention/ZDR terms.

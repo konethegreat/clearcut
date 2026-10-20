@@ -27,6 +27,7 @@ _Author: Kone Tshivhinda · Written by Kone Tshivhinda & Claude_
 |---|---|---|---|
 | `crates/clearcut-core` | Rust | Domain: `Money`, `TaxCategory`, `Invoice`, `InvoiceStatus`, `compliance_za`, `event` (Event, EventPayload, Citation, grouping views), `extraction` (untrusted extractor output, deterministic validation, event derivation with re-extraction runs), `narration` (template narrator, formatting, number guard, summary/timeline/grouped modes) | 191 tests |
 | `crates/clearcut-server` | Rust (axum) | REST: `GET /health`, `POST /v1/invoices/calculate` | 3 tests |
+| `crates/clearcut-store` | Rust (sqlx) | Postgres persistence ([ADR-0006](adr/0006-postgres-schema.md)): tenants, documents (hash de-duplication), append-only events and audit log; every call tenant-scoped; atomic, idempotent event append; events re-validated on read | 22 tests (need `DATABASE_URL`) |
 | `crates/clearcut-mcp` | Rust (rmcp) | MCP tools over stdio: `calculate_invoice`, `za_required_tax_invoice`, `check_status_transition` | smoke-tested |
 | `packages/sdk` | TypeScript | Typed client for the REST API | 2 tests |
 | `plugin/` | JSON | Claude plugin manifest + MCP entry | alpha |

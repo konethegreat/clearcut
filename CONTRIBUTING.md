@@ -5,6 +5,12 @@ Thanks for helping. ClearCut is a multi-language monorepo; see [docs/ARCHITECTUR
 ## Setup
 - Rust (stable) for `crates/`, Node 22 for `packages/`.
 - `cargo test --workspace` and `npm ci && npm run build && npm test`.
+- The `clearcut-store` tests need a Postgres (13+) and a `DATABASE_URL`; each test gets its own throwaway database. Quick local setup (dev-only password, a spare port so it cannot clash with a Postgres you already run):
+  ```
+  docker run -d --name clearcut-pg -e POSTGRES_USER=clearcut -e POSTGRES_PASSWORD=clearcut_dev -e POSTGRES_DB=clearcut -p 127.0.0.1:54329:5432 postgres:17
+  export DATABASE_URL=postgres://clearcut:clearcut_dev@127.0.0.1:54329/clearcut
+  ```
+  (PowerShell: `$env:DATABASE_URL = "postgres://clearcut:clearcut_dev@127.0.0.1:54329/clearcut"`.) CI runs the same tests against a Postgres service container.
 
 ## Ground rules
 1. **Money is integer minor units.** Never use floats for amounts.

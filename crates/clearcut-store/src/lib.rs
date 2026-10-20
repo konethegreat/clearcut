@@ -1,0 +1,322 @@
+// Written by Kone Tshivhinda & Claude
+//! Postgres storage for ClearCut (ADR-0006): tenants, documents, the
+//! append-only event log and the audit log.
+//!
+//! This crate does I/O; `clearcut-core` does not. Business rules stay in the
+//! core. The store's job is to keep what the core produces, return it
+//! unchanged, and refuse anything that would break the guarantees the schema
+//! makes:
+//!
+//! - **Events are stored as the core's canonical JSON** and re-validated by
+//!   `Event`'s own rules every time they are read.
+//! - **Every call takes the tenant** and only sees that tenant's rows; a
+//!   document of another tenant looks like it does not exist.
+//! - **Appending is atomic and idempotent.** A batch is stored whole or not at
+//!   all, and storing an event again with the same ID and the same content is
+//!   a no-op (so a retried job is safe), while the same ID with different
+//!   content is refused.
+//!
+//! Queries use bound parameters throughout, never string-built SQL.
+
+use clearcut_core::event::{DocumentId as CoreDocumentId, Event};
+use sqlx::postgres::PgPool;
+use uuid::Uuid;
+
+/// The migrations, embedded in the binary at compile time.
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("database error: {0}")]
+    Database(#[from] sqlx::Error),
+    #[error("migration error: {0}")]
+    Migration(#[from] sqlx::migrate::MigrateError),
+    /// The document does not exist, or belongs to another tenant.
+    #[error("document not found")]
+    DocumentNotFound,
+    /// An event with this ID is already stored with different content.
+    #[error("event {0} already exists with different content")]
+    EventIdConflict(String),
+    /// An event cites a different document than the one it is being stored under.
+    #[error("event {0} cites a different document")]
+    EventForOtherDocument(String),
+    /// A stored event no longer passes the core's rules.
+    #[error("a stored event is invalid: {0}")]
+    InvalidStoredEvent(String),
+    #[error("could not serialise event: {0}")]
+    Serialize(serde_json::Error),
+    #[error("unknown document status in the database: {0}")]
+    UnknownStatus(String),
+}
+
+/// Identifies a tenant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TenantId(pub Uuid);
+
+/// Identifies a stored document. Citations in events use it as text; see
+/// [`DocId::as_core_id`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DocId(pub Uuid);
+
+impl DocId {
+    /// The core's document ID for this document: its UUID as text. Events about
+    /// the document must cite exactly this.
+    pub fn as_core_id(&self) -> CoreDocumentId {
+        CoreDocumentId::new(self.0.to_string())
+    }
+}
+
+/// Where a document is in the pipeline. There is no failed state: a document
+/// ends `Done` or `NeedsReview` (ADR-0005).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentStatus {
+    Received,
+    Processing,
+    NeedsReview,
+    Done,
+}
+
+impl DocumentStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            DocumentStatus::Received => "received",
+            DocumentStatus::Processing => "processing",
+            DocumentStatus::NeedsReview => "needs_review",
+            DocumentStatus::Done => "done",
+        }
+    }
+
+    fn parse(text: &str) -> Result<Self> {
+        Ok(match text {
+            "received" => DocumentStatus::Received,
+            "processing" => DocumentStatus::Processing,
+            "needs_review" => DocumentStatus::NeedsReview,
+            "done" => DocumentStatus::Done,
+            other => return Err(Error::UnknownStatus(other.to_string())),
+        })
+    }
+}
+
+/// What is known about an uploaded file.
+#[derive(Debug, Clone)]
+pub struct NewDocument {
+    pub original_filename: String,
+    pub content_type: String,
+    pub byte_size: i64,
+    pub sha256: [u8; 32],
+    /// Key in object storage (P1-02), never a file path.
+    pub storage_key: String,
+    pub page_count: Option<i32>,
+}
+
+/// The result of [`Store::add_document`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddedDocument {
+    pub id: DocId,
+    /// True when this tenant had already uploaded the same content, so `id` is
+    /// the existing document.
+    pub duplicate: bool,
+}
+
+/// One line of the audit log.
+#[derive(Debug, Clone)]
+pub struct AuditEntry {
+    /// Who did it, e.g. `{"type":"system"}` or `{"type":"api_key","id":"..."}`.
+    pub actor: serde_json::Value,
+    /// What happened, e.g. `document.uploaded`.
+    pub action: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub detail: serde_json::Value,
+}
+
+/// A handle to the database.
+#[derive(Debug, Clone)]
+pub struct Store {
+    pool: PgPool,
+}
+
+impl Store {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    /// The underlying connection pool.
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    /// Applies any migrations that have not been applied yet.
+    pub async fn migrate(pool: &PgPool) -> Result<()> {
+        MIGRATOR.run(pool).await?;
+        Ok(())
+    }
+
+    pub async fn create_tenant(&self, name: &str) -> Result<TenantId> {
+        let id: Uuid = sqlx::query_scalar("insert into tenants (name) values ($1) returning id")
+            .bind(name)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(TenantId(id))
+    }
+
+    /// Records an uploaded document. Uploading the same content again for the
+    /// same tenant returns the existing document with `duplicate` set.
+    pub async fn add_document(&self, tenant: TenantId, document: &NewDocument) -> Result<AddedDocument> {
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            "insert into documents \
+             (tenant_id, original_filename, content_type, byte_size, sha256, storage_key, page_count) \
+             values ($1, $2, $3, $4, $5, $6, $7) \
+             on conflict (tenant_id, sha256) do nothing \
+             returning id",
+        )
+        .bind(tenant.0)
+        .bind(&document.original_filename)
+        .bind(&document.content_type)
+        .bind(document.byte_size)
+        .bind(&document.sha256[..])
+        .bind(&document.storage_key)
+        .bind(document.page_count)
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(id) = inserted {
+            return Ok(AddedDocument {
+                id: DocId(id),
+                duplicate: false,
+            });
+        }
+        let existing: Uuid =
+            sqlx::query_scalar("select id from documents where tenant_id = $1 and sha256 = $2")
+                .bind(tenant.0)
+                .bind(&document.sha256[..])
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(AddedDocument {
+            id: DocId(existing),
+            duplicate: true,
+        })
+    }
+
+    pub async fn document_status(&self, tenant: TenantId, document: DocId) -> Result<DocumentStatus> {
+        let status: Option<String> =
+            sqlx::query_scalar("select status from documents where tenant_id = $1 and id = $2")
+                .bind(tenant.0)
+                .bind(document.0)
+                .fetch_optional(&self.pool)
+                .await?;
+        DocumentStatus::parse(&status.ok_or(Error::DocumentNotFound)?)
+    }
+
+    pub async fn set_document_status(
+        &self,
+        tenant: TenantId,
+        document: DocId,
+        status: DocumentStatus,
+    ) -> Result<()> {
+        let result = sqlx::query(
+            "update documents set status = $3, updated_at = now() where tenant_id = $1 and id = $2",
+        )
+        .bind(tenant.0)
+        .bind(document.0)
+        .bind(status.as_str())
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(Error::DocumentNotFound);
+        }
+        Ok(())
+    }
+
+    /// Appends events to a document's log, all or nothing. Re-appending an
+    /// event with the same ID and the same content does nothing; the same ID
+    /// with different content is an [`Error::EventIdConflict`]. Every event
+    /// must cite this document.
+    pub async fn append_events(&self, tenant: TenantId, document: DocId, events: &[Event]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        require_document(&mut *tx, tenant, document).await?;
+        let cited = document.as_core_id();
+        for event in events {
+            if event.citation().document != cited {
+                return Err(Error::EventForOtherDocument(event.id().as_str().to_string()));
+            }
+            let body = serde_json::to_value(event).map_err(Error::Serialize)?;
+            let inserted: Option<i64> = sqlx::query_scalar(
+                "insert into events (tenant_id, document_id, id, body) values ($1, $2, $3, $4) \
+                 on conflict (document_id, id) do nothing returning seq",
+            )
+            .bind(tenant.0)
+            .bind(document.0)
+            .bind(event.id().as_str())
+            .bind(&body)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if inserted.is_none() {
+                let stored: serde_json::Value =
+                    sqlx::query_scalar("select body from events where document_id = $1 and id = $2")
+                        .bind(document.0)
+                        .bind(event.id().as_str())
+                        .fetch_one(&mut *tx)
+                        .await?;
+                if stored != body {
+                    return Err(Error::EventIdConflict(event.id().as_str().to_string()));
+                }
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Every event stored for a document, oldest first. Each is re-validated by
+    /// the core's rules as it is read.
+    pub async fn load_events(&self, tenant: TenantId, document: DocId) -> Result<Vec<Event>> {
+        require_document(&self.pool, tenant, document).await?;
+        let bodies: Vec<serde_json::Value> = sqlx::query_scalar(
+            "select body from events where tenant_id = $1 and document_id = $2 order by seq",
+        )
+        .bind(tenant.0)
+        .bind(document.0)
+        .fetch_all(&self.pool)
+        .await?;
+        bodies
+            .into_iter()
+            .map(|body| {
+                serde_json::from_value::<Event>(body).map_err(|e| Error::InvalidStoredEvent(e.to_string()))
+            })
+            .collect()
+    }
+
+    pub async fn record_audit(&self, tenant: TenantId, entry: &AuditEntry) -> Result<()> {
+        sqlx::query(
+            "insert into audit_log (tenant_id, actor, action, subject_type, subject_id, detail) \
+             values ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(tenant.0)
+        .bind(&entry.actor)
+        .bind(&entry.action)
+        .bind(&entry.subject_type)
+        .bind(&entry.subject_id)
+        .bind(&entry.detail)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+/// Fails with [`Error::DocumentNotFound`] unless `document` exists and belongs
+/// to `tenant`. This is what makes another tenant's document look absent.
+async fn require_document<'e, E>(executor: E, tenant: TenantId, document: DocId) -> Result<()>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    let found: Option<i32> = sqlx::query_scalar("select 1 from documents where tenant_id = $1 and id = $2")
+        .bind(tenant.0)
+        .bind(document.0)
+        .fetch_optional(executor)
+        .await?;
+    found.map(|_| ()).ok_or(Error::DocumentNotFound)
+}
+
+#[cfg(test)]
+mod tests;

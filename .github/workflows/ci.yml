@@ -11,6 +11,23 @@ concurrency:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    # The store tests run against a real Postgres (one throwaway database per test).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: clearcut
+          POSTGRES_PASSWORD: clearcut_ci
+          POSTGRES_DB: clearcut
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clearcut -d clearcut"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://clearcut:clearcut_ci@localhost:5432/clearcut
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
