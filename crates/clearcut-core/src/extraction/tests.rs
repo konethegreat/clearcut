@@ -1,78 +1,12 @@
 // Written by Kone Tshivhinda & Claude
+use super::fixtures::{at, clean, correct_totals, line, zar};
 use super::*;
 use crate::compliance_za::Issue;
-use crate::event::{Confidence, DocumentId, Extractor, Locator, TotalField};
+use crate::event::{DocumentId, Locator, TotalField};
 use crate::{Currency, InvoiceTotals, Money, TaxCategory};
 use serde_json::json;
 use std::num::NonZeroU32;
 use time::macros::date as d;
-
-fn zar(minor: i64) -> Money {
-    Money::zar(minor)
-}
-
-fn at<T>(value: T) -> Sourced<T> {
-    Sourced {
-        value,
-        page: NonZeroU32::new(1).unwrap(),
-        locator: None,
-        confidence: Confidence::new(950).unwrap(),
-    }
-}
-
-fn line(description: &str, qty: i64, price: i64, total: i64, tax: TaxCategory) -> Sourced<ExtractedLine> {
-    at(ExtractedLine {
-        description: description.into(),
-        quantity_milli: qty,
-        unit_price: zar(price),
-        line_total: zar(total),
-        tax,
-    })
-}
-
-fn party(name: &str, vat: &str) -> Sourced<Party> {
-    at(Party {
-        name: name.into(),
-        address: Some("1 Main Rd, Rosebank".into()),
-        vat_number: Some(vat.into()),
-    })
-}
-
-/// A complete, correct invoice worth R18 250.00 (so a *full* tax invoice):
-/// 10 x R1 500.00 standard-rated + 1 x R1 000.00 zero-rated.
-fn clean() -> Extraction {
-    Extraction {
-        document: DocumentId::new("doc_1"),
-        extractor: Extractor::System,
-        currency: Currency::Zar,
-        invoice_number: Some(at("INV-000001".to_string())),
-        invoice_date: Some(at(d!(2026 - 03 - 31))),
-        supplier: Some(party("Acme (Pty) Ltd", "4123456789")),
-        recipient: Some(party("Client Co", "4987654321")),
-        lines: vec![
-            line("Consulting", 10_000, 150_000, 1_500_000, TaxCategory::Standard),
-            line("Export licence", 1_000, 100_000, 100_000, TaxCategory::ZeroRated),
-        ],
-        stated_totals: Some(at(InvoiceTotals {
-            net: zar(1_600_000),
-            vat: zar(225_000),
-            gross: zar(1_825_000),
-        })),
-        due: Some(at(DueTerms {
-            due: d!(2026 - 04 - 30),
-            terms: Some("30 days".into()),
-        })),
-        credit_note: None,
-    }
-}
-
-fn correct_totals() -> InvoiceTotals {
-    InvoiceTotals {
-        net: zar(1_600_000),
-        vat: zar(225_000),
-        gross: zar(1_825_000),
-    }
-}
 
 fn issue(field: &'static str, message: &'static str) -> Finding {
     Finding::Compliance(Issue { field, message })

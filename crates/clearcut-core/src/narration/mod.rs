@@ -104,6 +104,15 @@ fn template(payload: &EventPayload) -> String {
             amount(*line_total),
             tax_category(*category),
         ),
+        EventPayload::LineTotalMismatch {
+            line,
+            stated,
+            recomputed,
+        } => format!(
+            "On line {line} the stated total of {} does not match the recomputed {}.",
+            amount(*stated),
+            amount(*recomputed),
+        ),
         EventPayload::VatCalculated {
             category,
             taxable,

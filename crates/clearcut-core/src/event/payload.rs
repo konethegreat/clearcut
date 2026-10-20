@@ -49,6 +49,13 @@ pub enum EventPayload {
         line_total: Money,
         tax_category: TaxCategory,
     },
+    /// A line's stated total differs from quantity x unit price. `line` is
+    /// the 1-based line number; both amounts are kept.
+    LineTotalMismatch {
+        line: u32,
+        stated: Money,
+        recomputed: Money,
+    },
     /// VAT for one tax category, as stated or calculated.
     VatCalculated {
         category: TaxCategory,
@@ -91,6 +98,7 @@ impl EventPayload {
         match self {
             EventPayload::SupplierIdentified { .. } => EventType::SupplierIdentified,
             EventPayload::LineItemBilled { .. } => EventType::LineItemBilled,
+            EventPayload::LineTotalMismatch { .. } => EventType::LineTotalMismatch,
             EventPayload::VatCalculated { .. } => EventType::VatCalculated,
             EventPayload::TotalsStated { .. } => EventType::TotalsStated,
             EventPayload::TotalsMismatch { .. } => EventType::TotalsMismatch,
@@ -110,6 +118,9 @@ impl EventPayload {
                 line_total,
                 ..
             } => vec![*unit_price, *line_total],
+            EventPayload::LineTotalMismatch {
+                stated, recomputed, ..
+            } => vec![*stated, *recomputed],
             EventPayload::VatCalculated { taxable, vat, .. } => vec![*taxable, *vat],
             EventPayload::TotalsStated { net, vat, gross } => vec![*net, *vat, *gross],
             EventPayload::TotalsMismatch {

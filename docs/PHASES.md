@@ -53,7 +53,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 ## Phase 3 — Events, grouping and narration (≈4–5 weeks) ⭐ core
 - ✅ P3-01 Event model in `clearcut-core`: type, group, date, payload (integer cents), citation, extractor, confidence (`crates/clearcut-core/src/event/`; immutable events, corrections via `supersedes`; 24 tests)
 - ✅ P3-02 Event taxonomy and deterministic grouping; views by date, party, document, severity (`event/view`: current/timeline/by group/document/severity + derived `Severity`, 13 tests; **party view deferred to P3-03** since events have no party field yet)
-- ⬜ P3-03 Event derivation from validated extractions (incl. stated-vs-recomputed mismatch events)
+- ✅ P3-03 Event derivation from validated extractions (incl. stated-vs-recomputed mismatch events) (`extraction::derive_events`: deterministic IDs like `doc_1:line-2`, printed facts cite their source, calculated VAT and findings are `System` events, new `LineTotalMismatch` kind; 22 tests. **By-party view dropped**: a party needs an identity that survives across documents, which belongs with storage)
 - ✅ P3-04 Template narrator (deterministic, cited sentences) (`clearcut-core::narration`: `Sentence` cannot exist without a citation, one template per event kind, shared `format` module for the number guard; 24 tests)
 - ⬜ P3-05 LLM prose smoothing behind the provider trait
 - ✅ P3-06 **Number guard:** every numeral/date in narration must exist in cited events; fallback to template text (`narration::guard`: `check` / `guard`, strict scanner for figures, signs and whole dates, citation checks; 36 tests, mutation-checked)
@@ -103,7 +103,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 ## Immediate next three tasks (hand-off to Claude Code)
 1. **P1-01 / P1-02:** Postgres schema and upload storage (keep migrations small and reviewed).
 2. **P2-01:** start the gold set now, in parallel with code. It is the long pole.
-3. ~~**P3-01:** event model~~ ✅ done 19 Oct 2026. ~~**P3-02**~~ ✅ and ~~**P3-04**~~ ✅ done. ~~**P3-06**~~ ✅ done 20 Oct 2026. ~~**P3-07**~~ ✅ done 20 Oct 2026. Remaining pure-Rust in Phase 3: **P3-03** event derivation (also adds the party view; needs a minimal validated-extraction shape, ideally designed alongside P2-08). P3-05 LLM smoothing needs the provider trait from Phase 2; P3-08/P3-09/P3-10 need storage or the MCP upgrade.
+3. ~~**P3-01:** event model~~ ✅ done 19 Oct 2026. ~~**P3-02**~~ ✅ and ~~**P3-04**~~ ✅ done. ~~**P3-06**~~ ✅ done 20 Oct 2026. ~~**P3-07**~~ ✅ done 20 Oct 2026. ~~**P3-03**~~ ✅ done 20 Oct 2026 (with the first half of P2-08). The pure-Rust part of Phase 3 is finished; the rest needs infrastructure: P3-05 LLM smoothing needs the provider trait (Phase 2), P3-08 needs the page/box contract with a UI, P3-09 and P3-10 need storage and the MCP upgrade. Next: **P1-01/P1-02** (Postgres schema and storage; Docker Desktop must be running; show Kone the schema first) and **P2-01** (gold set).
 
 ## Decisions made (19 Oct 2026)
 - **Boosted memory:** the model gets every resource it needs for its task (context pack); details otherwise handled as we go.

@@ -64,6 +64,9 @@ impl DocumentId {
 pub struct Confidence(u16);
 
 impl Confidence {
+    /// Full confidence, for facts ClearCut computes exactly.
+    pub const CERTAIN: Confidence = Confidence(PER_MILLE);
+
     pub fn new(per_mille: u16) -> Result<Self> {
         if per_mille > PER_MILLE {
             return Err(Error::InvalidEvent("confidence must be between 0 and 1000"));

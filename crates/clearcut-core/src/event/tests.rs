@@ -50,6 +50,7 @@ fn every_event_type_maps_to_its_group() {
     let expected = [
         (SupplierIdentified, Parties),
         (LineItemBilled, Charges),
+        (LineTotalMismatch, Charges),
         (VatCalculated, Tax),
         (TotalsStated, Totals),
         (TotalsMismatch, Totals),
@@ -71,6 +72,7 @@ fn severity_is_derived_from_the_event_type() {
     let expected = [
         (SupplierIdentified, Info),
         (LineItemBilled, Info),
+        (LineTotalMismatch, Critical),
         (VatCalculated, Info),
         (TotalsStated, Info),
         (TotalsMismatch, Critical),
@@ -255,6 +257,20 @@ fn line_item_exposes_its_amounts_for_the_number_guard() {
         tax_category: TaxCategory::Standard,
     };
     assert_eq!(line.money_fields(), vec![zar(150_000), zar(1_500_000)]);
+}
+
+#[test]
+fn a_line_total_mismatch_exposes_both_amounts_and_names_its_line() {
+    let mismatch = EventPayload::LineTotalMismatch {
+        line: 2,
+        stated: zar(110_000),
+        recomputed: zar(100_000),
+    };
+    assert_eq!(mismatch.event_type(), EventType::LineTotalMismatch);
+    assert_eq!(mismatch.money_fields(), vec![zar(110_000), zar(100_000)]);
+    let json = serde_json::to_value(&mismatch).unwrap();
+    assert_eq!(json["type"], "line_total_mismatch");
+    assert_eq!(json["line"], 2);
 }
 
 #[test]

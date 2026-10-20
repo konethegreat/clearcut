@@ -76,6 +76,7 @@ pub enum Severity {
 pub enum EventType {
     SupplierIdentified,
     LineItemBilled,
+    LineTotalMismatch,
     VatCalculated,
     TotalsStated,
     TotalsMismatch,
@@ -87,9 +88,10 @@ pub enum EventType {
 
 impl EventType {
     /// Every kind currently defined.
-    pub const ALL: [EventType; 9] = [
+    pub const ALL: [EventType; 10] = [
         EventType::SupplierIdentified,
         EventType::LineItemBilled,
+        EventType::LineTotalMismatch,
         EventType::VatCalculated,
         EventType::TotalsStated,
         EventType::TotalsMismatch,
@@ -104,7 +106,7 @@ impl EventType {
     pub fn group(self) -> EventGroup {
         match self {
             EventType::SupplierIdentified => EventGroup::Parties,
-            EventType::LineItemBilled => EventGroup::Charges,
+            EventType::LineItemBilled | EventType::LineTotalMismatch => EventGroup::Charges,
             EventType::VatCalculated => EventGroup::Tax,
             EventType::TotalsStated | EventType::TotalsMismatch => EventGroup::Totals,
             EventType::DueDateStated => EventGroup::Terms,
@@ -118,7 +120,7 @@ impl EventType {
     /// no wildcard arm, so every new kind must be given a severity.
     pub fn severity(self) -> Severity {
         match self {
-            EventType::TotalsMismatch => Severity::Critical,
+            EventType::TotalsMismatch | EventType::LineTotalMismatch => Severity::Critical,
             EventType::ComplianceIssueFound | EventType::PossibleDuplicate => Severity::Warning,
             EventType::SupplierIdentified
             | EventType::LineItemBilled

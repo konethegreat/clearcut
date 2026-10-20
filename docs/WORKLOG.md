@@ -2,6 +2,24 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-20 (part 4) — P3-03 event derivation
+**Done** (own branch and PR, stacked on the P2-08 PR; tests first; core now 181, workspace 184)
+- `extraction::derive_events(&Extraction) -> Result<Derived { validation, events }>`: runs `validate`, then derives events in a fixed order: supplier, each line (as printed), VAT per tax category present, stated totals, due date, credit-note reference, then one event per finding.
+- **Printed facts** are attributed to the extractor and cite the page/locator they were read from, with that value's confidence. **Calculated VAT** and **findings** are `System` events: VAT uses the first line of the category as its citation and the weakest line confidence; a wrong line total or printed total cites the printed value it is about; other findings become numbered `ComplianceIssueFound` events (`doc:issue-N`), citing the relevant line/due date or page 1.
+- IDs are deterministic (`doc_1:line-2`, `doc_1:totals-mismatch-vat`), so deriving twice gives identical events and the core needs no randomness or clock.
+- New event kind `LineTotalMismatch` (group Charges, severity Critical) with its template: "On line 2 the stated total of R1 100.00 does not match the recomputed R1 000.00." (no invented difference).
+- `Confidence::CERTAIN` constant; shared test builders in `extraction::fixtures`.
+- End-to-end test: derived events narrate and pass the number guard, for a clean and a deliberately messy extraction. Mutation-checked four rules (weakest confidence, mixed-currency line skip, line-mismatch citation, VAT only for trusted lines).
+
+**Decisions**
+- A fact with amounts in two currencies cannot be an event of its own kind, so it becomes a compliance-issue event with the same ID instead of an error. An invalid location (bad bounding box) from the extractor *is* an error: better a visible rejection than quietly losing citations. The orchestrator should treat that as `needs_review`.
+- A line in the wrong currency is not narrated as a line; its finding explains why. A line with a wrong total is still narrated as printed, beside an event saying it is wrong.
+- **By-party view dropped** (was deferred in P3-02): it needs a party identity that survives across documents, which belongs with storage.
+- Recipient is not yet an event (no `RecipientIdentified` kind); add when a use needs it.
+
+**Phase 3 status**: the pure-Rust part is complete. Remaining items need infrastructure: P3-05 (provider trait, Phase 2), P3-08 (UI contract), P3-09/P3-10 (storage, MCP upgrade).
+**Next**: P1-01/P1-02 (Postgres schema and upload storage; Docker Desktop must be running, and the schema should be shown to Kone before it is applied) and P2-01 (gold set, needs Kone). P2-08 duplicate detection is still open.
+
 ## 2026-10-20 (part 3) — Extraction model and deterministic validation (P2-08, first half)
 **Done** (own branch and PR; tests first; 27 new, core now 157, workspace 160)
 - `clearcut-core::extraction`: `Extraction` is what an extractor reports for one document (untrusted; JSON-friendly; only document, extractor and currency required). Every value is `Sourced<T>` = value + page + optional locator + confidence, so each fact can later be cited. Derives `schemars::JsonSchema` under the feature, ready to become the structured-output schema for the worker (P2-06).

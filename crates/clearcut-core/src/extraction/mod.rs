@@ -12,8 +12,12 @@
 //! optionally where on the page, and the extractor's confidence, so each fact
 //! can later be cited.
 
+mod derive;
+#[cfg(test)]
+pub(crate) mod fixtures;
 mod validate;
 
+pub use derive::{derive_events, Derived};
 pub use validate::{validate, Finding, Validation};
 
 use crate::event::{Citation, Confidence, DocumentId, Extractor, Locator};
