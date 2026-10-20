@@ -25,7 +25,7 @@ _Author: Kone Tshivhinda · Written by Kone Tshivhinda & Claude_
 
 | Path | Language | Role | Status |
 |---|---|---|---|
-| `crates/clearcut-core` | Rust | Domain: `Money`, `TaxCategory`, `Invoice`, `InvoiceStatus`, `compliance_za`, `event` (Event, EventPayload, Citation, grouping views), `extraction` (untrusted extractor output + deterministic validation), `narration` (template narrator, formatting, number guard, summary/timeline/grouped modes) | 157 tests |
+| `crates/clearcut-core` | Rust | Domain: `Money`, `TaxCategory`, `Invoice`, `InvoiceStatus`, `compliance_za`, `event` (Event, EventPayload, Citation, grouping views), `extraction` (untrusted extractor output, deterministic validation, event derivation), `narration` (template narrator, formatting, number guard, summary/timeline/grouped modes) | 181 tests |
 | `crates/clearcut-server` | Rust (axum) | REST: `GET /health`, `POST /v1/invoices/calculate` | 3 tests |
 | `crates/clearcut-mcp` | Rust (rmcp) | MCP tools over stdio: `calculate_invoice`, `za_required_tax_invoice`, `check_status_transition` | smoke-tested |
 | `packages/sdk` | TypeScript | Typed client for the REST API | 2 tests |

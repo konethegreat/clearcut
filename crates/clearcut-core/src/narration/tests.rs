@@ -184,6 +184,20 @@ fn narrates_a_mismatch_without_inventing_a_difference() {
 }
 
 #[test]
+fn narrates_a_line_total_mismatch_without_inventing_a_difference() {
+    let text = say(EventPayload::LineTotalMismatch {
+        line: 2,
+        stated: zar(110_000),
+        recomputed: zar(100_000),
+    });
+    assert_eq!(
+        text,
+        "On line 2 the stated total of R1\u{a0}100.00 does not match the recomputed R1\u{a0}000.00."
+    );
+    assert!(!text.contains("R100.00")); // the R100.00 difference is in no event
+}
+
+#[test]
 fn narrates_a_due_date() {
     let with_terms = EventPayload::DueDateStated {
         due: d!(2026 - 04 - 30),
