@@ -103,8 +103,8 @@ create trigger audit_log_append_only before update or delete on audit_log
 - **Truncate is not blocked by row triggers.** The application database role (P1-04) must not hold `TRUNCATE`; noted here so it is not forgotten.
 
 ## Decisions on the open questions (Kone, 2026-10-20)
-1. **Re-extraction: a run number in the event ID, and the new events supersede the old.** Derived IDs become  (for example ). When a document is extracted again, each new event whose slug matches a current event from an earlier run carries  pointing at it. Known limit: a fact that the new run no longer produces (say a mismatch that a better model fixed) has no counterpart to supersede and stays current until a reviewer deals with it. Nothing is silently dropped; a way to retract an event may be added if this proves noisy.
-2. **Erasure is hard deletion** on request (POPIA), through the  escape hatch inside one transaction. Anonymising in place is not planned.
+1. **Re-extraction: a run number in the event ID, and the new events supersede the old.** Derived IDs become `<document>:r<run>:<slug>` (for example `<doc>:r2:line-2`). When a document is extracted again, each new event whose slug matches a current event from an earlier run carries `supersedes` pointing at it. Known limit: a fact that the new run no longer produces (say a mismatch that a better model fixed) has no counterpart to supersede and stays current until a reviewer deals with it. Nothing is silently dropped; a way to retract an event may be added if this proves noisy.
+2. **Erasure is hard deletion** on request (POPIA), through the `clearcut.erasure` escape hatch inside one transaction. Anonymising in place is not planned.
 3. **No expiry column yet.** Retention periods (SARS five years for tax invoices) depend on who operates ClearCut and on legal review; add a retention policy when that is known.
 
 ## Consequences
