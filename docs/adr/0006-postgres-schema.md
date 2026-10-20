@@ -9,7 +9,7 @@ Phase 1 needs durable storage for the pipeline in [ADR-0004](0004-ingestion-and-
 ## Proposal in brief
 1. **Four tables now:** `tenants`, `documents`, `events`, `audit_log`.
 2. **Events are stored as the canonical JSON of the core `Event`** (`body jsonb`), plus a few *generated* columns for querying. Generated columns cannot drift from the JSON, and reading an event back goes through `Event`'s own validation.
-3. **Append-only is enforced by the database**, not by convention: triggers reject `UPDATE` and `DELETE` on `events` and `audit_log`, with one explicit escape hatch for POPIA erasure.
+3. **Append-only is enforced by the database**, not by convention: triggers reject `UPDATE` and `DELETE` on `events` and `audit_log`. `events` has one explicit escape hatch for POPIA erasure; **`audit_log` has none** (amended during implementation after a security review: the erasure switch is for a data subject's events, never for the record of who did what, and any purge of audit rows would need its own separately privileged mechanism). The DDL below shows the first draft; the migration `0002_events_audit.sql` is authoritative and uses two trigger functions, `forbid_event_changes` and `forbid_audit_changes`. Who may set `clearcut.erasure` is to be restricted to a dedicated role in P1-04.
 4. **Tenant safety is structural:** every table carries `tenant_id`, and child rows reference their parent with a *composite* foreign key `(tenant_id, id)`, so a row cannot point at another tenant's document. Row-level security comes with P1-04.
 5. **Terminal states only:** a document ends `done` or `needs_review` (ADR-0005); `failed` does not exist.
 

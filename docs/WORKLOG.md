@@ -2,6 +2,22 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-20 (part 7) — P1-01: `clearcut-store` crate, migrations, real-Postgres tests
+**Done** (own branch and PR; tests first; 23 new store tests)
+- With Kone's approval: pulled the official `postgres:17` image and started a dev container `clearcut-pg` bound to `127.0.0.1:54329` with no password (`trust` auth, localhost only; Kone's own Postgres on 5432 and the other containers were left alone). CONTRIBUTING.md has the command; `.env.example` has `DATABASE_URL`. No password literal appears anywhere in the repo.
+- `crates/clearcut-store` (sqlx 0.9): the two migrations from ADR-0006 and a `Store` API: `create_tenant`, `add_document` (hash de-duplication per tenant), `document_status` / `set_document_status`, `append_events`, `load_events`, `record_audit`. Every call takes the tenant; another tenant's document looks absent (`DocumentNotFound`).
+- `append_events` is atomic and idempotent: re-appending the same ID with the same content is a no-op (safe for retried jobs); the same ID with different content is `EventIdConflict`; an event citing a different document is refused. `load_events` re-validates every stored event through the core.
+- Tests (one throwaway database each via `sqlx::test`) cover the round trip of core-derived events, re-extraction runs, generated columns, append-only triggers on `events` and `audit_log` (and the erasure escape hatch inside a transaction), composite tenant foreign keys, the body/row `check` constraints, and refusal of `failed` as a status. CI gets a `postgres:17` service container.
+- Mutation-checked in `lib.rs`: conflict check, tenant filter, citation check and commit each make tests fail when broken.
+
+**Two review findings handled before merge**
+- GitGuardian flagged the throwaway CI Postgres password as a generic secret. It was harmless (an ephemeral service container), but a later commit cannot clear a flag on an earlier commit, so the first PR (#12) was closed and the work re-opened from a clean single commit with no password anywhere (CI and local use `trust` auth). No force-push was needed.
+- The automated security review pointed out that the audit log shared the events table's erasure escape hatch. Fixed, tests first: `audit_log` now has its own unconditional append-only trigger (`forbid_audit_changes`), and a test proves it cannot be deleted even with `clearcut.erasure = 'on'`. Erasure applies to events only. Still open for P1-04: restrict who may set `clearcut.erasure` to a dedicated role (today any session that can run SQL can); also recorded in the migration comment.
+
+**Gap, stated honestly**: removing `order by seq` from `load_events` is not caught. On tiny tables Postgres returns rows in insertion order anyway, so a faithful test would be flaky. The ordering is in the SQL and documented; revisit with a real-size fixture if it ever matters.
+**Note**: plain `cargo test --workspace` now needs `DATABASE_URL` (the store tests fail with a clear message without it); CONTRIBUTING.md and CLAUDE.md say so.
+**Next**: P1-02 (object storage and upload), P1-03 (job queue, which decides the `jobs` table), P2-04 (worker skeleton and provider trait).
+
 ## 2026-10-20 (part 6) — Re-extraction runs in event IDs (decision from ADR-0006)
 **Done** (own branch and PR; tests first; 10 new, core now 191)
 - `derive_events(extraction, run, earlier)`: IDs are now `<document>:r<run>:<slug>`. Each new event supersedes the *current head* of the same slug from an earlier run (run 3 supersedes run 2, not run 1). Events of other documents, and of this or later runs, are ignored, so re-deriving the same run (a retried job) gives identical events.
