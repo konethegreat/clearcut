@@ -11,9 +11,18 @@
 //!   are attributed to [`Extractor::System`]. A finding cites the printed
 //!   value it is about; a finding about something missing cites page 1.
 //!
-//! IDs are deterministic (`<document>:line-2`, `<document>:totals-mismatch-vat`,
-//! `<document>:issue-1`), so deriving twice gives identical events and the core
-//! never needs a random number or a clock. Storage may assign its own IDs.
+//! IDs are deterministic and carry the extraction run
+//! (`<document>:r1:line-2`, `<document>:r1:totals-mismatch-vat`,
+//! `<document>:r1:issue-1`), so deriving twice gives identical events and the
+//! core never needs a random number or a clock.
+//!
+//! **Re-extraction** (ADR-0006): when a document is extracted again, run 2's
+//! events get new IDs and each one supersedes the current event with the same
+//! slug from an earlier run. Limits, deliberately visible rather than hidden:
+//! a fact the new run no longer finds has nothing to supersede its old event,
+//! so the old one stays current; and a fact a person has confirmed or
+//! corrected is never superseded by a machine re-run, so both stay current for
+//! a reviewer to reconcile.
 //!
 //! The extraction is untrusted. Nothing is corrected: a line that is wrong is
 //! still narrated as printed, next to an event that says it is wrong. A fact
@@ -28,6 +37,8 @@ use crate::event::{
     Citation, Confidence, DocumentId, Event, EventId, EventParts, EventPayload, Extractor, TotalField,
 };
 use crate::{Money, TaxCategory};
+use std::collections::HashMap;
+use std::num::NonZeroU32;
 use time::Date;
 
 /// The events derived from one extraction, with the validation they came from.
@@ -39,11 +50,18 @@ pub struct Derived {
 
 /// Validates `extraction` and derives its events: printed facts first, then
 /// calculated VAT, then one event per finding, each group in a fixed order.
-pub fn derive_events(extraction: &Extraction) -> Result<Derived> {
+///
+/// `run` numbers the extraction attempt for this document (1 for the first,
+/// 2 for a re-extraction with a better model, and so on). `earlier` holds the
+/// events that already exist for the document; each new event supersedes the
+/// matching event from an earlier run, as described on the module.
+pub fn derive_events(extraction: &Extraction, run: NonZeroU32, earlier: &[Event]) -> Result<Derived> {
     let validation = validate(extraction);
     let mut out = Builder {
         document: &extraction.document,
+        run,
         date: extraction.invoice_date.as_ref().map(|d| d.value),
+        replaces: replaceable_events(&extraction.document, run, earlier),
         events: Vec::new(),
     };
     let x = extraction;
@@ -246,14 +264,72 @@ impl Origin {
 
 struct Builder<'a> {
     document: &'a DocumentId,
+    run: NonZeroU32,
     date: Option<Date>,
+    /// For each slug, the earlier event a new event with that slug supersedes.
+    replaces: HashMap<String, EventId>,
     events: Vec<Event>,
 }
 
+/// Splits `<document>:r<run>:<slug>` into the run and the slug. `prefix` is
+/// `<document>:r`. Anything else, such as a reviewer's correction, gives `None`.
+fn split_run_id<'a>(id: &'a str, prefix: &str) -> Option<(u32, &'a str)> {
+    let (run, slug) = id.strip_prefix(prefix)?.split_once(':')?;
+    Some((run.parse().ok()?, slug))
+}
+
+/// For each slug, the event from an earlier run that a new event with that slug
+/// should supersede: the *current head* of that slug's chain, so run 3
+/// supersedes run 2, not run 1. A head that a person confirmed or corrected
+/// ([`Extractor::Human`]) is never superseded by a machine re-run. Events of
+/// other documents and of this run or later runs are ignored.
+fn replaceable_events(document: &DocumentId, run: NonZeroU32, earlier: &[Event]) -> HashMap<String, EventId> {
+    let prefix = format!("{}:r", document.as_str());
+    // Events of this run or later runs play no part, not even as the
+    // "superseder" that a chain is followed into.
+    let is_earlier = |event: &Event| {
+        split_run_id(event.id().as_str(), &prefix).is_none_or(|(event_run, _)| event_run < run.get())
+    };
+    // superseded event -> the event that superseded it
+    let replaced_by: HashMap<&EventId, &Event> = earlier
+        .iter()
+        .filter(|event| is_earlier(event))
+        .filter_map(|event| event.supersedes().map(|old| (old, event)))
+        .collect();
+
+    let mut best: HashMap<&str, (u32, &EventId)> = HashMap::new();
+    for event in earlier {
+        let Some((event_run, slug)) = split_run_id(event.id().as_str(), &prefix) else {
+            continue;
+        };
+        if event_run >= run.get() {
+            continue;
+        }
+        // Follow corrections forward to the head (bounded, in case of a cycle).
+        let mut head = event;
+        for _ in 0..earlier.len() {
+            match replaced_by.get(head.id()) {
+                Some(next) => head = next,
+                None => break,
+            }
+        }
+        if matches!(head.extractor(), Extractor::Human { .. }) {
+            continue;
+        }
+        if best.get(slug).is_none_or(|(best_run, _)| event_run > *best_run) {
+            best.insert(slug, (event_run, head.id()));
+        }
+    }
+    best.into_iter()
+        .map(|(slug, (_, id))| (slug.to_string(), id.clone()))
+        .collect()
+}
+
 impl Builder<'_> {
-    /// Adds an event with ID `<document>:<slug>`. If its amounts use more than
-    /// one currency it cannot be an event of its own kind, so a
-    /// compliance-issue event with the same ID is added in its place.
+    /// Adds an event with ID `<document>:r<run>:<slug>`, superseding the earlier
+    /// event for that slug if there is one. If its amounts use more than one
+    /// currency it cannot be an event of its own kind, so a compliance-issue
+    /// event with the same ID is added in its place.
     fn push(&mut self, slug: &str, payload: EventPayload, origin: Origin) -> Result<()> {
         let payload = if payload.has_single_currency() {
             payload
@@ -264,13 +340,13 @@ impl Builder<'_> {
             }
         };
         self.events.push(Event::new(EventParts {
-            id: EventId::new(format!("{}:{slug}", self.document.as_str())),
+            id: EventId::new(format!("{}:r{}:{slug}", self.document.as_str(), self.run)),
             date: self.date,
             payload,
             citation: origin.citation,
             extractor: origin.extractor,
             confidence: origin.confidence,
-            supersedes: None,
+            supersedes: self.replaces.get(slug).cloned(),
         })?);
         Ok(())
     }
