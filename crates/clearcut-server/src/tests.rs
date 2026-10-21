@@ -382,12 +382,23 @@ async fn the_authorization_header_is_marked_sensitive_so_it_prints_as_redacted()
 }
 
 /// Captures what `tracing` would print.
-#[derive(Clone, Default)]
-struct LogCapture(Arc<Mutex<Vec<u8>>>);
+///
+/// `tracing` remembers, per log statement, whether anyone was listening the
+/// first time it ran. A per-test subscriber is therefore unreliable: if another
+/// test running in parallel reaches the same statement first, it is cached as
+/// "nobody is listening" and this test sees nothing. So one subscriber is
+/// installed for the whole test process, and it writes into a buffer that is
+/// private to the current thread (each test runs on its own thread).
+#[derive(Clone, Copy)]
+struct LogCapture;
+
+thread_local! {
+    static CAPTURED: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 
 impl std::io::Write for LogCapture {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
+        CAPTURED.with(|captured| captured.borrow_mut().extend_from_slice(buf));
         Ok(buf.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -398,29 +409,35 @@ impl std::io::Write for LogCapture {
 impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
     type Writer = LogCapture;
     fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
+        *self
     }
 }
 
-fn capture_logs() -> (LogCapture, tracing::subscriber::DefaultGuard) {
-    let capture = LogCapture::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(capture.clone())
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .finish();
-    (capture, tracing::subscriber::set_default(subscriber))
+/// Starts a fresh capture for the calling test's thread.
+fn capture_logs() -> LogCapture {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(LogCapture)
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .finish();
+        // Another test binary component may have installed one; ours then simply goes unused.
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    });
+    CAPTURED.with(|captured| captured.borrow_mut().clear());
+    LogCapture
 }
 
 impl LogCapture {
     fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+        CAPTURED.with(|captured| String::from_utf8_lossy(&captured.borrow()).into_owned())
     }
 }
 
 #[tokio::test]
 async fn failed_authentication_is_logged_without_the_key() {
-    let (logs, _guard) = capture_logs();
+    let logs = capture_logs();
     let (app, _) = app_with_fake();
     let presented = "ccut_0123456789abcdef0123456789abcdef_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
     send(&app, get_with("/v1/whoami", Some(&bearer(presented)))).await;
@@ -437,7 +454,7 @@ async fn failed_authentication_is_logged_without_the_key() {
 
 #[tokio::test]
 async fn an_unavailable_authenticator_is_logged_without_the_key() {
-    let (logs, _guard) = capture_logs();
+    let logs = capture_logs();
     let (app, _) = app_with_fake();
     send(&app, get_with("/v1/whoami", Some(&bearer(FLAKY)))).await;
     let text = logs.text();
