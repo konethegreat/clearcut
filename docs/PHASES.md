@@ -20,7 +20,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 
 ## Phase 1 — Platform foundation (≈3–4 weeks)
 - ✅ P1-01 Postgres + `sqlx` migrations: tenants, documents, jobs, events, audit log — done per [ADR-0006](adr/0006-postgres-schema.md): `crates/clearcut-store` (migrations, `Store` API, 23 tests against a real Postgres, CI service container). `jobs` is deferred to P1-03; API keys and row-level security come with P1-04
-- ⬜ P1-02 Object storage abstraction (local disk + S3-compatible); resumable/chunked upload endpoint
+- 🔄 P1-02 Object storage abstraction (local disk + S3-compatible); resumable/chunked upload endpoint — done: `crates/clearcut-objects` (`ObjectStore` trait, `LocalDisk`, content-addressed tenant-scoped keys, streaming with a hard size limit, all-or-nothing writes; 19 tests). Remaining: the upload endpoint (needs auth, P1-04), resumable/chunked uploads (its own design), the S3/MinIO implementation (with P1-07)
 - ⬜ P1-03 Durable job queue (Postgres-backed) with retries, progress and cancellation
 - ⬜ P1-04 AuthN/Z: API keys, tenant isolation (row-level)
 - ⬜ P1-05 Idempotency keys on all mutating endpoints

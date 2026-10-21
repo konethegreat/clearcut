@@ -2,6 +2,20 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 — P1-02 part 1: `clearcut-objects` (object storage)
+**Done** (own branch and PR; tests first; 19 tests; workspace now 191 core + 19 objects + 23 store + 3 server)
+- New crate `clearcut-objects`: `ObjectStore` trait (`put`, `open`, `exists`, `delete`) and `LocalDisk`. A key is `tenants/<uuid>/documents/<sha256 hex>`: **content-addressed and tenant-scoped**, so the same upload twice is stored once, and two tenants never share an object. `ObjectKey` can only be built from a tenant and a hash, or parsed back in exactly that canonical shape (lowercase hyphenated UUID, lowercase hex), so a filename, `..`, an absolute path, a backslash or an odd UUID form can never reach the filesystem.
+- `put` streams in 64 KiB chunks, hashes while writing to a temp file, enforces a hard size limit on what is actually read (not on what the sender claims), rejects empty files, and renames into place only when complete. Failed, oversized or empty uploads leave nothing behind; simultaneous identical uploads all succeed and leave one intact object.
+- Mutation-checked six rules (limit boundary, empty check, temp cleanup, canonical UUID form, lowercase hex, tenant in key). The UUID-form mutation initially survived, which led to extra test cases for uppercase, braced, \`urn:\` and simple-form UUIDs.
+
+**Decisions / push-back**
+- **Not built yet, on purpose:** the upload endpoint (an unauthenticated write endpoint is the wrong thing to ship; it waits for P1-04), resumable/chunked uploads (a design of its own: sessions and partial state), and the S3/MinIO implementation (arrives with the Docker stack, P1-07; the trait is shaped for it).
+- Content addressing means a delete removes the object for every document of that tenant with the same bytes; the store layer must not delete an object another document row still references (decide with the upload flow).
+- Virus/malware scanning of uploads is not designed yet; uploads are treated as untrusted bytes and nothing here executes or parses them.
+
+**Environment note**: the \`clearcut-pg\` container had exited (Docker Desktop restarted); \`docker start clearcut-pg\` brings it back, and the store tests need it.
+**Next**: P1-03 (job queue; decides the \`jobs\` table, needs Kone's schema review), P2-04 (worker skeleton and provider trait), or P1-04 (auth and roles, which also unblocks the upload endpoint and the \`clearcut.erasure\` role restriction).
+
 ## 2026-10-20 (part 7) — P1-01: `clearcut-store` crate, migrations, real-Postgres tests
 **Done** (own branch and PR; tests first; 23 new store tests)
 - With Kone's approval: pulled the official `postgres:17` image and started a dev container `clearcut-pg` bound to `127.0.0.1:54329` with no password (`trust` auth, localhost only; Kone's own Postgres on 5432 and the other containers were left alone). CONTRIBUTING.md has the command; `.env.example` has `DATABASE_URL`. No password literal appears anywhere in the repo.
