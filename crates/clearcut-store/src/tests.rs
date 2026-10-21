@@ -4,6 +4,7 @@
 //! its own throwaway database with the migrations applied (`sqlx::test`).
 
 use super::*;
+use clearcut_core::auth::{Principal, Scope};
 use clearcut_core::event::{
     view, Citation, Confidence, DocumentId as CoreDocumentId, Event, EventId, EventParts, EventPayload,
     Extractor,
@@ -881,6 +882,597 @@ async fn only_the_application_role_may_call_erase_document(pool: PgPool) {
         .unwrap();
     assert!(!can_probe, "an arbitrary role must not be able to erase");
     assert!(can_app);
+}
+
+// ---------- API keys (ADR-0007) ----------
+
+fn new_key(name: &str, scopes: &[Scope]) -> NewApiKey {
+    NewApiKey {
+        name: name.to_string(),
+        scopes: scopes.to_vec(),
+        lifetime_days: None,
+    }
+}
+
+/// A key made the way the operator's `clearcut-admin` command makes the first one.
+async fn operator_key(store: &Store, tenant: TenantId, scopes: &[Scope]) -> CreatedApiKey {
+    store
+        .create_api_key_as_operator(tenant, &new_key("test key", scopes))
+        .await
+        .unwrap()
+}
+
+/// A principal holding the given scopes, obtained the real way: create a key
+/// and authenticate with it.
+async fn principal_with(store: &Store, tenant: TenantId, scopes: &[Scope]) -> Principal {
+    let key = operator_key(store, tenant, scopes).await;
+    store.authenticate(key.token.expose()).await.unwrap()
+}
+
+#[sqlx::test]
+async fn a_new_key_authenticates_as_its_tenant_with_exactly_its_scopes(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &[Scope::EventsRead, Scope::DocumentsRead]).await;
+    let principal = store.authenticate(key.token.expose()).await.unwrap();
+    assert_eq!(principal.tenant(), tenant.0);
+    assert_eq!(principal.key_id(), key.id);
+    assert_eq!(principal.scopes(), vec![Scope::DocumentsRead, Scope::EventsRead]);
+    assert!(!principal.has(Scope::KeysAdmin));
+}
+
+#[sqlx::test]
+async fn a_key_belongs_to_one_tenant_only(pool: PgPool) {
+    let two = two_tenants(&pool).await;
+    let key_a = operator_key(&two.app, two.a.0, &[Scope::DocumentsRead]).await;
+    let key_b = operator_key(&two.app, two.b.0, &[Scope::DocumentsRead]).await;
+    assert_eq!(
+        two.app.authenticate(key_a.token.expose()).await.unwrap().tenant(),
+        two.a.0 .0
+    );
+    assert_eq!(
+        two.app.authenticate(key_b.token.expose()).await.unwrap().tenant(),
+        two.b.0 .0
+    );
+}
+
+#[sqlx::test]
+async fn a_key_lasts_365_days_unless_a_shorter_life_is_asked_for(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let default = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    let short = store
+        .create_api_key_as_operator(
+            tenant,
+            &NewApiKey {
+                lifetime_days: NonZeroU32::new(30),
+                ..new_key("short", &[Scope::DocumentsRead])
+            },
+        )
+        .await
+        .unwrap();
+    for (key, days) in [(default.id, 365), (short.id, 30)] {
+        let exact: bool = sqlx::query_scalar(
+            "select expires_at - created_at = make_interval(days => $2) from api_keys where id = $1",
+        )
+        .bind(key)
+        .bind(days)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(exact, "{days} days");
+    }
+    assert_eq!(DEFAULT_KEY_LIFETIME_DAYS, 365);
+}
+
+#[sqlx::test]
+async fn the_database_refuses_a_key_that_never_expires(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let generated = keys::generate().unwrap();
+    let refused = sqlx::query(
+        "insert into api_keys (id, tenant_id, name, secret_hash, scopes, expires_at) \
+         values ($1, $2, 'x', $3, array['documents:read'], null)",
+    )
+    .bind(generated.id)
+    .bind(tenant.0)
+    .bind(&generated.secret_hash[..])
+    .execute(&pool)
+    .await;
+    assert!(db_message(refused).contains("null value"));
+    let _ = store;
+}
+
+#[sqlx::test]
+async fn a_key_needs_a_name_and_at_least_one_scope(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    assert!(matches!(
+        store
+            .create_api_key_as_operator(tenant, &new_key("   ", &[Scope::DocumentsRead]))
+            .await,
+        Err(Error::BlankName)
+    ));
+    assert!(matches!(
+        store
+            .create_api_key_as_operator(tenant, &new_key("empty", &[]))
+            .await,
+        Err(Error::NoScopes)
+    ));
+    assert_eq!(count(&pool, "select count(*) from api_keys").await, 0);
+}
+
+#[sqlx::test]
+async fn only_a_hash_of_the_secret_is_stored_anywhere(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &[Scope::KeysAdmin]).await;
+    let admin = store.authenticate(key.token.expose()).await.unwrap();
+    store.revoke_api_key(&admin, key.id).await.unwrap(); // also writes an audit row
+
+    let secret_hex = key.token.expose()[5 + 32 + 1..].to_string();
+    let parsed = keys::parse(key.token.expose()).unwrap();
+    let stored: Vec<u8> = sqlx::query_scalar("select secret_hash from api_keys where id = $1")
+        .bind(key.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, parsed.secret_hash.to_vec());
+    // The secret appears in no column of either table.
+    for table in ["api_keys", "audit_log"] {
+        let hits = count(
+            &pool,
+            &format!("select count(*) from {table} t where t::text like '%{secret_hex}%'"),
+        )
+        .await;
+        assert_eq!(hits, 0, "{table}");
+    }
+}
+
+#[sqlx::test]
+async fn bad_keys_all_fail_in_exactly_the_same_way(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin]).await;
+
+    let good = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    let parsed = keys::parse(good.token.expose()).unwrap();
+    let wrong_secret = format!("ccut_{}_{}", good.id.simple(), "0".repeat(64));
+    let unknown = keys::generate().unwrap().token.expose().to_string();
+    let revoked = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    store.revoke_api_key(&admin, revoked.id).await.unwrap();
+    let expired = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    sqlx::query(
+        "update api_keys set created_at = now() - interval '2 days', \
+         expires_at = now() - interval '1 second' where id = $1",
+    )
+    .bind(expired.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let _ = parsed;
+
+    // Sanity: the good key works; the others do not, and say nothing different.
+    assert!(store.authenticate(good.token.expose()).await.is_ok());
+    let attempts = [
+        ("wrong secret", wrong_secret),
+        ("unknown id", unknown),
+        ("revoked", revoked.token.expose().to_string()),
+        ("expired", expired.token.expose().to_string()),
+        ("malformed", "ccut_nonsense".to_string()),
+        ("empty", String::new()),
+        ("bearer prefix left on", format!("Bearer {}", good.token.expose())),
+    ];
+    let mut messages = std::collections::HashSet::new();
+    for (what, presented) in attempts {
+        let result = store.authenticate(&presented).await;
+        assert!(matches!(result, Err(Error::Unauthenticated)), "{what}");
+        messages.insert(result.unwrap_err().to_string());
+    }
+    assert_eq!(messages.len(), 1, "every failure must look identical");
+}
+
+#[sqlx::test]
+async fn revoking_takes_effect_at_once_and_repeating_it_is_harmless(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin]).await;
+    let key = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    assert!(store.authenticate(key.token.expose()).await.is_ok());
+    store.revoke_api_key(&admin, key.id).await.unwrap();
+    assert!(matches!(
+        store.authenticate(key.token.expose()).await,
+        Err(Error::Unauthenticated)
+    ));
+    store.revoke_api_key(&admin, key.id).await.unwrap(); // again: fine
+    assert!(matches!(
+        store.revoke_api_key(&admin, Uuid::from_u128(5)).await,
+        Err(Error::ApiKeyNotFound)
+    ));
+}
+
+#[sqlx::test]
+async fn one_tenant_cannot_revoke_or_list_another_tenants_keys(pool: PgPool) {
+    let two = two_tenants(&pool).await;
+    let admin_a = principal_with(&two.app, two.a.0, &[Scope::KeysAdmin]).await;
+    let key_b = operator_key(&two.app, two.b.0, &[Scope::DocumentsRead]).await;
+
+    assert!(matches!(
+        two.app.revoke_api_key(&admin_a, key_b.id).await,
+        Err(Error::ApiKeyNotFound)
+    ));
+    assert!(two.app.authenticate(key_b.token.expose()).await.is_ok());
+
+    let listed = two.app.list_api_keys(&admin_a).await.unwrap();
+    assert!(listed.iter().all(|k| k.id != key_b.id));
+    assert_eq!(listed.len(), 1); // only A's own admin key
+}
+
+#[sqlx::test]
+async fn managing_keys_needs_the_keys_admin_scope(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let reader = principal_with(&store, tenant, &[Scope::DocumentsRead, Scope::EventsRead]).await;
+    let missing = Error::Auth(clearcut_core::Error::MissingScope(Scope::KeysAdmin));
+    let created = store
+        .create_api_key(&reader, &new_key("sneaky", &[Scope::KeysAdmin]))
+        .await;
+    assert!(matches!(&created, Err(e) if e.to_string() == missing.to_string()));
+    assert!(matches!(
+        store.revoke_api_key(&reader, reader.key_id()).await,
+        Err(Error::Auth(_))
+    ));
+    assert!(matches!(store.list_api_keys(&reader).await, Err(Error::Auth(_))));
+    // Nothing was created or revoked.
+    assert_eq!(count(&pool, "select count(*) from api_keys").await, 1);
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from api_keys where revoked_at is not null"
+        )
+        .await,
+        0
+    );
+}
+
+#[sqlx::test]
+async fn an_admin_can_create_list_and_revoke_keys_for_their_own_tenant(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin, Scope::DocumentsWrite]).await;
+    let created = store
+        .create_api_key(&admin, &new_key("ci uploader", &[Scope::DocumentsWrite]))
+        .await
+        .unwrap();
+    let uploader = store.authenticate(created.token.expose()).await.unwrap();
+    assert_eq!(uploader.tenant(), tenant.0);
+    assert_eq!(uploader.scopes(), vec![Scope::DocumentsWrite]);
+
+    let listed = store.list_api_keys(&admin).await.unwrap();
+    let info = listed.iter().find(|k| k.id == created.id).unwrap();
+    assert_eq!(info.name, "ci uploader");
+    assert_eq!(info.scopes, vec![Scope::DocumentsWrite]);
+    assert!(info.revoked_at.is_none());
+    assert!(info.last_used_at.is_some()); // the authenticate call above
+
+    store.revoke_api_key(&admin, created.id).await.unwrap();
+    let after = store.list_api_keys(&admin).await.unwrap();
+    assert!(after
+        .iter()
+        .find(|k| k.id == created.id)
+        .unwrap()
+        .revoked_at
+        .is_some());
+}
+
+#[sqlx::test]
+async fn last_used_is_recorded_but_at_most_once_a_minute(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    let last_used = || async {
+        sqlx::query_scalar::<_, Option<time::OffsetDateTime>>(
+            "select last_used_at from api_keys where id = $1",
+        )
+        .bind(key.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    assert!(last_used().await.is_none());
+
+    store.authenticate(key.token.expose()).await.unwrap();
+    let first = last_used().await.unwrap();
+    store.authenticate(key.token.expose()).await.unwrap();
+    assert_eq!(
+        last_used().await.unwrap(),
+        first,
+        "a second use inside a minute writes nothing"
+    );
+
+    sqlx::query("update api_keys set last_used_at = now() - interval '2 minutes' where id = $1")
+        .bind(key.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    store.authenticate(key.token.expose()).await.unwrap();
+    let refreshed = last_used().await.unwrap();
+    assert!(refreshed > time::OffsetDateTime::now_utc() - time::Duration::minutes(1));
+}
+
+#[sqlx::test]
+async fn the_application_role_cannot_read_secret_hashes_or_tamper_with_keys(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+
+    // Reading the safe columns is fine.
+    let mut tx = as_tenant(store.pool(), tenant).await;
+    let visible: i64 = sqlx::query_scalar("select count(id) from api_keys")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(visible, 1);
+    drop(tx);
+
+    for statement in [
+        "select secret_hash from api_keys",
+        "select * from api_keys",
+        "update api_keys set scopes = array['keys:admin']",
+        "update api_keys set expires_at = now() + interval '100 years'",
+        "update api_keys set secret_hash = decode(repeat('00', 32), 'hex')",
+        "update api_keys set name = 'renamed'",
+        "delete from api_keys",
+        "truncate api_keys",
+    ] {
+        let mut tx = as_tenant(store.pool(), tenant).await;
+        let refused = sqlx::query(statement).execute(&mut *tx).await;
+        assert!(db_message(refused).contains("permission denied"), "{statement}");
+    }
+    // Nothing changed.
+    assert!(store.authenticate(key.token.expose()).await.is_ok());
+}
+
+#[sqlx::test]
+async fn without_a_tenant_the_application_role_sees_no_keys(pool: PgPool) {
+    let two = two_tenants(&pool).await;
+    operator_key(&two.app, two.a.0, &[Scope::DocumentsRead]).await;
+    operator_key(&two.app, two.b.0, &[Scope::DocumentsRead]).await;
+    assert_eq!(count(&pool, "select count(*) from api_keys").await, 2);
+    assert_eq!(count(two.app.pool(), "select count(id) from api_keys").await, 0);
+
+    let mut tx = as_tenant(two.app.pool(), two.a.0).await;
+    let own: i64 = sqlx::query_scalar("select count(id) from api_keys")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(own, 1);
+}
+
+#[sqlx::test]
+async fn authentication_is_a_vetted_security_definer_function_for_the_app_role_only(pool: PgPool) {
+    let _ = setup(&pool).await;
+    let (secdef, owner, config): (bool, String, Option<Vec<String>>) = sqlx::query_as(
+        "select p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig \
+         from pg_proc p where p.proname = 'authenticate_api_key'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(secdef);
+    assert_eq!(owner, "clearcut_authenticator");
+    assert!(config
+        .unwrap_or_default()
+        .iter()
+        .any(|c| c.starts_with("search_path=")));
+
+    let (login, superuser, bypass): (bool, bool, bool) = sqlx::query_as(
+        "select rolcanlogin, rolsuper, rolbypassrls from pg_roles where rolname = 'clearcut_authenticator'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!login && !superuser && !bypass);
+
+    let probe = format!("probe_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("create role {probe} nologin")))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let can_probe: bool = sqlx::query_scalar(
+        "select has_function_privilege($1, 'authenticate_api_key(uuid, bytea)', 'execute')",
+    )
+    .bind(&probe)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let can_app: bool = sqlx::query_scalar(
+        "select has_function_privilege('clearcut_app', 'authenticate_api_key(uuid, bytea)', 'execute')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("drop role {probe}")))
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!can_probe && can_app);
+}
+
+#[sqlx::test]
+async fn a_scope_this_version_does_not_know_fails_closed(pool: PgPool) {
+    // Version skew or corruption: never quietly drop the scope and carry on.
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    sqlx::query("update api_keys set scopes = array['documents:read', 'bogus:scope'] where id = $1")
+        .bind(key.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store.authenticate(key.token.expose()).await,
+        Err(Error::InvalidStoredScopes(_))
+    ));
+}
+
+#[sqlx::test]
+async fn creating_and_revoking_are_audited_without_the_secret(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin, Scope::EventsRead]).await;
+    let created = store
+        .create_api_key(&admin, &new_key("audited", &[Scope::EventsRead]))
+        .await
+        .unwrap();
+    store.revoke_api_key(&admin, created.id).await.unwrap();
+
+    let rows: Vec<(String, serde_json::Value, serde_json::Value, String)> = sqlx::query_as(
+        "select action, actor, detail, subject_id from audit_log \
+         where tenant_id = $1 and subject_id = $2 order by id",
+    )
+    .bind(tenant.0)
+    .bind(created.id.to_string())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let actions: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(actions, ["api_key.created", "api_key.revoked"]);
+    // Who did it: the admin's key.
+    assert_eq!(
+        rows[0].1,
+        json!({ "type": "api_key", "id": admin.key_id().to_string() })
+    );
+    // What it was, with no secret.
+    assert_eq!(rows[0].2["name"], "audited");
+    assert_eq!(rows[0].2["scopes"], json!(["events:read"]));
+}
+
+#[sqlx::test]
+async fn the_created_key_does_not_print_its_secret(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    let secret_hex = key.token.expose()[5 + 32 + 1..].to_string();
+    assert!(!format!("{key:?}").contains(&secret_hex));
+    assert!(!format!("{:#?}", key).contains(&secret_hex));
+}
+
+#[sqlx::test]
+async fn a_longer_life_than_the_default_cannot_be_asked_for(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = store
+        .create_api_key_as_operator(
+            tenant,
+            &NewApiKey {
+                lifetime_days: NonZeroU32::new(100_000),
+                ..new_key("greedy", &[Scope::DocumentsRead])
+            },
+        )
+        .await
+        .unwrap();
+    let exact: bool = sqlx::query_scalar(
+        "select expires_at - created_at = make_interval(days => 365) from api_keys where id = $1",
+    )
+    .bind(key.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(exact, "the life is capped at the default, never longer");
+}
+
+#[sqlx::test]
+async fn repeated_scopes_are_stored_once_and_the_name_is_trimmed(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = store
+        .create_api_key_as_operator(
+            tenant,
+            &new_key(
+                "  padded name  ",
+                &[Scope::EventsRead, Scope::DocumentsRead, Scope::EventsRead],
+            ),
+        )
+        .await
+        .unwrap();
+    let (name, scopes): (String, Vec<String>) =
+        sqlx::query_as("select name, scopes from api_keys where id = $1")
+            .bind(key.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(name, "padded name");
+    assert_eq!(scopes, ["documents:read", "events:read"]);
+}
+
+#[sqlx::test]
+async fn a_key_admin_cannot_hand_out_scopes_it_does_not_hold(pool: PgPool) {
+    // keys:admin lets you manage keys. It must not let you mint a key that can
+    // read invoices, upload or review: no scope implies another (ADR-0007).
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin]).await;
+    for scope in [
+        Scope::DocumentsRead,
+        Scope::DocumentsWrite,
+        Scope::EventsRead,
+        Scope::ReviewWrite,
+    ] {
+        let result = store.create_api_key(&admin, &new_key("escalate", &[scope])).await;
+        assert!(
+            matches!(&result, Err(Error::Auth(clearcut_core::Error::MissingScope(missing))) if *missing == scope),
+            "{scope:?}: {result:?}"
+        );
+    }
+    assert_eq!(
+        count(&pool, "select count(*) from api_keys where name = 'escalate'").await,
+        0
+    );
+}
+
+#[sqlx::test]
+async fn one_missing_scope_refuses_the_whole_request(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin, Scope::DocumentsRead]).await;
+    let result = store
+        .create_api_key(
+            &admin,
+            &new_key("mixed", &[Scope::DocumentsRead, Scope::EventsRead]),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(Error::Auth(clearcut_core::Error::MissingScope(Scope::EventsRead)))
+    ));
+    assert_eq!(
+        count(&pool, "select count(*) from api_keys where name = 'mixed'").await,
+        0
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from audit_log where subject_type = 'api_key' and detail ->> 'name' = 'mixed'"
+        )
+        .await,
+        0
+    );
+}
+
+#[sqlx::test]
+async fn a_key_admin_can_hand_out_any_subset_of_the_scopes_it_holds(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let held = [Scope::KeysAdmin, Scope::DocumentsRead, Scope::EventsRead];
+    let admin = principal_with(&store, tenant, &held).await;
+    for wanted in [
+        vec![Scope::DocumentsRead],
+        vec![Scope::EventsRead, Scope::DocumentsRead],
+        vec![Scope::KeysAdmin], // a peer administrator, which the admin already is
+        held.to_vec(),
+    ] {
+        let created = store
+            .create_api_key(&admin, &new_key("subset", &wanted))
+            .await
+            .unwrap();
+        let principal = store.authenticate(created.token.expose()).await.unwrap();
+        let mut expected = wanted.clone();
+        expected.sort();
+        expected.dedup();
+        assert_eq!(principal.scopes(), expected);
+    }
+}
+
+#[sqlx::test]
+async fn the_operator_can_still_issue_every_scope(pool: PgPool) {
+    // The one deliberate way to create a key with scopes nobody holds yet: the
+    // operator's admin command, e.g. for a tenant's first key.
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &Scope::ALL).await;
+    let principal = store.authenticate(key.token.expose()).await.unwrap();
+    assert_eq!(principal.scopes(), Scope::ALL.to_vec());
 }
 
 // ---------- ids ----------

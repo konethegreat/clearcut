@@ -22,8 +22,13 @@
 //!
 //! Queries use bound parameters throughout, never string-built SQL.
 
+use clearcut_core::auth::{Principal, Scope};
 use clearcut_core::event::{DocumentId as CoreDocumentId, Event};
+
+pub mod keys;
 use sqlx::postgres::PgPool;
+use std::num::NonZeroU32;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 /// The migrations, embedded in the binary at compile time.
@@ -53,6 +58,24 @@ pub enum Error {
     Serialize(serde_json::Error),
     #[error("unknown document status in the database: {0}")]
     UnknownStatus(String),
+    /// The key is missing, malformed, unknown, wrong, revoked or expired. The
+    /// text is the same for all of them on purpose.
+    #[error("authentication failed")]
+    Unauthenticated,
+    #[error("API key not found")]
+    ApiKeyNotFound,
+    #[error("an API key needs a name")]
+    BlankName,
+    #[error("an API key needs at least one scope")]
+    NoScopes,
+    /// A stored key carries a scope this version does not know. Never ignored.
+    #[error("a stored API key has an unknown scope: {0}")]
+    InvalidStoredScopes(String),
+    #[error("could not get random bytes for a key: {0}")]
+    Random(String),
+    /// The caller lacks a scope (from `clearcut-core::auth`).
+    #[error(transparent)]
+    Auth(#[from] clearcut_core::Error),
 }
 
 /// Identifies a tenant.
@@ -135,6 +158,52 @@ pub struct AuditEntry {
     pub subject_id: String,
     pub detail: serde_json::Value,
 }
+
+/// A key lasts this many days unless a shorter life is asked for. There is no
+/// way to ask for a longer one or for none (ADR-0007).
+pub const DEFAULT_KEY_LIFETIME_DAYS: u32 = 365;
+
+/// A request for a new API key.
+#[derive(Debug, Clone)]
+pub struct NewApiKey {
+    pub name: String,
+    pub scopes: Vec<Scope>,
+    /// Days until it expires; `None` means [`DEFAULT_KEY_LIFETIME_DAYS`]. It can
+    /// only be made shorter than the default, never longer.
+    pub lifetime_days: Option<NonZeroU32>,
+}
+
+/// A newly created key. The token is the only copy of the secret there will
+/// ever be: show it to the owner once and drop it.
+#[derive(Debug)]
+pub struct CreatedApiKey {
+    pub id: Uuid,
+    pub token: keys::ApiKeyToken,
+    pub expires_at: OffsetDateTime,
+}
+
+/// What may be shown about an existing key. Never its secret or its hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiKeyInfo {
+    pub id: Uuid,
+    pub name: String,
+    pub scopes: Vec<Scope>,
+    pub created_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
+    pub last_used_at: Option<OffsetDateTime>,
+    pub revoked_at: Option<OffsetDateTime>,
+}
+
+/// One row of the key listing, in the order of the select.
+type ApiKeyRow = (
+    Uuid,
+    String,
+    Vec<String>,
+    OffsetDateTime,
+    OffsetDateTime,
+    Option<OffsetDateTime>,
+    Option<OffsetDateTime>,
+);
 
 /// A handle to the database.
 #[derive(Debug, Clone)]
@@ -343,21 +412,203 @@ impl Store {
 
     pub async fn record_audit(&self, tenant: TenantId, entry: &AuditEntry) -> Result<()> {
         let mut tx = self.begin(tenant).await?;
-        sqlx::query(
-            "insert into audit_log (tenant_id, actor, action, subject_type, subject_id, detail) \
-             values ($1, $2, $3, $4, $5, $6)",
-        )
-        .bind(tenant.0)
-        .bind(&entry.actor)
-        .bind(&entry.action)
-        .bind(&entry.subject_type)
-        .bind(&entry.subject_id)
-        .bind(&entry.detail)
-        .execute(&mut *tx)
-        .await?;
+        insert_audit(&mut tx, tenant, entry).await?;
         tx.commit().await?;
         Ok(())
     }
+
+    /// Checks a presented API key and says who it is. Every kind of failure
+    /// (malformed, unknown, wrong secret, revoked, expired) is the same
+    /// [`Error::Unauthenticated`], so a caller learns nothing about which keys
+    /// exist. The check runs in a security-definer database function because
+    /// the tenant is not known until the key has been checked.
+    pub async fn authenticate(&self, presented: &str) -> Result<Principal> {
+        let parsed = keys::parse(presented).ok_or(Error::Unauthenticated)?;
+        let found: Option<(Uuid, Vec<String>)> =
+            sqlx::query_as("select out_tenant_id, out_scopes from authenticate_api_key($1, $2)")
+                .bind(parsed.id)
+                .bind(&parsed.secret_hash[..])
+                .fetch_optional(&self.pool)
+                .await?;
+        let (tenant, scope_names) = found.ok_or(Error::Unauthenticated)?;
+        let scopes =
+            Scope::parse_all(&scope_names).map_err(|error| Error::InvalidStoredScopes(error.to_string()))?;
+        Ok(Principal::new(tenant, parsed.id, scopes))
+    }
+
+    /// Creates a key for the caller's own tenant. The caller needs `keys:admin`
+    /// **and must hold every scope it hands out**: `keys:admin` lets you manage
+    /// keys, it does not let you mint a key that can do what you cannot (no scope
+    /// implies another, ADR-0007). One missing scope refuses the whole request.
+    /// Only the operator path ([`Store::create_api_key_as_operator`]) can issue
+    /// scopes nobody holds yet.
+    pub async fn create_api_key(&self, by: &Principal, new: &NewApiKey) -> Result<CreatedApiKey> {
+        by.require(Scope::KeysAdmin)?;
+        let mut wanted = new.scopes.clone();
+        wanted.sort();
+        wanted.dedup();
+        for scope in wanted {
+            by.require(scope)?;
+        }
+        let actor = serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() });
+        self.insert_api_key(TenantId(by.tenant()), new, actor).await
+    }
+
+    /// Creates a key for any tenant, with no scope check. This is how the
+    /// operator's `clearcut-admin` command makes a tenant's first key; the
+    /// public API never calls it.
+    pub async fn create_api_key_as_operator(
+        &self,
+        tenant: TenantId,
+        new: &NewApiKey,
+    ) -> Result<CreatedApiKey> {
+        self.insert_api_key(tenant, new, serde_json::json!({ "type": "operator" }))
+            .await
+    }
+
+    async fn insert_api_key(
+        &self,
+        tenant: TenantId,
+        new: &NewApiKey,
+        actor: serde_json::Value,
+    ) -> Result<CreatedApiKey> {
+        if new.name.trim().is_empty() {
+            return Err(Error::BlankName);
+        }
+        if new.scopes.is_empty() {
+            return Err(Error::NoScopes);
+        }
+        let mut scopes = new.scopes.clone();
+        scopes.sort();
+        scopes.dedup();
+        let scope_names: Vec<&str> = scopes.iter().map(|scope| scope.as_str()).collect();
+
+        let key = keys::generate().map_err(|error| Error::Random(error.to_string()))?;
+        let days = new
+            .lifetime_days
+            .map_or(DEFAULT_KEY_LIFETIME_DAYS, NonZeroU32::get)
+            .min(DEFAULT_KEY_LIFETIME_DAYS);
+
+        let mut tx = self.begin(tenant).await?;
+        let expires_at: OffsetDateTime = sqlx::query_scalar(
+            "insert into api_keys (id, tenant_id, name, secret_hash, scopes, expires_at) \
+             values ($1, $2, $3, $4, $5, now() + make_interval(days => $6)) \
+             returning expires_at",
+        )
+        .bind(key.id)
+        .bind(tenant.0)
+        .bind(new.name.trim())
+        .bind(&key.secret_hash[..])
+        .bind(&scope_names)
+        .bind(i32::try_from(days).unwrap_or(i32::MAX))
+        .fetch_one(&mut *tx)
+        .await?;
+        let entry = AuditEntry {
+            actor,
+            action: "api_key.created".into(),
+            subject_type: "api_key".into(),
+            subject_id: key.id.to_string(),
+            // The secret is never recorded, only what the key is for.
+            detail: serde_json::json!({ "name": new.name.trim(), "scopes": scope_names }),
+        };
+        insert_audit(&mut tx, tenant, &entry).await?;
+        tx.commit().await?;
+        Ok(CreatedApiKey {
+            id: key.id,
+            token: key.token,
+            expires_at,
+        })
+    }
+
+    /// Revokes a key of the caller's own tenant, at once. Revoking a key that
+    /// is already revoked is fine; one that does not exist (or belongs to
+    /// another tenant) is [`Error::ApiKeyNotFound`]. Needs `keys:admin`.
+    pub async fn revoke_api_key(&self, by: &Principal, key_id: Uuid) -> Result<()> {
+        by.require(Scope::KeysAdmin)?;
+        let tenant = TenantId(by.tenant());
+        let mut tx = self.begin(tenant).await?;
+        let revoked = sqlx::query(
+            "update api_keys set revoked_at = now() \
+             where id = $1 and tenant_id = $2 and revoked_at is null",
+        )
+        .bind(key_id)
+        .bind(tenant.0)
+        .execute(&mut *tx)
+        .await?;
+        if revoked.rows_affected() == 1 {
+            let entry = AuditEntry {
+                actor: serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() }),
+                action: "api_key.revoked".into(),
+                subject_type: "api_key".into(),
+                subject_id: key_id.to_string(),
+                detail: serde_json::json!({}),
+            };
+            insert_audit(&mut tx, tenant, &entry).await?;
+        } else {
+            let exists: Option<i32> =
+                sqlx::query_scalar("select 1 from api_keys where id = $1 and tenant_id = $2")
+                    .bind(key_id)
+                    .bind(tenant.0)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if exists.is_none() {
+                return Err(Error::ApiKeyNotFound);
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The caller's tenant's keys, oldest first, without any secrets. Needs
+    /// `keys:admin`.
+    pub async fn list_api_keys(&self, by: &Principal) -> Result<Vec<ApiKeyInfo>> {
+        by.require(Scope::KeysAdmin)?;
+        let mut tx = self.begin(TenantId(by.tenant())).await?;
+        let rows: Vec<ApiKeyRow> = sqlx::query_as(
+            "select id, name, scopes, created_at, expires_at, last_used_at, revoked_at \
+             from api_keys order by created_at, id",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        rows.into_iter()
+            .map(
+                |(id, name, scope_names, created_at, expires_at, last_used_at, revoked_at)| {
+                    Ok(ApiKeyInfo {
+                        id,
+                        name,
+                        scopes: Scope::parse_all(&scope_names)
+                            .map_err(|error| Error::InvalidStoredScopes(error.to_string()))?,
+                        created_at,
+                        expires_at,
+                        last_used_at,
+                        revoked_at,
+                    })
+                },
+            )
+            .collect()
+    }
+}
+
+/// Writes one audit row inside an existing tenant-scoped transaction.
+async fn insert_audit(
+    tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
+    tenant: TenantId,
+    entry: &AuditEntry,
+) -> Result<()> {
+    sqlx::query(
+        "insert into audit_log (tenant_id, actor, action, subject_type, subject_id, detail) \
+         values ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(tenant.0)
+    .bind(&entry.actor)
+    .bind(&entry.action)
+    .bind(&entry.subject_type)
+    .bind(&entry.subject_id)
+    .bind(&entry.detail)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 /// Fails with [`Error::DocumentNotFound`] unless `document` exists and belongs
