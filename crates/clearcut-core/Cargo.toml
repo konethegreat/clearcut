@@ -18,6 +18,7 @@ schemars = ["dep:schemars"]
 schemars = { version = "1", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
+uuid = "1"
 # Dates are easy to get subtly wrong (leap years, month lengths), so we use a
 # well-tested crate. `serde-human-readable` writes dates as "YYYY-MM-DD" in JSON.
 time = { version = "0.3.55", default-features = false, features = ["serde-human-readable"] }
