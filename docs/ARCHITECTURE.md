@@ -25,7 +25,7 @@ _Author: Kone Tshivhinda · Written by Kone Tshivhinda & Claude_
 
 | Path | Language | Role | Status |
 |---|---|---|---|
-| `crates/clearcut-core` | Rust | Domain: `Money`, `TaxCategory`, `Invoice`, `InvoiceStatus`, `compliance_za`, `event` (Event, EventPayload, Citation, grouping views), `extraction` (untrusted extractor output, deterministic validation, event derivation with re-extraction runs), `narration` (template narrator, formatting, number guard, summary/timeline/grouped modes) | 191 tests |
+| `crates/clearcut-core` | Rust | Domain: `auth` (Scope, Principal), `Money`, `TaxCategory`, `Invoice`, `InvoiceStatus`, `compliance_za`, `event` (Event, EventPayload, Citation, grouping views), `extraction` (untrusted extractor output, deterministic validation, event derivation with re-extraction runs), `narration` (template narrator, formatting, number guard, summary/timeline/grouped modes) | 203 tests |
 | `crates/clearcut-server` | Rust (axum) | REST: `GET /health`, `POST /v1/invoices/calculate` | 3 tests |
 | `crates/clearcut-store` | Rust (sqlx) | Postgres persistence ([ADR-0006](adr/0006-postgres-schema.md)): tenants, documents (hash de-duplication), append-only events and audit log; every call tenant-scoped; atomic, idempotent event append; events re-validated on read | 23 tests (need `DATABASE_URL`) |
 | `crates/clearcut-objects` | Rust (tokio) | Object storage for uploaded files: `ObjectStore` trait + `LocalDisk`; keys are `tenants/<uuid>/documents/<sha256>` (built from the content hash, never from a filename); streaming upload with a hard size limit; temp file renamed into place only when complete | 19 tests |

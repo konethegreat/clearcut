@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 3) — P1-04 step 1: `clearcut-core::auth`
+**Done** (ADR-0007 merged as Accepted first; own branch and PR; tests first; 12 new tests, core now 203)
+- `Scope` (`documents:read`, `documents:write`, `events:read`, `review:write`, `keys:admin`): exact text forms, serde as those strings, exact parsing (no trimming, case folding, wildcards or comma lists), and `parse_all` that fails on the first unknown name rather than trimming a stored list.
+- `Principal` (tenant, key id, scopes): `has`, `require` (names the missing scope), deduplicated and ordered scopes. **No scope implies another**, not even `keys:admin`; a principal with no scopes can do nothing.
+- New errors `UnknownScope` and `MissingScope`. Mutation-checked: scope implication, trimming and silent dropping of unknown scopes each fail a test.
+- ADR-0007 decisions recorded: scope list as written, no cross-tenant super key, 365-day default key expiry, throttling left to the deployment.
+
+**Next in P1-04**: migration with the three roles, row-level security, a tenant-scoped `Store` and the `erase_document` function (retiring `clearcut.erasure`); then API keys; then the `clearcut-admin` command; then the server Bearer extractor.
+
 ## 2026-10-21 (part 2) — P1-04 design proposal (docs only)
 **Done**
 - Drafted [ADR-0007](adr/0007-auth-and-row-level-security.md): API keys (`ccut_<id>_<secret>`, shown once, SHA-256 of the secret stored, constant-time check, identical error for every failure), five initial scopes enforced by a pure `Principal` in `clearcut-core`, **row-level security** on every tenant table that fails closed when no tenant is set, three database roles (owner, restricted `clearcut_app`, `clearcut_eraser`), and erasure turned into a `security definer` function so the application can call it but cannot delete events itself. This retires the `clearcut.erasure` setting and closes the follow-up from ADR-0006.

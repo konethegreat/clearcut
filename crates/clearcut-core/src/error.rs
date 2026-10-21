@@ -23,4 +23,8 @@ pub enum Error {
     InvalidEvent(&'static str),
     #[error("invalid narration: {0}")]
     InvalidNarration(&'static str),
+    #[error("unknown scope {0:?}")]
+    UnknownScope(String),
+    #[error("missing required scope {}", .0.as_str())]
+    MissingScope(crate::auth::Scope),
 }
