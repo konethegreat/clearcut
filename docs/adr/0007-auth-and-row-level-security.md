@@ -90,6 +90,13 @@ The store opens every operation with `select set_config('clearcut.tenant', $1, t
 - The migrating role needs `CREATEROLE` (or to be a superuser). Credentials for `clearcut_app` are set out of band; the migration gives it none.
 - `clearcut-store` gained a `build.rs` so Cargo rebuilds when a migration file changes (`sqlx::migrate!` embeds them at compile time).
 
+## Implementation notes (step 3, migration 0004: API keys)
+- **A fourth database role, `clearcut_authenticator`** (login-less), owns `authenticate_api_key(key_id, secret_hash)`. It is the only role that can read secret hashes; it may update nothing but `last_used_at`. The application role gets **column-level privileges** on `api_keys`: it can read every column except `secret_hash`, insert, and update only `revoked_at`. So even a flaw in application code cannot read hashes, change a key's scopes, name or expiry, or delete a key.
+- **Constant-shape authentication.** The function returns rows only when the key exists, the secret matches, and the key is neither revoked nor expired, with no hint which check failed; the store maps every failure (including a malformed key, which never reaches the database) to the same `Unauthenticated` error. Hashes are compared as hashes of hashes, and an unknown key id does equivalent work. This is a small deviation from "compare in constant time in Rust": the comparison happens in the function so that the application role never needs to read the stored hash at all.
+- **Expiry is mandatory and capped.** `expires_at` is `NOT NULL` with `expires_at > created_at`; a key's life defaults to 365 days and can be made shorter but never longer or absent (the store caps it).
+- **Management needs `keys:admin`**, checked in the store through the core `Principal` (`create_api_key`, `revoke_api_key`, `list_api_keys`), and acts only on the caller's own tenant. A tenant's *first* key is made by `create_api_key_as_operator` (for the `clearcut-admin` command), which has no scope check and is never called by the public API. Creation and revocation are written to the audit log without the secret; the key text is only ever returned once, and its `Debug` output hides the secret.
+- A stored scope this version does not know makes authentication fail with an error instead of being quietly dropped.
+
 ## Consequences
 - Local development needs the restricted role, so the dev container instructions gain one step (connect as `clearcut_app`; migrations run as `clearcut`). Tests that exercise RLS switch role inside a transaction.
 - Every `Store` method becomes a tenant-scoped transaction, a small mechanical refactor with tests already in place to protect it.

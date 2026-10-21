@@ -2,6 +2,17 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 5) — P1-04 step 3: API keys
+**Done** (own branch and PR; tests first; store tests 37 -> 66: 9 pure key-format tests, 20 database tests; ADR-0007 gains implementation notes)
+- `keys` module (pure apart from OS randomness): `ccut_<32 hex id>_<64 hex secret>`; strict parsing (no trimming, case folding or `Bearer ` prefix); the stored value is SHA-256 of the 32 secret bytes; `ApiKeyToken`'s `Debug` shows the key id and hides the secret.
+- Migration `0004_api_keys.sql`: `api_keys` table (`expires_at NOT NULL`), column-level privileges so the application role **cannot read `secret_hash`**, change scopes/name/expiry, or delete; RLS; login-less `clearcut_authenticator` role owning `authenticate_api_key` (security definer, fixed `search_path`, executable only by the app role; failures return nothing and reveal nothing; `last_used_at` refreshed at most once a minute).
+- `Store`: `authenticate` (returns the core `Principal`), `create_api_key` / `revoke_api_key` / `list_api_keys` (need `keys:admin`, own tenant only, audited without the secret), `create_api_key_as_operator` (for the admin command). Revoking is immediate and idempotent; another tenant's key looks absent. Default and maximum life 365 days.
+- Mutation-checked 14 rules across the SQL and Rust (secret-hash visibility, scope tampering, revoked/expired/wrong secret accepted, last-used throttle, tenant visibility, search_path, execute grant, three missing scope checks, lifetime cap, scope de-duplication); all caught. Two of those rules had no test until the mutation pass listed them, so I added tests for the lifetime cap and for scope de-duplication/name trimming.
+
+**Deviation recorded in the ADR**: the secret comparison happens inside the database function (on hashes of hashes) instead of in Rust, so the application role never has to read the stored hash.
+**Tooling lessons**: Git Bash rewrites an argument that starts with `//` into a path, which mis-spliced a test block once (caught immediately by the compiler); heavy quoting in one-line shell scripts failed twice, so scripts are now written to files.
+**Next in P1-04**: the `clearcut-admin` bootstrap command (create tenant, create first key, run with the owner connection), then the `Bearer` extractor in `clearcut-server` and the protected upload endpoint.
+
 ## 2026-10-21 (part 4) — P1-04 step 2: roles, row-level security, tenant-scoped store, `erase_document`
 **Done** (own branch and PR; tests first; store tests 23 -> 37; ADR-0007 gains implementation notes)
 - Migration `0003_roles_rls.sql`: restricted `clearcut_app` (cannot own tables, bypass RLS, update/delete events or audit rows, truncate, delete documents or create tenants) and login-less `clearcut_eraser`; RLS on `tenants`, `documents`, `events`, `audit_log` that **fails closed** when no tenant is set; `erase_document` (SECURITY DEFINER, owned by the eraser, fixed `search_path`, executable only by the app role). The `clearcut.erasure` setting is retired.
