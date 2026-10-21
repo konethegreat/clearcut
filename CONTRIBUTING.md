@@ -5,7 +5,7 @@ Thanks for helping. ClearCut is a multi-language monorepo; see [docs/ARCHITECTUR
 ## Setup
 - Rust (stable) for `crates/`, Node 22 for `packages/`.
 - `cargo test --workspace` and `npm ci && npm run build && npm test`.
-- The `clearcut-store` tests need a Postgres (13+) and a `DATABASE_URL`; each test gets its own throwaway database. Quick local setup: a throwaway container with no password (`trust` auth), published on `127.0.0.1` only and on a spare port so it cannot clash with a Postgres you already run. Never use this for real data.
+- The `clearcut-store` tests need a Postgres (13+) and a `DATABASE_URL`; each test gets its own throwaway database, and the store under test connects as the restricted `clearcut_app` role that migration 0003 creates (so row-level security is really exercised); `DATABASE_URL` itself is the owner connection. Quick local setup: a throwaway container with no password (`trust` auth), published on `127.0.0.1` only and on a spare port so it cannot clash with a Postgres you already run. Never use this for real data.
   ```
   docker run -d --name clearcut-pg -e POSTGRES_USER=clearcut -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=clearcut -p 127.0.0.1:54329:5432 postgres:17
   export DATABASE_URL=postgres://clearcut@127.0.0.1:54329/clearcut

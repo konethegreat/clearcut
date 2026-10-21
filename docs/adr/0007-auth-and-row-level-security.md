@@ -82,6 +82,14 @@ The store opens every operation with `select set_config('clearcut.tenant', $1, t
 3. **Default key expiry of 365 days.** `create_api_key` sets `expires_at` to a year from creation unless a different expiry is given explicitly; there is no "never expires" default. Rotation means issuing a new key before the old one lapses.
 4. **Failed-login throttling is left to the deployment** (reverse proxy or gateway). The service only logs failed attempts, without the presented key.
 
+## Implementation notes (step 2, migration 0003)
+- **Row-level security is enabled but not `FORCE`d**, a small deviation from the sketch above. With `FORCE` even the owner role would be restricted, and the operator's `clearcut-admin` command (and migrations) deliberately run as the owner and must see across tenants. The protection comes from the service never running as the owner: it connects as `clearcut_app`, which owns nothing and cannot bypass RLS. Tests assert both properties.
+- **The `clearcut.erasure` setting is gone.** `forbid_event_changes()` now allows a `DELETE` only when `current_user` is `clearcut_eraser`, i.e. only inside `erase_document`. The application role has no `DELETE`, `UPDATE` or `TRUNCATE` on events or audit rows at all; the triggers remain as a second layer, including against a superuser.
+- **`erase_document`** checks that its tenant argument is the current tenant (so the SECURITY DEFINER power cannot be pointed at another tenant), raises `no_data_found` for a missing or foreign document (the store maps that to `DocumentNotFound`), and writes an audit entry with no invoice content.
+- **Roles are cluster-wide**, so migration 0003 creates them tolerantly and then states their security-critical attributes explicitly (a pre-existing role with `bypassrls` is repaired, not trusted). The lock is taken as its own statement so later statements see a fresh snapshot; a single `DO` block would act on a stale view when several databases migrate at once.
+- The migrating role needs `CREATEROLE` (or to be a superuser). Credentials for `clearcut_app` are set out of band; the migration gives it none.
+- `clearcut-store` gained a `build.rs` so Cargo rebuilds when a migration file changes (`sqlx::migrate!` embeds them at compile time).
+
 ## Consequences
 - Local development needs the restricted role, so the dev container instructions gain one step (connect as `clearcut_app`; migrations run as `clearcut`). Tests that exercise RLS switch role inside a transaction.
 - Every `Store` method becomes a tenant-scoped transaction, a small mechanical refactor with tests already in place to protect it.

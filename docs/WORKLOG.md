@@ -2,6 +2,22 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 4) — P1-04 step 2: roles, row-level security, tenant-scoped store, `erase_document`
+**Done** (own branch and PR; tests first; store tests 23 -> 37; ADR-0007 gains implementation notes)
+- Migration `0003_roles_rls.sql`: restricted `clearcut_app` (cannot own tables, bypass RLS, update/delete events or audit rows, truncate, delete documents or create tenants) and login-less `clearcut_eraser`; RLS on `tenants`, `documents`, `events`, `audit_log` that **fails closed** when no tenant is set; `erase_document` (SECURITY DEFINER, owned by the eraser, fixed `search_path`, executable only by the app role). The `clearcut.erasure` setting is retired.
+- `Store`: every operation now runs in a transaction that sets `clearcut.tenant` locally (it cannot leak onto a pooled connection); new `erase_document`; `create_tenant` documented as owner-only.
+- **The existing store tests now run through the restricted role**, since a superuser bypasses RLS and would prove nothing. Raw SQL used to inspect the database goes through the admin connection. 14 new tests: role attributes, nothing visible without a tenant, a deliberately sloppy query only sees its own tenant, the setting does not outlive its transaction, cross-tenant writes refused, no change/delete/truncate of the log, no tenant creation, erasure (rows, audit entry without content, other tenant untouched, foreign or missing document refused, the function checks the tenant itself, security-definer properties, who may execute).
+- Mutation-checked seven rules (event visibility, delete grant, tenant check, search_path, execute grant, eraser-only deletes, bypassrls). 
+
+**Problems found and fixed along the way**
+- Creating the shared roles was **racy** when many databases migrate at once: an `if not exists` check and then a single `DO` block both worked from a stale snapshot. Fixed by taking the advisory lock as its own statement, catching duplicates, and verified on a brand-new cluster plus repeated runs.
+- A mutation that weakened the role attributes initially survived because the shared role already existed in the dev cluster. That exposed a real weakness (a pre-existing role with `bypassrls` would be accepted), so the migration now enforces the attributes, and a test run proves it repairs a corrupted role.
+- `sqlx::migrate!` does not trigger rebuilds on changed `.sql` files; added a `build.rs`.
+- Honest note: the one run made while the role was deliberately corrupted had 2 failures (tests ran while the attribute was still flipping); every normal run is 37/37.
+
+**Deviation from the ADR sketch**: RLS is enabled but not `FORCE`d (reason in ADR-0007 implementation notes).
+**Next in P1-04**: API keys (create with 365-day default expiry, authenticate in constant time, revoke), then the `clearcut-admin` command, then the server Bearer extractor.
+
 ## 2026-10-21 (part 3) — P1-04 step 1: `clearcut-core::auth`
 **Done** (ADR-0007 merged as Accepted first; own branch and PR; tests first; 12 new tests, core now 203)
 - `Scope` (`documents:read`, `documents:write`, `events:read`, `review:write`, `keys:admin`): exact text forms, serde as those strings, exact parsing (no trimming, case folding, wildcards or comma lists), and `parse_all` that fails on the first unknown name rather than trimming a stored list.

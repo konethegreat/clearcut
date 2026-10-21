@@ -9,7 +9,11 @@
 //!
 //! - **Events are stored as the core's canonical JSON** and re-validated by
 //!   `Event`'s own rules every time they are read.
-//! - **Every call takes the tenant** and only sees that tenant's rows; a
+//! - **Every call takes the tenant** and runs in a transaction that has told
+//!   Postgres which tenant it acts for. The service connects as the restricted
+//!   role `clearcut_app`, whose row-level security policies (ADR-0007) match
+//!   only that tenant's rows, and nothing at all if no tenant is set, so a
+//!   forgotten `where tenant_id = ...` cannot leak another tenant's data. A
 //!   document of another tenant looks like it does not exist.
 //! - **Appending is atomic and idempotent.** A batch is stored whole or not at
 //!   all, and storing an event again with the same ID and the same content is
@@ -148,12 +152,27 @@ impl Store {
         &self.pool
     }
 
+    /// Starts a transaction that acts for `tenant`: the tenant is recorded as a
+    /// transaction-local setting that the row-level security policies read.
+    /// `set_config(.., true)` expires with the transaction, so it can never
+    /// leak onto the next user of a pooled connection.
+    async fn begin(&self, tenant: TenantId) -> Result<sqlx::Transaction<'static, sqlx::Postgres>> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("select set_config('clearcut.tenant', $1, true)")
+            .bind(tenant.0.to_string())
+            .execute(&mut *tx)
+            .await?;
+        Ok(tx)
+    }
+
     /// Applies any migrations that have not been applied yet.
     pub async fn migrate(pool: &PgPool) -> Result<()> {
         MIGRATOR.run(pool).await?;
         Ok(())
     }
 
+    /// Creates a tenant. This is an owner-level operation (the `clearcut-admin`
+    /// command); the restricted application role is not allowed to do it.
     pub async fn create_tenant(&self, name: &str) -> Result<TenantId> {
         let id: Uuid = sqlx::query_scalar("insert into tenants (name) values ($1) returning id")
             .bind(name)
@@ -165,6 +184,7 @@ impl Store {
     /// Records an uploaded document. Uploading the same content again for the
     /// same tenant returns the existing document with `duplicate` set.
     pub async fn add_document(&self, tenant: TenantId, document: &NewDocument) -> Result<AddedDocument> {
+        let mut tx = self.begin(tenant).await?;
         let inserted: Option<Uuid> = sqlx::query_scalar(
             "insert into documents \
              (tenant_id, original_filename, content_type, byte_size, sha256, storage_key, page_count) \
@@ -179,9 +199,10 @@ impl Store {
         .bind(&document.sha256[..])
         .bind(&document.storage_key)
         .bind(document.page_count)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
         if let Some(id) = inserted {
+            tx.commit().await?;
             return Ok(AddedDocument {
                 id: DocId(id),
                 duplicate: false,
@@ -191,8 +212,9 @@ impl Store {
             sqlx::query_scalar("select id from documents where tenant_id = $1 and sha256 = $2")
                 .bind(tenant.0)
                 .bind(&document.sha256[..])
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *tx)
                 .await?;
+        tx.commit().await?;
         Ok(AddedDocument {
             id: DocId(existing),
             duplicate: true,
@@ -200,12 +222,14 @@ impl Store {
     }
 
     pub async fn document_status(&self, tenant: TenantId, document: DocId) -> Result<DocumentStatus> {
+        let mut tx = self.begin(tenant).await?;
         let status: Option<String> =
             sqlx::query_scalar("select status from documents where tenant_id = $1 and id = $2")
                 .bind(tenant.0)
                 .bind(document.0)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?;
+        tx.commit().await?;
         DocumentStatus::parse(&status.ok_or(Error::DocumentNotFound)?)
     }
 
@@ -215,17 +239,19 @@ impl Store {
         document: DocId,
         status: DocumentStatus,
     ) -> Result<()> {
+        let mut tx = self.begin(tenant).await?;
         let result = sqlx::query(
             "update documents set status = $3, updated_at = now() where tenant_id = $1 and id = $2",
         )
         .bind(tenant.0)
         .bind(document.0)
         .bind(status.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
         if result.rows_affected() == 0 {
             return Err(Error::DocumentNotFound);
         }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -234,7 +260,7 @@ impl Store {
     /// with different content is an [`Error::EventIdConflict`]. Every event
     /// must cite this document.
     pub async fn append_events(&self, tenant: TenantId, document: DocId, events: &[Event]) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.begin(tenant).await?;
         require_document(&mut *tx, tenant, document).await?;
         let cited = document.as_core_id();
         for event in events {
@@ -271,14 +297,16 @@ impl Store {
     /// Every event stored for a document, oldest first. Each is re-validated by
     /// the core's rules as it is read.
     pub async fn load_events(&self, tenant: TenantId, document: DocId) -> Result<Vec<Event>> {
-        require_document(&self.pool, tenant, document).await?;
+        let mut tx = self.begin(tenant).await?;
+        require_document(&mut *tx, tenant, document).await?;
         let bodies: Vec<serde_json::Value> = sqlx::query_scalar(
             "select body from events where tenant_id = $1 and document_id = $2 order by seq",
         )
         .bind(tenant.0)
         .bind(document.0)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
+        tx.commit().await?;
         bodies
             .into_iter()
             .map(|body| {
@@ -287,7 +315,34 @@ impl Store {
             .collect()
     }
 
+    /// Erases one document for a data-subject request (POPIA): its events and its
+    /// row, plus one audit entry that names the document and holds no invoice
+    /// content. The application cannot delete events itself; this calls the
+    /// vetted `erase_document` database function (ADR-0007), which checks the
+    /// tenant. The stored file is removed separately by the caller, and only if
+    /// no other document still uses the same content.
+    pub async fn erase_document(&self, tenant: TenantId, document: DocId) -> Result<()> {
+        let mut tx = self.begin(tenant).await?;
+        let result = sqlx::query("select erase_document($1, $2)")
+            .bind(tenant.0)
+            .bind(document.0)
+            .execute(&mut *tx)
+            .await;
+        match result {
+            Ok(_) => {
+                tx.commit().await?;
+                Ok(())
+            }
+            // The function raises "no data found" for a missing or foreign document.
+            Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("P0002") => {
+                Err(Error::DocumentNotFound)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub async fn record_audit(&self, tenant: TenantId, entry: &AuditEntry) -> Result<()> {
+        let mut tx = self.begin(tenant).await?;
         sqlx::query(
             "insert into audit_log (tenant_id, actor, action, subject_type, subject_id, detail) \
              values ($1, $2, $3, $4, $5, $6)",
@@ -298,8 +353,9 @@ impl Store {
         .bind(&entry.subject_type)
         .bind(&entry.subject_id)
         .bind(&entry.detail)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 }

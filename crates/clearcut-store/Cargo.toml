@@ -19,5 +19,6 @@ thiserror = "2.0.21"
 uuid = "1"
 
 [dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3.55", features = ["macros"] }
 tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread"] }
