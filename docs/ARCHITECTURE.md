@@ -32,7 +32,7 @@ _Author: Kone Tshivhinda · Written by Kone Tshivhinda & Claude_
 | `crates/clearcut-intake` | Rust (tokio) | What happens on an upload, independent of HTTP so REST and MCP share it: needs `documents:write` (checked before reading), accepts PDF/PNG/JPEG/TIFF/XML only, refuses an over-limit declared length without reading, streams into `clearcut-objects` with a hard limit, records the document through the store (a repeat upload returns the existing document), audits it. File names are cleaned metadata and never paths. A file stored before a failed database write is deliberately left in place | 26 tests |
 | `crates/clearcut-objects` | Rust (tokio) | Object storage for uploaded files: `ObjectStore` trait + `LocalDisk`; keys are `tenants/<uuid>/documents/<sha256>` (built from the content hash, never from a filename); streaming upload with a hard size limit; temp file renamed into place only when complete | 19 tests |
 | `crates/clearcut-mcp` | Rust (rmcp) | MCP tools over stdio: `calculate_invoice`, `za_required_tax_invoice`, `check_status_transition` | smoke-tested |
-| `packages/sdk` | TypeScript | Typed client for the REST API | 2 tests |
+| `packages/sdk` | TypeScript | Typed client for the REST API (API key, `whoami`, `calculate`, `uploadDocument`) | 24 tests |
 | `plugin/` | JSON | Claude plugin manifest + MCP entry | alpha |
 | `services/worker` _(was `analytics`)_ | Python | OCR + model calls for extraction/narration; no business rules | planned, Phase 2 |
 
