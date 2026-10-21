@@ -1,7 +1,7 @@
 # ADR-0007: Authentication, authorization and tenant isolation (API keys, roles, row-level security)
 
-Status: **Proposed, awaiting review by Kone Tshivhinda** · Date: 2026-10-21 · Deciders: Kone Tshivhinda, Claude
-Implements task P1-04. Nothing here has been built or applied yet.
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-21) · Date: 2026-10-21 · Deciders: Kone Tshivhinda, Claude
+Implements task P1-04, to be built in small PRs (core `auth`; roles, RLS and tenant-scoped store; API keys; admin bootstrap command; server Bearer auth). The four open questions were decided on approval; see "Decisions".
 
 ## Context
 ClearCut will hold other people's invoices (personal and business information, POPIA) for several customers in one database. Today anyone who can reach the store can ask for any tenant's rows; isolation depends on every query remembering `tenant_id`. We also have open items from earlier work: the upload endpoint must not exist without authentication (ADR-0006 follow-up, P1-02), and the `clearcut.erasure` switch can be set by any session that can run SQL ([ADR-0006](0006-postgres-schema.md) amendment).
@@ -76,11 +76,11 @@ The store opens every operation with `select set_config('clearcut.tenant', $1, t
 - **Scopes over named roles** (admin/editor/...): fewer concepts, and they translate directly to OAuth scopes for MCP.
 - **SHA-256 for key secrets**: the secret is a 256-bit random value, not a human-chosen password, so brute force is infeasible and a fast hash avoids adding a slow-hash cost to every request.
 
-## Open questions (need a decision, not a guess)
-1. **Scope list.** Is the list above the right starting set? In particular: should reading narration/exports be separate from reading events, and should "upload" and "review" ever be split between machine and human keys?
-2. **Operator access.** I assume **no** cross-tenant "super key": anything an operator must do across tenants (support, billing) happens with the owner role and the `clearcut-admin` command, never through the public API. OK?
-3. **Key lifetime.** Default to no expiry with easy rotation, or a default expiry (say 365 days) that must be renewed? Default expiry is safer; it costs a renewal chore.
-4. **Failed-login throttling.** I would leave rate limiting and lockout to the deployment (reverse proxy) for now and only log failed attempts without the presented key. Agreed?
+## Decisions on the open questions (Kone, 2026-10-21)
+1. **Scope list: as written** (`documents:read`, `documents:write`, `events:read`, `review:write`, `keys:admin`). Reading narration and exports stays under `events:read` for now; splitting upload from review between machine and human keys is already possible because they are separate scopes.
+2. **No cross-tenant "super key".** Anything an operator must do across tenants (support, billing) uses the owner database role and the `clearcut-admin` command, never the public API.
+3. **Default key expiry of 365 days.** `create_api_key` sets `expires_at` to a year from creation unless a different expiry is given explicitly; there is no "never expires" default. Rotation means issuing a new key before the old one lapses.
+4. **Failed-login throttling is left to the deployment** (reverse proxy or gateway). The service only logs failed attempts, without the presented key.
 
 ## Consequences
 - Local development needs the restricted role, so the dev container instructions gain one step (connect as `clearcut_app`; migrations run as `clearcut`). Tests that exercise RLS switch role inside a transaction.

@@ -5,7 +5,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 ## 2026-10-21 (part 2) — P1-04 design proposal (docs only)
 **Done**
 - Drafted [ADR-0007](adr/0007-auth-and-row-level-security.md): API keys (`ccut_<id>_<secret>`, shown once, SHA-256 of the secret stored, constant-time check, identical error for every failure), five initial scopes enforced by a pure `Principal` in `clearcut-core`, **row-level security** on every tenant table that fails closed when no tenant is set, three database roles (owner, restricted `clearcut_app`, `clearcut_eraser`), and erasure turned into a `security definer` function so the application can call it but cannot delete events itself. This retires the `clearcut.erasure` setting and closes the follow-up from ADR-0006.
-- Status: **Proposed**. Nothing built or applied; CLAUDE.md requires Kone to review schema and security changes first.
+- Status: **Accepted** by Kone on 2026-10-21 with the proposed leanings (scope list as written, no cross-tenant super key, 365-day default key expiry, throttling left to the deployment). Being built in small PRs, tests first.
 
 **Open questions in the ADR**: the scope list, no cross-tenant operator key, default key expiry, failed-login throttling left to the deployment.
 **Next (after review)**: tests first for `Scope`/`Principal`, then the migration (roles, RLS policies, `api_keys`, `erase_document`, `authenticate_api_key`), the tenant-scoped `Store` refactor, a `clearcut-admin` bootstrap command, then the `Bearer` extractor in `clearcut-server` and the protected upload endpoint.
