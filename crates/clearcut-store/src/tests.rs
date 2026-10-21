@@ -1130,7 +1130,7 @@ async fn managing_keys_needs_the_keys_admin_scope(pool: PgPool) {
 #[sqlx::test]
 async fn an_admin_can_create_list_and_revoke_keys_for_their_own_tenant(pool: PgPool) {
     let (store, tenant, _doc) = setup(&pool).await;
-    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin]).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin, Scope::DocumentsWrite]).await;
     let created = store
         .create_api_key(&admin, &new_key("ci uploader", &[Scope::DocumentsWrite]))
         .await
@@ -1307,7 +1307,7 @@ async fn a_scope_this_version_does_not_know_fails_closed(pool: PgPool) {
 #[sqlx::test]
 async fn creating_and_revoking_are_audited_without_the_secret(pool: PgPool) {
     let (store, tenant, _doc) = setup(&pool).await;
-    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin]).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin, Scope::EventsRead]).await;
     let created = store
         .create_api_key(&admin, &new_key("audited", &[Scope::EventsRead]))
         .await
@@ -1388,6 +1388,91 @@ async fn repeated_scopes_are_stored_once_and_the_name_is_trimmed(pool: PgPool) {
             .unwrap();
     assert_eq!(name, "padded name");
     assert_eq!(scopes, ["documents:read", "events:read"]);
+}
+
+#[sqlx::test]
+async fn a_key_admin_cannot_hand_out_scopes_it_does_not_hold(pool: PgPool) {
+    // keys:admin lets you manage keys. It must not let you mint a key that can
+    // read invoices, upload or review: no scope implies another (ADR-0007).
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin]).await;
+    for scope in [
+        Scope::DocumentsRead,
+        Scope::DocumentsWrite,
+        Scope::EventsRead,
+        Scope::ReviewWrite,
+    ] {
+        let result = store.create_api_key(&admin, &new_key("escalate", &[scope])).await;
+        assert!(
+            matches!(&result, Err(Error::Auth(clearcut_core::Error::MissingScope(missing))) if *missing == scope),
+            "{scope:?}: {result:?}"
+        );
+    }
+    assert_eq!(
+        count(&pool, "select count(*) from api_keys where name = 'escalate'").await,
+        0
+    );
+}
+
+#[sqlx::test]
+async fn one_missing_scope_refuses_the_whole_request(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let admin = principal_with(&store, tenant, &[Scope::KeysAdmin, Scope::DocumentsRead]).await;
+    let result = store
+        .create_api_key(
+            &admin,
+            &new_key("mixed", &[Scope::DocumentsRead, Scope::EventsRead]),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(Error::Auth(clearcut_core::Error::MissingScope(Scope::EventsRead)))
+    ));
+    assert_eq!(
+        count(&pool, "select count(*) from api_keys where name = 'mixed'").await,
+        0
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from audit_log where subject_type = 'api_key' and detail ->> 'name' = 'mixed'"
+        )
+        .await,
+        0
+    );
+}
+
+#[sqlx::test]
+async fn a_key_admin_can_hand_out_any_subset_of_the_scopes_it_holds(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let held = [Scope::KeysAdmin, Scope::DocumentsRead, Scope::EventsRead];
+    let admin = principal_with(&store, tenant, &held).await;
+    for wanted in [
+        vec![Scope::DocumentsRead],
+        vec![Scope::EventsRead, Scope::DocumentsRead],
+        vec![Scope::KeysAdmin], // a peer administrator, which the admin already is
+        held.to_vec(),
+    ] {
+        let created = store
+            .create_api_key(&admin, &new_key("subset", &wanted))
+            .await
+            .unwrap();
+        let principal = store.authenticate(created.token.expose()).await.unwrap();
+        let mut expected = wanted.clone();
+        expected.sort();
+        expected.dedup();
+        assert_eq!(principal.scopes(), expected);
+    }
+}
+
+#[sqlx::test]
+async fn the_operator_can_still_issue_every_scope(pool: PgPool) {
+    // The one deliberate way to create a key with scopes nobody holds yet: the
+    // operator's admin command, e.g. for a tenant's first key.
+    let (store, tenant, _doc) = setup(&pool).await;
+    let key = operator_key(&store, tenant, &Scope::ALL).await;
+    let principal = store.authenticate(key.token.expose()).await.unwrap();
+    assert_eq!(principal.scopes(), Scope::ALL.to_vec());
 }
 
 // ---------- ids ----------

@@ -436,9 +436,20 @@ impl Store {
         Ok(Principal::new(tenant, parsed.id, scopes))
     }
 
-    /// Creates a key for the caller's own tenant. The caller needs `keys:admin`.
+    /// Creates a key for the caller's own tenant. The caller needs `keys:admin`
+    /// **and must hold every scope it hands out**: `keys:admin` lets you manage
+    /// keys, it does not let you mint a key that can do what you cannot (no scope
+    /// implies another, ADR-0007). One missing scope refuses the whole request.
+    /// Only the operator path ([`Store::create_api_key_as_operator`]) can issue
+    /// scopes nobody holds yet.
     pub async fn create_api_key(&self, by: &Principal, new: &NewApiKey) -> Result<CreatedApiKey> {
         by.require(Scope::KeysAdmin)?;
+        let mut wanted = new.scopes.clone();
+        wanted.sort();
+        wanted.dedup();
+        for scope in wanted {
+            by.require(scope)?;
+        }
         let actor = serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() });
         self.insert_api_key(TenantId(by.tenant()), new, actor).await
     }
