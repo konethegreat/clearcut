@@ -7,8 +7,8 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - Proposed one `jobs` table (a job is one stage of work on one document; page-level progress and a checkpoint instead of a row per page), five states with no `failed` (`queued`, `running`, `succeeded`, `needs_review`, `cancelled`), leases with a fencing token, a deadline on every job, and a provider outage that does not consume attempts.
 - All state changes through five `SECURITY DEFINER` functions (`claim_job`, `heartbeat_job`, `complete_job`, `fail_job`, `cancel_job`), the same pattern as `erase_document`; the document's status moves in the same transaction. Retry/backoff numbers and the state table live in `clearcut-core`, with a store test that the two agree.
 - Flagged: the claim function is the one deliberate cross-tenant bridge; a separate runner login role is advised once the runner is its own deployment (P1-07). Wiring uploads to enqueue is deferred until a handler exists (P2-04).
-- Five questions for Kone are at the end of the ADR.
-**Next**: on approval, build in four small PRs: core job types and retry policy; migration 0005 and store methods (also teaches `erase_document` to delete jobs); the `clearcut-jobs` runner library; REST and SDK.
+- Kone approved all five leanings (decisions recorded at the end of the ADR); ADR-0008 is Accepted.
+**Next**: build in four small PRs: core job types and retry policy; migration 0005 and store methods (also teaches `erase_document` to delete jobs); the `clearcut-jobs` runner library; REST and SDK.
 
 ## 2026-10-21 (part 10) — P1-02: `uploadDocument` in the TypeScript SDK
 **Done** (#21 `clearcut-intake` and #22 `POST /v1/documents` merged first; tests first; SDK tests 13 -> 24)

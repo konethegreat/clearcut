@@ -1,7 +1,7 @@
 # ADR-0008: Durable job queue in Postgres
 
-Status: **Proposed** (awaiting review by Kone Tshivhinda) · Date: 2026-10-21 · Deciders: Kone Tshivhinda, Claude
-Design for task P1-03. **No migration has been written.** Nothing here is built until this is accepted.
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-21, with all five leanings below) · Date: 2026-10-21 · Deciders: Kone Tshivhinda, Claude
+Design for task P1-03. Built in the four steps listed under "What gets built".
 
 ## Context
 Reading an invoice takes seconds to minutes (OCR, several model calls, escalation per [ADR-0005](0005-model-strategy-escalation.md)), so uploads must return at once and the work must happen in the background, survive restarts, and always end somewhere. The promises we have already made:
@@ -123,9 +123,9 @@ This table is fixed for every kind today. It lives in the SQL functions so the c
 - **Finished jobs are kept** (a few hundred bytes each) as history. A retention rule waits for the same legal review as the rest of retention (ADR-0006, decision 3).
 - **Clock and polling cost** are small at our scale; the partial indexes keep the scan to unfinished jobs only.
 
-## Questions for Kone
-1. **One job per document stage with page progress** (recommended) rather than a row per page?
-2. **`needs_review` as the job's own terminal state**, with `cancelled` returning the document to `received`?
-3. **A provider outage does not consume attempts**, and a **48-hour deadline** is the backstop. Is 48 h about right, or should an outage that long go to a human sooner?
-4. **Do not enqueue on upload yet** (nothing would consume the jobs); add it together with the first handler?
-5. The numbers: 5 attempts, 30 s doubling to 15 min, 5-minute lease. Fine as defaults?
+## Decisions (Kone, 2026-10-21)
+1. **One job per document stage, with page progress** (not a row per page).
+2. **`needs_review` is the job's own terminal state**; `cancelled` returns the document to `received`.
+3. **A provider outage does not consume attempts**; the **48-hour deadline** is the backstop (a parameter at enqueue, to be tuned with real data).
+4. **No enqueue on upload yet**; add it together with the first handler (P2-04).
+5. **The numbers stand as defaults:** 5 attempts, 30 s doubling to a 15-minute cap with +/-20% jitter, 5-minute lease.
