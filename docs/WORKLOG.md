@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 11) — P1-03: job queue design (no code)
+**Done** (docs only: ADR-0008 as Proposed, per "show me the schema and design first, before any migration")
+- Proposed one `jobs` table (a job is one stage of work on one document; page-level progress and a checkpoint instead of a row per page), five states with no `failed` (`queued`, `running`, `succeeded`, `needs_review`, `cancelled`), leases with a fencing token, a deadline on every job, and a provider outage that does not consume attempts.
+- All state changes through five `SECURITY DEFINER` functions (`claim_job`, `heartbeat_job`, `complete_job`, `fail_job`, `cancel_job`), the same pattern as `erase_document`; the document's status moves in the same transaction. Retry/backoff numbers and the state table live in `clearcut-core`, with a store test that the two agree.
+- Flagged: the claim function is the one deliberate cross-tenant bridge; a separate runner login role is advised once the runner is its own deployment (P1-07). Wiring uploads to enqueue is deferred until a handler exists (P2-04).
+- Five questions for Kone are at the end of the ADR.
+**Next**: on approval, build in four small PRs: core job types and retry policy; migration 0005 and store methods (also teaches `erase_document` to delete jobs); the `clearcut-jobs` runner library; REST and SDK.
+
 ## 2026-10-21 (part 10) — P1-02: `uploadDocument` in the TypeScript SDK
 **Done** (#21 `clearcut-intake` and #22 `POST /v1/documents` merged first; tests first; SDK tests 13 -> 24)
 - `client.uploadDocument(file, { contentType?, filename? })`: sends the bytes as they are (a `Blob`, `ArrayBuffer` or `Uint8Array`, held in memory; streaming is a later addition), the content type as the `Content-Type` header (a Blob supplies its own, an explicit option overrides it), the name as a properly encoded `?filename=`. Returns the server's `UploadedDocument` (`duplicate` tells a repeat). Errors are the usual `ClearCutError` (403 carries `requiredScope`).
