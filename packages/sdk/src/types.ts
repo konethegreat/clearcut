@@ -31,3 +31,14 @@ export interface Calculation {
   required_document: "full" | "abridged" | "not_required";
   display_gross: string;
 }
+
+/** What an API key may do. No scope implies another. */
+export type Scope =
+  | "documents:read" | "documents:write" | "events:read" | "review:write" | "keys:admin";
+
+/** The caller as the server sees it (GET /v1/whoami). */
+export interface WhoAmI {
+  tenant: string;
+  key_id: string;
+  scopes: Scope[];
+}

@@ -13,13 +13,18 @@ workspace = true
 
 [dependencies]
 clearcut-core = { path = "../clearcut-core" }
+clearcut-store = { path = "../clearcut-store" }
 axum = "0.8.9"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres"] }
 tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tower-http = { version = "0.7", default-features = false, features = ["sensitive-headers"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = "1"
 
 [dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
+tower = { version = "0.5", features = ["util"] }
