@@ -31,10 +31,13 @@ cargo run -p clearcut-mcp              # MCP over stdio (no database needed)
 
 # The REST API needs a Postgres and an API key. As the database owner, once:
 #   clearcut-admin migrate && clearcut-admin create-tenant "My Practice"
-#   clearcut-admin create-key --tenant <id> --name me --scopes keys:admin,documents:read > my.key
+#   clearcut-admin create-key --tenant <id> --name me --scopes keys:admin,documents:read,documents:write > my.key
 # then run the server as the restricted service role (see docs/ADMIN.md):
-#   DATABASE_URL=<clearcut_app connection> cargo run -p clearcut-server    # REST on 127.0.0.1:8080
+#   DATABASE_URL=<clearcut_app connection> CLEARCUT_STORAGE_DIR=<where uploads are kept> cargo run -p clearcut-server    # REST on 127.0.0.1:8080
 curl -s localhost:8080/v1/whoami -H "Authorization: Bearer $(cat my.key)"   # who am I? (GET /health needs no key)
+
+# Upload an invoice: the body is the file itself (needs documents:write). 201 new, 200 if already uploaded.
+curl -s "localhost:8080/v1/documents?filename=march.pdf" -H "Authorization: Bearer $(cat my.key)" -H "Content-Type: application/pdf" --data-binary @march.pdf
 
 curl -s localhost:8080/v1/invoices/calculate -H "Authorization: Bearer $(cat my.key)" -H 'content-type: application/json' -d '{
   "number":"INV-1","currency":"ZAR","status":"draft",

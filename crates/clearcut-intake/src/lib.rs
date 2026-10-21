@@ -146,7 +146,9 @@ pub struct Uploaded {
     pub duplicate: bool,
     pub sha256_hex: String,
     pub byte_size: u64,
-    /// The cleaned file name that was recorded.
+    /// The cleaned file name sent with this upload. For a repeat upload
+    /// (`duplicate`) that is this request's name; the existing document keeps
+    /// the name it was first uploaded with.
     pub filename: String,
     pub media_type: MediaType,
 }

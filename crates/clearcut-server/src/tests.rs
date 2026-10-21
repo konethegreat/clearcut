@@ -17,10 +17,10 @@ use uuid::Uuid;
 
 // ---------- test doubles ----------
 
-const TENANT: u128 = 0xA;
-const READER: &str = "ccut_reader";
-const WRITER: &str = "ccut_writer";
-const ADMIN_ONLY: &str = "ccut_admin_only";
+pub(crate) const TENANT: u128 = 0xA;
+pub(crate) const READER: &str = "ccut_reader";
+pub(crate) const WRITER: &str = "ccut_writer";
+pub(crate) const ADMIN_ONLY: &str = "ccut_admin_only";
 const FLAKY: &str = "ccut_db_is_down";
 
 fn principal(key: u128, scopes: &[Scope]) -> Principal {
@@ -32,14 +32,14 @@ fn principal(key: u128, scopes: &[Scope]) -> Principal {
 }
 
 /// An authenticator that knows a few fixed keys and records what it was asked.
-struct FakeAuth {
+pub(crate) struct FakeAuth {
     principals: HashMap<String, Principal>,
     unavailable: HashSet<String>,
     asked: Mutex<Vec<String>>,
 }
 
 impl FakeAuth {
-    fn new() -> Arc<Self> {
+    pub(crate) fn new() -> Arc<Self> {
         let mut principals = HashMap::new();
         principals.insert(
             READER.to_string(),
@@ -111,7 +111,7 @@ fn app_with_fake() -> (Router, Arc<FakeAuth>) {
     (router_with(&fake), fake)
 }
 
-async fn send(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap, String) {
+pub(crate) async fn send(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap, String) {
     let response: Response<Body> = app.clone().oneshot(request).await.unwrap();
     let (parts, body) = response.into_parts();
     let bytes = body.collect().await.unwrap().to_bytes();
@@ -130,11 +130,11 @@ fn get_with(path: &str, authorization: Option<&str>) -> Request<Body> {
     builder.body(Body::empty()).unwrap()
 }
 
-fn bearer(token: &str) -> String {
+pub(crate) fn bearer(token: &str) -> String {
     format!("Bearer {token}")
 }
 
-fn json(body: &str) -> serde_json::Value {
+pub(crate) fn json(body: &str) -> serde_json::Value {
     serde_json::from_str(body).unwrap()
 }
 
@@ -464,13 +464,13 @@ async fn an_unavailable_authenticator_is_logged_without_the_key() {
 
 // ---------- with the real store ----------
 
-mod with_postgres {
+pub(crate) mod with_postgres {
     use super::*;
     use clearcut_store::{NewApiKey, Store};
     use sqlx::PgPool;
 
     /// The service's view of the database: the restricted role.
-    async fn service_store(pool: &PgPool) -> Store {
+    pub(crate) async fn service_store(pool: &PgPool) -> Store {
         let options = pool.connect_options().as_ref().clone().username("clearcut_app");
         let service_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
@@ -484,7 +484,7 @@ mod with_postgres {
         app(AppState::new(store))
     }
 
-    async fn first_key(pool: &PgPool, scopes: &[Scope]) -> (Uuid, String, Uuid) {
+    pub(crate) async fn first_key(pool: &PgPool, scopes: &[Scope]) -> (Uuid, String, Uuid) {
         let owner = Store::new(pool.clone());
         let tenant = owner.create_tenant("Acme").await.unwrap();
         let created = owner

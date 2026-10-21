@@ -5,8 +5,10 @@
 //! Every route except `/health` requires an API key (ADR-0007); see [`auth`].
 
 mod auth;
+mod documents;
 
 pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
+pub use documents::{Ingest, IngestFuture, UploadBody};
 
 use axum::{
     http::{header, StatusCode},
@@ -23,6 +25,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
         .route("/v1/whoami", get(whoami))
+        .route("/v1/documents", post(documents::upload_document))
         .route("/v1/invoices/calculate", post(calculate))
 }
 
