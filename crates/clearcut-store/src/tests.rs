@@ -74,7 +74,7 @@ fn extraction(doc: DocId) -> Extraction {
     }
 }
 
-fn new_document(seed: u8) -> NewDocument {
+pub(crate) fn new_document(seed: u8) -> NewDocument {
     NewDocument {
         original_filename: format!("invoice-{seed}.pdf"),
         content_type: "application/pdf".into(),
@@ -89,7 +89,7 @@ fn new_document(seed: u8) -> NewDocument {
 /// (ADR-0007), the way the running service does. `pool` (from `sqlx::test`)
 /// is a superuser connection to the same throwaway database: tests use it as
 /// the "admin" to set things up and to look at the database from outside.
-async fn app_store(pool: &PgPool) -> Store {
+pub(crate) async fn app_store(pool: &PgPool) -> Store {
     let options = pool.connect_options().as_ref().clone().username("clearcut_app");
     let app_pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
@@ -101,12 +101,12 @@ async fn app_store(pool: &PgPool) -> Store {
 
 /// Creating a tenant is an owner-level operation (the `clearcut-admin`
 /// command), so it goes through the admin connection.
-async fn new_tenant(pool: &PgPool, name: &str) -> Result<TenantId> {
+pub(crate) async fn new_tenant(pool: &PgPool, name: &str) -> Result<TenantId> {
     Store::new(pool.clone()).create_tenant(name).await
 }
 
 /// A restricted-role store with one tenant and one document.
-async fn setup(pool: &PgPool) -> (Store, TenantId, DocId) {
+pub(crate) async fn setup(pool: &PgPool) -> (Store, TenantId, DocId) {
     let tenant = new_tenant(pool, "Acme Advisory").await.unwrap();
     let store = app_store(pool).await;
     let doc = store.add_document(tenant, &new_document(1)).await.unwrap().id;
@@ -124,7 +124,7 @@ fn ids(events: &[Event]) -> Vec<String> {
 }
 
 /// The text of the database error behind a failed raw statement.
-fn db_message(result: std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error>) -> String {
+pub(crate) fn db_message(result: std::result::Result<sqlx::postgres::PgQueryResult, sqlx::Error>) -> String {
     result
         .expect_err("statement should have been refused")
         .to_string()
@@ -136,13 +136,13 @@ fn db_message(result: std::result::Result<sqlx::postgres::PgQueryResult, sqlx::E
 async fn the_migrations_create_every_table(pool: PgPool) {
     let tables: Vec<String> = sqlx::query_scalar(
         "select table_name::text from information_schema.tables \
-         where table_schema = 'public' and table_name in ('tenants','documents','events','audit_log') \
+         where table_schema = 'public' and table_name in ('tenants','documents','events','audit_log','jobs') \
          order by table_name",
     )
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(tables, ["audit_log", "documents", "events", "tenants"]);
+    assert_eq!(tables, ["audit_log", "documents", "events", "jobs", "tenants"]);
 }
 
 // ---------- tenants and documents ----------
@@ -546,7 +546,7 @@ async fn an_invalid_stored_event_is_an_error_when_read_not_silently_accepted(poo
 
 /// A transaction on `pool` that has said which tenant it acts for, exactly as
 /// every `Store` operation does.
-async fn as_tenant(pool: &PgPool, tenant: TenantId) -> sqlx::Transaction<'static, sqlx::Postgres> {
+pub(crate) async fn as_tenant(pool: &PgPool, tenant: TenantId) -> sqlx::Transaction<'static, sqlx::Postgres> {
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("select set_config('clearcut.tenant', $1, true)")
         .bind(tenant.0.to_string())
@@ -559,7 +559,7 @@ async fn as_tenant(pool: &PgPool, tenant: TenantId) -> sqlx::Transaction<'static
 /// Runs a counting query. The SQL is built in these tests from table names
 /// and UUIDs we generated ourselves, never from outside input, which is what
 /// `AssertSqlSafe` states.
-async fn count(pool: &PgPool, sql: &str) -> i64 {
+pub(crate) async fn count(pool: &PgPool, sql: &str) -> i64 {
     sqlx::query_scalar(sqlx::AssertSqlSafe(sql.to_string()))
         .fetch_one(pool)
         .await

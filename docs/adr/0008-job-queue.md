@@ -110,6 +110,18 @@ This table is fixed for every kind today. It lives in the SQL functions so the c
 
 **Not in P1-03:** wiring uploads to enqueue a job. Until a handler exists (P2-04), a job would sit in the queue and the document would never leave `received`. The upload will enqueue in the same transaction as the document row once there is something to run it.
 
+## Implementation notes (step 2, migration 0005 and the store)
+Built as proposed, with these refinements found while writing the tests:
+- **A lease that has run out but has not been taken over still works** for the worker that holds its token. The ADR said an expired lease means `lease_lost`; but the token is the proof, nobody else holds the job, and refusing would throw away a slow worker's progress and pay for the run again. Once another runner has claimed it, the old token is dead.
+- **The application role reads every job column except `lease_token`**, and may name only `tenant_id, document_id, kind, payload, priority, max_attempts, run_after, deadline_at` when queuing a job (column-level grants), so a SQL-injection-level caller can neither read a fencing token nor forge a running job. A test tries each forbidden column one at a time.
+- **Two stronger table checks:** the lease columns are *all set while running and all clear otherwise* (the draft only forbade a lease on a non-running job in one direction), and `progress_done <= progress_total`.
+- **Cancelling a job that never started leaves its document alone.** A finished document queued again for a re-run must not lose its `done` when that re-run is cancelled. Cancelling a job that was running returns the document to `received`, as decided.
+- **`last_error` is the most recent failure message and is not erased by a later success.** Useful when a job needed a retry; a person reading it sees what went wrong on the way.
+- **`fail_job` returns where the job ended up** (the Rust `FailureResult`): retrying, `needs_review`, or `cancelled`. The database has the last word: out of attempts, past the deadline, or cancellation requested end the job even when the caller asked for a retry. A provider outage is never "out of attempts", even on the final one.
+- **Two helper functions** (`finish_job_internal`, `lock_leased_job`) are owned by the queue role and callable only from the five public ones. Each tenant-scoped function checks `p_tenant` against the current tenant and filters on it, because the queue role's policies match every row.
+- `erase_document` now deletes the document's jobs first (the foreign key would otherwise block erasure). A worker whose document was erased under it gets `JobNotFound` at its next heartbeat.
+- Not wired to uploads yet (decision 4). A new login-less role `clearcut_queue` appears in the database; like the others it has no password and nobody logs in as it.
+
 ## Alternatives considered
 - *One job per page, with a reduce step.* Needs dependencies between jobs ("reduce after all pages"), which is a workflow engine. A document-level job with page progress and a checkpoint gives resumability without one. Revisit only if per-page parallelism across workers is actually needed (P2-07).
 - *Workers update `jobs` directly under RLS.* Simpler SQL, but any bug (or SQL injection) in the service could then rewrite attempts, leases or states. Five narrow functions are a smaller surface to reason about and test.
