@@ -2,6 +2,18 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 9) — P1-02: `POST /v1/documents`
+**Done** (stacked on the intake PR; tests first; server tests 21 -> 39)
+- The endpoint is the raw file as the body (`Content-Type` says what it is, optional `?filename=`), so it streams to storage instead of being held in memory. Order: authenticate, read the query, check `documents:write`, and only then touch the body. Answers: 201 new / 200 repeat (flagged `duplicate`), 401, 403 naming the scope, 415 listing the accepted types, 413 stating the limit, 400 empty or interrupted, 500 with no detail (the detail goes to the log), 503 if started without an intake.
+- A test proves a 3 MiB body streams through, past axum's default 2 MiB limit (which only applies to buffering extractors). A body that breaks off arrives at the intake as an aborted connection, so a vanished client is a 400 rather than a server fault.
+- Intake is behind a small dyn-compatible trait (`Ingest`), like `Authenticator`, so the HTTP rules are tested with a fake and the real thing is tested end to end (store, disk, two tenants, refused uploads leave no file and no row).
+- Startup: `CLEARCUT_STORAGE_DIR` is **required** (the server will not guess where to put invoices); `CLEARCUT_MAX_UPLOAD_BYTES` optional, default 64 MiB.
+- Mutation-checked 21 HTTP rules (scope check removed or wrong, 201/200 swapped, content type defaulted, length and name ignored, broken body not an aborted connection, each refusal's status, limit not stated, internal detail leaked, unconfigured = 500, accepted list, response fields, GET accepted); all caught after one survivor (the response's media type was only ever tested with PDF) got its own test.
+- **Smoke-tested the real binaries** against a scratch database: the server exits 2 without `CLEARCUT_STORAGE_DIR` and with a bad `CLEARCUT_MAX_UPLOAD_BYTES`; no key 401, read-only key 403, new upload 201 (name `../../a invoice.pdf` arrives as `a invoice.pdf`), same bytes 200 flagged duplicate, `text/html` 415, over the limit 413 (also for a chunked upload with no declared length), empty 400; exactly one file on disk and no temp leftovers, two `document.uploaded` audit rows, the key and the file name absent from the server log.
+- Known quirk, documented on the field: for a repeat upload the response echoes the name sent *this* time; the existing document keeps its first name.
+- The file name travels in the query string. Trade-off noted in the module docs: a proxy could log it; this server does not log URLs and the name is only a label.
+**Next**: an SDK `uploadDocument`; then P1-03 (job queue; needs Kone's schema review) and P2-04.
+
 ## 2026-10-21 (part 8) — P1-02: the upload rules (`clearcut-intake`)
 **Done** (own branch; tests first; 26 tests, the upload ones against a real Postgres and a temp directory)
 - PR #20's `rust` check failed on CI with a flaky test: `tracing` caches, per log statement, whether anyone was listening, so a per-test subscriber is lost when a parallel test hits the same statement first. Fixed by installing one process-wide subscriber that writes to a per-thread buffer; 8 local runs green.

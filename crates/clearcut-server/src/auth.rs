@@ -18,6 +18,7 @@
 //! - **The key is never logged**, and the header is marked sensitive so even a
 //!   `Debug` print of the request headers shows it redacted.
 
+use crate::documents::Ingest;
 use axum::extract::FromRequestParts;
 use axum::http::{header, request::Parts, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -68,15 +69,29 @@ impl Authenticator for clearcut_store::Store {
 #[derive(Clone)]
 pub struct AppState {
     auth: Arc<dyn Authenticator>,
+    ingest: Option<Arc<dyn Ingest>>,
 }
 
 impl AppState {
     pub fn new(auth: impl Authenticator) -> Self {
-        Self { auth: Arc::new(auth) }
+        Self {
+            auth: Arc::new(auth),
+            ingest: None,
+        }
     }
 
     pub fn shared(auth: Arc<dyn Authenticator>) -> Self {
-        Self { auth }
+        Self { auth, ingest: None }
+    }
+
+    /// Turns on `POST /v1/documents`. Without it that route answers 503.
+    pub fn with_ingest(mut self, ingest: impl Ingest) -> Self {
+        self.ingest = Some(Arc::new(ingest));
+        self
+    }
+
+    pub(crate) fn ingest(&self) -> Option<&dyn Ingest> {
+        self.ingest.as_deref()
     }
 }
 
