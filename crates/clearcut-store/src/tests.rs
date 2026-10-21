@@ -1535,6 +1535,91 @@ async fn an_operator_revoke_is_safe_to_repeat_and_names_unknown_keys(pool: PgPoo
     assert!(two.app.authenticate(key_a.token.expose()).await.is_ok());
 }
 
+// ---------- refusing to run with the wrong database role ----------
+
+/// A store connected as an extra login role created just for this test.
+async fn store_as_new_role(pool: &PgPool, role_sql: &str) -> (Store, String) {
+    let role = format!("probe_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "create role {role} login {role_sql}"
+    )))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "grant usage on schema public to {role}; grant select on all tables in schema public to {role}"
+    )))
+    .execute(pool)
+    .await
+    .unwrap();
+    let options = pool.connect_options().as_ref().clone().username(&role);
+    let role_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .unwrap();
+    (Store::new(role_pool), role)
+}
+
+#[sqlx::test]
+async fn the_restricted_service_role_passes_the_startup_check(pool: PgPool) {
+    let _ = setup(&pool).await;
+    app_store(&pool).await.verify_service_role().await.unwrap();
+}
+
+#[sqlx::test]
+async fn a_superuser_is_refused_because_it_would_bypass_tenant_isolation(pool: PgPool) {
+    let _ = setup(&pool).await;
+    let result = Store::new(pool.clone()).verify_service_role().await;
+    assert!(
+        matches!(result, Err(Error::UnsafeServiceRole(reason)) if reason.contains("superuser")),
+        "{result:?}"
+    );
+}
+
+#[sqlx::test]
+async fn a_role_that_can_bypass_row_level_security_is_refused(pool: PgPool) {
+    let _ = setup(&pool).await;
+    let (store, role) = store_as_new_role(&pool, "nosuperuser bypassrls").await;
+    let result = store.verify_service_role().await;
+    store.pool().close().await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "drop owned by {role}; drop role {role}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(
+        matches!(result, Err(Error::UnsafeServiceRole(reason)) if reason.contains("row-level")),
+        "{result:?}"
+    );
+}
+
+#[sqlx::test]
+async fn a_role_that_owns_the_tenant_tables_is_refused(pool: PgPool) {
+    // Table owners are not subject to row-level security.
+    let _ = setup(&pool).await;
+    let (store, role) = store_as_new_role(&pool, "nosuperuser nobypassrls").await;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "alter table documents owner to {role}"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let result = store.verify_service_role().await;
+    store.pool().close().await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "alter table documents owner to clearcut; drop owned by {role}; drop role {role}"
+    )))
+    .execute(&pool)
+    .await
+    .ok();
+    assert!(
+        matches!(result, Err(Error::UnsafeServiceRole(reason)) if reason.contains("owns")),
+        "{result:?}"
+    );
+}
+
 // ---------- ids ----------
 
 #[test]

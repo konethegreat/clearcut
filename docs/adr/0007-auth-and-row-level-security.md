@@ -105,6 +105,13 @@ The store opens every operation with `select set_config('clearcut.tenant', $1, t
 - `revoke-key` is the break-glass response to a leaked key and needs no admin key; it uses `Store::revoke_api_key_as_operator`. Everything the command does is audited with actor `{"type":"operator"}`, including tenant creation.
 - Runbook: [ADMIN.md](../ADMIN.md).
 
+## Implementation notes (step 5, server authentication)
+- `clearcut-server` gets an `Authed` extractor (`Authorization: Bearer ...`). **Every authentication failure is the identical 401** (`WWW-Authenticate: Bearer`, the same body), whether the header is missing, malformed, repeated or wrong, or the key unknown, revoked or expired. A database outage is a **500**, never a 401, with a generic body. The extractor runs **before the request body is read** (axum itself enforces that order), so an anonymous caller cannot probe how the API parses input. A scoped route answers **403 only to an authenticated caller**, naming the missing scope; an anonymous caller gets 401, which does not reveal what the route needs.
+- The key is never logged: failures log only a reason, and the `Authorization` header is marked sensitive so a `Debug` print of the headers shows it redacted. The scheme name is case-insensitive (RFC 7235); nothing else about the header is lenient.
+- Routes: `/health` public; `/v1/whoami` (any valid key); `/v1/invoices/calculate` now needs a valid key but no particular scope, since it touches no stored data.
+- **Startup guard:** the service calls `Store::verify_service_role` and refuses to start if its database role is a superuser, has `BYPASSRLS`, or owns the tenant tables. A misconfigured connection string would otherwise disable tenant isolation without any visible symptom.
+- The TypeScript SDK takes `apiKey` in an options object, sends it only on authenticated calls (never to `/health`), holds it in an ES private field so it does not appear if the client is logged or serialised, and refuses a key containing whitespace or control characters (header injection) without repeating the key in the error.
+
 ## Consequences
 - Local development needs the restricted role, so the dev container instructions gain one step (connect as `clearcut_app`; migrations run as `clearcut`). Tests that exercise RLS switch role inside a transaction.
 - Every `Store` method becomes a tenant-scoped transaction, a small mechanical refactor with tests already in place to protect it.

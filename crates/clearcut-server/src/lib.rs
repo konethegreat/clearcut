@@ -1,19 +1,43 @@
 // Written by Kone Tshivhinda & Claude
 //! ClearCut HTTP API. Thin transport over `clearcut-core`.
 //! The MCP host (Phase 1) will expose the same operations as MCP tools.
+//!
+//! Every route except `/health` requires an API key (ADR-0007); see [`auth`].
+
+mod auth;
+
+pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
 
 use axum::{
-    http::StatusCode,
+    http::{header, StatusCode},
     routing::{get, post},
     Json, Router,
 };
 use clearcut_core::{compliance_za, Invoice, InvoiceTotals, Money};
 use serde::Serialize;
+use tower_http::sensitive_headers::SetSensitiveRequestHeadersLayer;
 
-pub fn app() -> Router {
+/// The API's routes, before the shared middleware and state are attached.
+/// (Split from [`app`] so tests can add routes of their own.)
+pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
+        .route("/v1/whoami", get(whoami))
         .route("/v1/invoices/calculate", post(calculate))
+}
+
+/// Attaches the middleware and state. The `Authorization` header is marked
+/// sensitive for everything downstream, so it prints as redacted if a request
+/// is ever logged or debug-printed.
+pub fn finish(routes: Router<AppState>, state: AppState) -> Router {
+    routes
+        .layer(SetSensitiveRequestHeadersLayer::new([header::AUTHORIZATION]))
+        .with_state(state)
+}
+
+/// The complete API.
+pub fn app(state: AppState) -> Router {
+    finish(routes(), state)
 }
 
 #[derive(Serialize)]
@@ -22,10 +46,33 @@ struct Health {
     version: &'static str,
 }
 
+/// The only route that needs no key.
 async fn health() -> Json<Health> {
     Json(Health {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
+    })
+}
+
+#[derive(Serialize)]
+struct WhoAmI {
+    tenant: String,
+    key_id: String,
+    scopes: Vec<&'static str>,
+}
+
+/// Lets a client check which tenant, key and scopes its credentials carry.
+/// Needs a valid key but no particular scope. Never echoes the key.
+async fn whoami(auth: Authed) -> Json<WhoAmI> {
+    let principal = auth.principal();
+    Json(WhoAmI {
+        tenant: principal.tenant().to_string(),
+        key_id: principal.key_id().to_string(),
+        scopes: principal
+            .scopes()
+            .into_iter()
+            .map(|scope| scope.as_str())
+            .collect(),
     })
 }
 
@@ -41,7 +88,13 @@ struct ApiError {
     error: String,
 }
 
-async fn calculate(Json(invoice): Json<Invoice>) -> Result<Json<Calculation>, (StatusCode, Json<ApiError>)> {
+/// Pure arithmetic on what the caller sends: it touches no stored data, so it
+/// needs a valid key but no particular scope. The key is checked before the
+/// body is read.
+async fn calculate(
+    _auth: Authed,
+    Json(invoice): Json<Invoice>,
+) -> Result<Json<Calculation>, (StatusCode, Json<ApiError>)> {
     let totals = invoice.totals().map_err(|e| {
         (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -57,47 +110,4 @@ async fn calculate(Json(invoice): Json<Invoice>) -> Result<Json<Calculation>, (S
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{body::Body, http::Request};
-    use http_body_util::BodyExt;
-    use tower::ServiceExt;
-
-    #[tokio::test]
-    async fn health_ok() {
-        let res = app()
-            .oneshot(Request::get("/health").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn calculates_vat() {
-        let body = r#"{"number":"INV-1","currency":"ZAR","status":"draft","lines":[
-            {"description":"Consulting","quantity_milli":10000,
-             "unit_price":{"minor":150000,"currency":"ZAR"},"tax":"standard"}]}"#;
-        let req = Request::post("/v1/invoices/calculate")
-            .header("content-type", "application/json")
-            .body(Body::from(body))
-            .unwrap();
-        let res = app().oneshot(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let bytes = res.into_body().collect().await.unwrap().to_bytes();
-        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["totals"]["gross"]["minor"], 1_725_000);
-        assert_eq!(v["required_document"], "full");
-        assert_eq!(v["display_gross"], "R17250.00");
-    }
-
-    #[tokio::test]
-    async fn empty_invoice_is_422() {
-        let body = r#"{"number":"X","currency":"ZAR","status":"draft","lines":[]}"#;
-        let req = Request::post("/v1/invoices/calculate")
-            .header("content-type", "application/json")
-            .body(Body::from(body))
-            .unwrap();
-        let res = app().oneshot(req).await.unwrap();
-        assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    }
-}
+mod tests;

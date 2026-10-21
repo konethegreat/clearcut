@@ -25,6 +25,9 @@ clearcut-admin create-key --tenant "$TENANT" --name "first admin" \
 - After that, holders of `keys:admin` manage the tenant's keys through the API themselves. **An administrator can only hand out scopes it holds**, so give the first admin key every scope its tenant's administrators should be able to delegate.
 - Keys live at most **365 days** (`--days` can shorten that, not extend it). Rotate by issuing a new key before the old one lapses, then revoking the old one.
 
+## Running the service
+The service reads `DATABASE_URL` too, but it must be the **service role** (`clearcut_app`), not the owner's. At startup it checks the role and **refuses to start** if the role is a superuser, can bypass row-level security, or owns the tenant tables, because running as the owner would silently switch tenant isolation off. It never migrates or creates tenants; that is this command's job. Callers present their key as `Authorization: Bearer ccut_...`; `GET /health` is the only route that needs no key, and `GET /v1/whoami` shows which tenant, key and scopes a key carries.
+
 ## When a key leaks
 ```
 clearcut-admin revoke-key --tenant <tenant id> --key <key id>

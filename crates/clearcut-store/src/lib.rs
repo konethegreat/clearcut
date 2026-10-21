@@ -73,6 +73,10 @@ pub enum Error {
     InvalidStoredScopes(String),
     #[error("could not get random bytes for a key: {0}")]
     Random(String),
+    /// The service is connected as a database role that would bypass tenant
+    /// isolation (see [`Store::verify_service_role`]).
+    #[error("unsafe database role for the service: {0}")]
+    UnsafeServiceRole(&'static str),
     /// The caller lacks a scope (from `clearcut-core::auth`).
     #[error(transparent)]
     Auth(#[from] clearcut_core::Error),
@@ -232,6 +236,35 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         Ok(tx)
+    }
+
+    /// Refuses to continue if this connection's database role would bypass
+    /// tenant isolation: a superuser, a role with `BYPASSRLS`, or a role that
+    /// owns the tenant tables (owners are not subject to row-level security).
+    /// The service calls this once at startup; running with the owner's
+    /// credentials by mistake would otherwise silently switch isolation off.
+    pub async fn verify_service_role(&self) -> Result<()> {
+        let (superuser, bypass_rls, owns_tables): (bool, bool, bool) = sqlx::query_as(
+            "select r.rolsuper, r.rolbypassrls,                     exists (select 1 from pg_tables t                             where t.schemaname = 'public'                               and t.tablename in ('tenants', 'documents', 'events', 'audit_log', 'api_keys')                               and t.tableowner = current_user)              from pg_roles r where r.rolname = current_user",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if superuser {
+            return Err(Error::UnsafeServiceRole(
+                "the database role is a superuser, which bypasses row-level security",
+            ));
+        }
+        if bypass_rls {
+            return Err(Error::UnsafeServiceRole(
+                "the database role can bypass row-level security",
+            ));
+        }
+        if owns_tables {
+            return Err(Error::UnsafeServiceRole(
+                "the database role owns the tenant tables, and owners bypass row-level security",
+            ));
+        }
+        Ok(())
     }
 
     /// Applies any migrations that have not been applied yet.

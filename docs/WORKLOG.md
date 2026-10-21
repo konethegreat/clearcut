@@ -2,6 +2,18 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 7) — P1-04 step 5: authentication in the server and the SDK
+**Done** (admin command PR #19 merged first; own branch and PR; tests first; server tests 3 -> 21, store 72 -> 76, SDK 2 -> 13)
+- `clearcut-server`: the `Authed` extractor, `GET /v1/whoami`, `/v1/invoices/calculate` now behind a key, `/health` public. Identical 401 for every authentication failure; outage is a 500; 403 only for authenticated callers and it names the scope; auth runs before the body is read; `Authorization` marked sensitive; failures logged without the key. Tests use a fake authenticator (no database) plus three against the real store; one captures `tracing` output to prove the key never reaches the log.
+- Store: `verify_service_role` (refuses a superuser, a `BYPASSRLS` role, or a table owner), and the server **refuses to start** on such a role. Found while designing this: a service accidentally given the owner's connection string would silently turn row-level security off, with no visible symptom.
+- TypeScript SDK: options-object constructor with `apiKey`, `whoami()`, key sent only on authenticated calls, held in an ES private field, validated against header injection; `ClearCutError.requiredScope` for 403s.
+- Mutation-checked 12 server rules (scheme case, any scheme accepted, whitespace tokens, repeated header, outage-as-401, 403-as-401, skipped scope check, missing `WWW-Authenticate`, key logged, calculate unprotected, header not marked sensitive, body-before-auth) and 7 SDK rules. One server mutation survived (whitespace inside a token) because the fake authenticator rejects such tokens anyway; the fix was to assert the authenticator is never *asked*. "Body read before the key is checked" cannot even be written: axum requires the body extractor last, so the type system enforces that rule.
+- **Smoke-tested the real binaries end to end** against a scratch database: the admin command bootstraps a tenant and key; the server refuses to start on the owner's credentials (exit 1) and with no `DATABASE_URL` (exit 2); run as `clearcut_app` it answers `/health` 200, no key 401, wrong secret 401, real key 200 with the right tenant and scopes, calculate without a key 401 even with a garbage body, calculate with the key 200; after the operator revokes the key, 401 at once; the secret appears 0 times in the server log.
+- README quick-start and docs/ADMIN.md updated for the new flow.
+
+**P1-04 is now complete** (scopes, roles and RLS, erase function, API keys, admin command, server and SDK authentication). Deferred by decision: expiry cap on created keys (no cap), throttling (left to the deployment).
+**Next**: the protected upload endpoint (P1-02's remainder: streams through `clearcut-objects`, records the document through the store, needs `documents:write`), then P1-03 (job queue; needs Kone's schema review) and P2-04.
+
 ## 2026-10-21 (part 6) — P1-04 step 4: the `clearcut-admin` command
 **Done** (API keys PR #18 merged first; own branch and PR; tests first; 17 admin tests + 2 store tests, store now 72)
 - Merged #18 after recording Kone's decision on the open ADR question: **no expiry cap** (new keys get up to 365 days regardless of the creator's expiry).

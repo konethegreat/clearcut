@@ -26,11 +26,17 @@ See the [research](docs/research/) behind these claims, including where sources 
 ## Quick start
 
 ```bash
-cargo test --workspace                 # 20 tests across core + server
-cargo run -p clearcut-server           # REST on 127.0.0.1:8080
-cargo run -p clearcut-mcp              # MCP over stdio
+cargo test --workspace                 # needs a local Postgres for the store/server tests (see CONTRIBUTING.md)
+cargo run -p clearcut-mcp              # MCP over stdio (no database needed)
 
-curl -s localhost:8080/v1/invoices/calculate -H 'content-type: application/json' -d '{
+# The REST API needs a Postgres and an API key. As the database owner, once:
+#   clearcut-admin migrate && clearcut-admin create-tenant "My Practice"
+#   clearcut-admin create-key --tenant <id> --name me --scopes keys:admin,documents:read > my.key
+# then run the server as the restricted service role (see docs/ADMIN.md):
+#   DATABASE_URL=<clearcut_app connection> cargo run -p clearcut-server    # REST on 127.0.0.1:8080
+curl -s localhost:8080/v1/whoami -H "Authorization: Bearer $(cat my.key)"   # who am I? (GET /health needs no key)
+
+curl -s localhost:8080/v1/invoices/calculate -H "Authorization: Bearer $(cat my.key)" -H 'content-type: application/json' -d '{
   "number":"INV-1","currency":"ZAR","status":"draft",
   "lines":[{"description":"Consulting","quantity_milli":10000,
             "unit_price":{"minor":150000,"currency":"ZAR"},"tax":"standard"}]}'
