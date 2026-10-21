@@ -98,6 +98,13 @@ The store opens every operation with `select set_config('clearcut.tenant', $1, t
 - A stored scope this version does not know makes authentication fail with an error instead of being quietly dropped.
 - **Decided by Kone, 2026-10-21: no expiry cap.** Question was: should a key created through the API be capped to expire no later than the key that created it? It would stop a stolen, nearly-expired admin key from minting year-long keys, but it would also stop an admin key from creating its own successor, so every yearly rotation of an administrator would need the operator. New keys therefore get up to the full 365 days regardless of the creator's expiry; the creator's authority is bounded by scopes, tenant and revocation. Revisit if admin keys are issued to people rather than systems.
 
+## Implementation notes (step 4, the `clearcut-admin` command)
+- A small `clearcut-admin` crate (library + thin `main`): `migrate`, `create-tenant`, `create-key`, `revoke-key`. It runs on the **owner** connection from `DATABASE_URL` and refuses the service role with a message that says so (it maps Postgres "insufficient privilege" to that message).
+- **Scriptable by design:** stdout carries only the machine-readable result (a tenant id, or the new key's token), stderr the human notes; a failed command writes nothing to stdout; exit codes are 0 success, 1 failure, 2 usage. The notes never contain a secret.
+- Argument checking is strict and early: scopes must be exact names (the error lists the valid ones), `--days` must be 1 to 365.
+- `revoke-key` is the break-glass response to a leaked key and needs no admin key; it uses `Store::revoke_api_key_as_operator`. Everything the command does is audited with actor `{"type":"operator"}`, including tenant creation.
+- Runbook: [ADMIN.md](../ADMIN.md).
+
 ## Consequences
 - Local development needs the restricted role, so the dev container instructions gain one step (connect as `clearcut_app`; migrations run as `clearcut`). Tests that exercise RLS switch role inside a transaction.
 - Every `Store` method becomes a tenant-scoped transaction, a small mechanical refactor with tests already in place to protect it.

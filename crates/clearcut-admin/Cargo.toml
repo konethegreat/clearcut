@@ -1,0 +1,30 @@
+[package]
+name = "clearcut-admin"
+description = "ClearCut operator command: migrations, tenants and API keys, run with the owner database connection."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "clearcut-admin"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+clearcut-core = { path = "../clearcut-core" }
+clearcut-store = { path = "../clearcut-store" }
+serde_json = "1.0.154"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres"] }
+thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["formatting"] }
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread"] }
+uuid = "1"
+
+[dev-dependencies]
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }

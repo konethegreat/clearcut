@@ -1475,6 +1475,66 @@ async fn the_operator_can_still_issue_every_scope(pool: PgPool) {
     assert_eq!(principal.scopes(), Scope::ALL.to_vec());
 }
 
+#[sqlx::test]
+async fn the_operator_can_revoke_a_leaked_key_without_holding_an_admin_key(pool: PgPool) {
+    let (store, tenant, _doc) = setup(&pool).await;
+    let leaked = operator_key(&store, tenant, &[Scope::DocumentsRead]).await;
+    assert!(store.authenticate(leaked.token.expose()).await.is_ok());
+
+    store.revoke_api_key_as_operator(tenant, leaked.id).await.unwrap();
+
+    assert!(matches!(
+        store.authenticate(leaked.token.expose()).await,
+        Err(Error::Unauthenticated)
+    ));
+    // Audited as the operator's doing, with no secret.
+    let (actor, action): (serde_json::Value, String) = sqlx::query_as(
+        "select actor, action from audit_log where subject_id = $1 and action = 'api_key.revoked'",
+    )
+    .bind(leaked.id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(actor, json!({ "type": "operator" }));
+    assert_eq!(action, "api_key.revoked");
+}
+
+#[sqlx::test]
+async fn an_operator_revoke_is_safe_to_repeat_and_names_unknown_keys(pool: PgPool) {
+    let two = two_tenants(&pool).await;
+    let key_b = operator_key(&two.app, two.b.0, &[Scope::DocumentsRead]).await;
+
+    two.app
+        .revoke_api_key_as_operator(two.b.0, key_b.id)
+        .await
+        .unwrap();
+    two.app
+        .revoke_api_key_as_operator(two.b.0, key_b.id)
+        .await
+        .unwrap(); // again: fine
+    let revocations = count(
+        &pool,
+        "select count(*) from audit_log where action = 'api_key.revoked'",
+    )
+    .await;
+    assert_eq!(revocations, 1, "a repeat writes no second audit entry");
+
+    // A key id that does not exist for the named tenant is not found.
+    assert!(matches!(
+        two.app
+            .revoke_api_key_as_operator(two.b.0, Uuid::from_u128(9))
+            .await,
+        Err(Error::ApiKeyNotFound)
+    ));
+    // Naming the wrong tenant does not revoke another tenant's key.
+    let key_a = operator_key(&two.app, two.a.0, &[Scope::DocumentsRead]).await;
+    assert!(matches!(
+        two.app.revoke_api_key_as_operator(two.b.0, key_a.id).await,
+        Err(Error::ApiKeyNotFound)
+    ));
+    assert!(two.app.authenticate(key_a.token.expose()).await.is_ok());
+}
+
 // ---------- ids ----------
 
 #[test]

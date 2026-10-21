@@ -9,5 +9,6 @@
 | [research/04-differentiation.md](research/04-differentiation.md) | How ClearCut stands out |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Components and data flow |
 | [adr/](adr/) | Architecture decision records (0006: Postgres schema v1; 0007: auth and row-level security) |
+| [ADMIN.md](ADMIN.md) | Operator runbook: `clearcut-admin`, first-time tenant setup, leaked keys |
 | [PHASES.md](PHASES.md) | Roadmap with tasks and status |
 | [WORKLOG.md](WORKLOG.md) | Running log of work |
