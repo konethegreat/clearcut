@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 12) — P1-03 step 1: job rules in `clearcut-core`
+**Done** (ADR-0008 merged as Accepted first, with Kone's five decisions recorded; own branch; tests first; core 203 -> 236)
+- New `clearcut_core::jobs`, pure: `JobKind`, `JobState` (five states, no `failed`) with the legal-transition table, the table of what each job state does to its document (claimed -> processing, succeeded -> done, needs_review -> needs_review, cancelled -> received), `Outcome`, `FailureKind`/`Decision`, `RetryPolicy` (5 attempts, 30 s doubling to 15 min, +/-20% jitter; randomness is passed in as a sample so the rules stay deterministic), `LeasePolicy` (5 min, heartbeat at a third), the 48 h `DEFAULT_DEADLINE`, `Progress`, and `short_error`/`short_note`, which fit worker text to the database column limits so a long error cannot break the very write that records a failure.
+- `DocumentStatus` moved from the store to `clearcut_core::document` (the job rules need it); the store re-exports it.
+- Mutation-checked 47 rules (names, each legal and illegal transition, document effects, every default number, backoff doubling/cap/overflow, jitter bounds and clamp, outage never counting or ending a job, exhaustion boundary, policy validation, lease minimum, progress, percentage rounding, text limits); all caught.
+- **Correction to ADR-0008:** it said five retries "span roughly 45 minutes". Five attempts are four waits (30+60+120+240 s), about 7.5 minutes. The ADR now says so; the approved numbers are unchanged, and Kone can raise `max_attempts` if a longer window is wanted. Also added: a provider outage is retried every 5 minutes (+/-20%) without counting.
+**Next**: step 2, migration `0005_jobs.sql` and the store methods (show Kone the final SQL in the PR; also teaches `erase_document` to delete jobs).
+
 ## 2026-10-21 (part 11) — P1-03: job queue design (no code)
 **Done** (docs only: ADR-0008 as Proposed, per "show me the schema and design first, before any migration")
 - Proposed one `jobs` table (a job is one stage of work on one document; page-level progress and a checkpoint instead of a row per page), five states with no `failed` (`queued`, `running`, `succeeded`, `needs_review`, `cancelled`), leases with a fencing token, a deadline on every job, and a provider outage that does not consume attempts.

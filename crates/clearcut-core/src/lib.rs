@@ -7,10 +7,12 @@
 
 pub mod auth;
 pub mod compliance_za;
+pub mod document;
 pub mod error;
 pub mod event;
 pub mod extraction;
 pub mod invoice;
+pub mod jobs;
 pub mod money;
 pub mod narration;
 pub mod status;
