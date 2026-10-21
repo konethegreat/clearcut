@@ -2,6 +2,17 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 6) — P1-04 step 4: the `clearcut-admin` command
+**Done** (API keys PR #18 merged first; own branch and PR; tests first; 17 admin tests + 2 store tests, store now 72)
+- Merged #18 after recording Kone's decision on the open ADR question: **no expiry cap** (new keys get up to 365 days regardless of the creator's expiry).
+- New crate `clearcut-admin` (library + thin `main`, clap): `migrate`, `create-tenant <name>`, `create-key --tenant --name --scopes [--days]`, `revoke-key --tenant --key`. Owner connection only (`DATABASE_URL`); the restricted service role is refused with a clear message. stdout = only the tenant id or the key (one line), stderr = human notes that never contain the secret; failures print nothing on stdout; exit codes 0/1/2. Tenant creation is audited as the operator. Unknown tenant, blank name, bad scope (error lists the valid ones), `--days` outside 1 to 365 are all refused cleanly.
+- Store: `revoke_api_key_as_operator` (no admin key needed; audited as operator; idempotent; wrong tenant looks absent).
+- Mutation-checked 11 rules (token to stderr, secret in the notes, blank names, service-role detection, unknown-tenant detection, days ignored, valid scopes unlisted, days range, tenant audit, missing key, stdout before success); all caught. Two of my mutation attempts were malformed shell quoting and proved nothing, so the secret-leak one was redone with a script file.
+- **Smoke-tested the real binary** against a scratch database: no-`DATABASE_URL` exit 2, migrate, create-tenant, create-key (one stdout line, secret absent from stderr), bad scope exit 2, unknown tenant exit 1 with empty stdout, revoke, and the audit trail (tenant.created, api_key.created, api_key.revoked, all by operator); scratch database dropped.
+- New runbook `docs/ADMIN.md`.
+
+**Next in P1-04**: the `Bearer` extractor in `clearcut-server` (authenticate, require a scope per route, redact the header from logs) and the protected upload endpoint (uses `clearcut-objects` and the store), which is what P1-02 has been waiting on.
+
 ## 2026-10-21 (part 5) — P1-04 step 3: API keys
 **Done** (own branch and PR; tests first; store tests 37 -> 66: 9 pure key-format tests, 20 database tests; ADR-0007 gains implementation notes)
 - `keys` module (pure apart from OS randomness): `ccut_<32 hex id>_<64 hex secret>`; strict parsing (no trimming, case folding or `Bearer ` prefix); the stored value is SHA-256 of the 32 secret bytes; `ApiKeyToken`'s `Debug` shows the key id and hides the secret.
