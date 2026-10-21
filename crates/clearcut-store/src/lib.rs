@@ -525,7 +525,20 @@ impl Store {
     /// another tenant) is [`Error::ApiKeyNotFound`]. Needs `keys:admin`.
     pub async fn revoke_api_key(&self, by: &Principal, key_id: Uuid) -> Result<()> {
         by.require(Scope::KeysAdmin)?;
-        let tenant = TenantId(by.tenant());
+        let actor = serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() });
+        self.revoke_inner(TenantId(by.tenant()), key_id, actor).await
+    }
+
+    /// Revokes any tenant's key with no scope check. This is the operator's
+    /// response to a leaked key (`clearcut-admin revoke-key`), usable without
+    /// holding an admin key; the public API never calls it. Same semantics as
+    /// [`Store::revoke_api_key`], audited as the operator.
+    pub async fn revoke_api_key_as_operator(&self, tenant: TenantId, key_id: Uuid) -> Result<()> {
+        self.revoke_inner(tenant, key_id, serde_json::json!({ "type": "operator" }))
+            .await
+    }
+
+    async fn revoke_inner(&self, tenant: TenantId, key_id: Uuid, actor: serde_json::Value) -> Result<()> {
         let mut tx = self.begin(tenant).await?;
         let revoked = sqlx::query(
             "update api_keys set revoked_at = now() \
@@ -537,7 +550,7 @@ impl Store {
         .await?;
         if revoked.rows_affected() == 1 {
             let entry = AuditEntry {
-                actor: serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() }),
+                actor,
                 action: "api_key.revoked".into(),
                 subject_type: "api_key".into(),
                 subject_id: key_id.to_string(),
