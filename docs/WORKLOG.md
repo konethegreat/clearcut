@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 10) — P1-02: `uploadDocument` in the TypeScript SDK
+**Done** (#21 `clearcut-intake` and #22 `POST /v1/documents` merged first; tests first; SDK tests 13 -> 24)
+- `client.uploadDocument(file, { contentType?, filename? })`: sends the bytes as they are (a `Blob`, `ArrayBuffer` or `Uint8Array`, held in memory; streaming is a later addition), the content type as the `Content-Type` header (a Blob supplies its own, an explicit option overrides it), the name as a properly encoded `?filename=`. Returns the server's `UploadedDocument` (`duplicate` tells a repeat). Errors are the usual `ClearCutError` (403 carries `requiredScope`).
+- Refuses before any request when there is no content type, or one that could inject a header (line breaks, control characters). The shared `request` helper now only defaults to JSON when the caller did not set a content type.
+- Mutation-checked 13 rules; all caught after one survivor: with no file name the URL could end in a bare `?`, which `new URL().search` hides, so the test now compares the raw URL.
+- **Smoke-tested the built SDK against the real server and database**: bytes and Blob uploads (the repeat flagged `duplicate`), a read-only key gets 403 with `requiredScope`, `text/html` 415, 5000 bytes against a 2000-byte limit 413, empty 400; `Café & Co/march #1.pdf` is stored as `march #1.pdf`; one document row.
+**Next**: resumable/chunked uploads (own design), then P1-03 (job queue; needs Kone's schema review) and P2-04.
+
 ## 2026-10-21 (part 9) — P1-02: `POST /v1/documents`
 **Done** (stacked on the intake PR; tests first; server tests 21 -> 39)
 - The endpoint is the raw file as the body (`Content-Type` says what it is, optional `?filename=`), so it streams to storage instead of being held in memory. Order: authenticate, read the query, check `documents:write`, and only then touch the body. Answers: 201 new / 200 repeat (flagged `duplicate`), 401, 403 naming the scope, 415 listing the accepted types, 413 stating the limit, 400 empty or interrupted, 500 with no detail (the detail goes to the log), 503 if started without an intake.

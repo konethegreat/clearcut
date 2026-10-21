@@ -36,6 +36,19 @@ export interface Calculation {
 export type Scope =
   | "documents:read" | "documents:write" | "events:read" | "review:write" | "keys:admin";
 
+/** What the server says about an uploaded document (POST /v1/documents). */
+export interface UploadedDocument {
+  document_id: string;
+  /** True when you had already uploaded exactly these bytes; `document_id` is then the existing document. */
+  duplicate: boolean;
+  /** SHA-256 of the file, in hex. */
+  sha256: string;
+  byte_size: number;
+  /** The cleaned name sent with this upload (for a repeat, the document keeps the name it first had). */
+  filename: string;
+  media_type: "application/pdf" | "image/png" | "image/jpeg" | "image/tiff" | "application/xml";
+}
+
 /** The caller as the server sees it (GET /v1/whoami). */
 export interface WhoAmI {
   tenant: string;
