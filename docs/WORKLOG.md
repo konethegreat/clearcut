@@ -2,6 +2,16 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-21 (part 8) — P1-02: the upload rules (`clearcut-intake`)
+**Done** (own branch; tests first; 26 tests, the upload ones against a real Postgres and a temp directory)
+- PR #20's `rust` check failed on CI with a flaky test: `tracing` caches, per log statement, whether anyone was listening, so a per-test subscriber is lost when a parallel test hits the same statement first. Fixed by installing one process-wide subscriber that writes to a per-thread buffer; 8 local runs green.
+- New crate `clearcut-intake`, no HTTP so the REST endpoint and the later MCP tool share one set of rules. Order: scope `documents:write`, media type (PDF, PNG, JPEG, TIFF, XML), declared length against the limit, all **before the body is read** (tests use a reader that fails if touched); then stream into the object store with a hard limit that applies whatever the sender claimed; then the document row; then an audit entry `document.uploaded` (file name, size, duplicate flag, never content), also for repeat uploads.
+- File names are cleaned metadata: last path component only, control and invisible direction characters removed, whitespace collapsed, 255 characters, fallback `upload`. They never become paths (storage keys come from the content hash).
+- Decision: if the database write fails after the file is stored, the file is **kept**. It is named by its content and owned by one tenant, a retry finds it, and deleting it could race with an identical upload that just found it. An orphan sweep can come later.
+- Mutation-checked 29 rules (scope, media type, declared-length boundary, each filename rule, duplicate flag, audit for new and repeat uploads, each error mapping, tenant, stored type and page count); all caught. My first harness mislabelled results (a failing test also prints `error:`), so it was redone with explicit "could not compile" detection; the redo found that two rules had no test (the stored media type being the canonical one, and the page count staying unknown), so a test was added.
+- Interrupted uploads (connection reset or aborted) are told apart from our own storage failures.
+**Next**: `POST /v1/documents` in `clearcut-server` over this crate (raw streamed body, `filename` query parameter, 201 new / 200 duplicate, 413/415/400).
+
 ## 2026-10-21 (part 7) — P1-04 step 5: authentication in the server and the SDK
 **Done** (admin command PR #19 merged first; own branch and PR; tests first; server tests 3 -> 21, store 72 -> 76, SDK 2 -> 13)
 - `clearcut-server`: the `Authed` extractor, `GET /v1/whoami`, `/v1/invoices/calculate` now behind a key, `/health` public. Identical 401 for every authentication failure; outage is a 500; 403 only for authenticated callers and it names the scope; auth runs before the body is read; `Authorization` marked sensitive; failures logged without the key. Tests use a fake authenticator (no database) plus three against the real store; one captures `tracing` output to prove the key never reaches the log.
