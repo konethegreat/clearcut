@@ -42,6 +42,7 @@ See [adr/](adr/):
 - [0004 Ingestion, event and narration pipeline](adr/0004-ingestion-and-narration-pipeline.md)
 - [0005 Model provider, escalation, thinking and memory](adr/0005-model-strategy-escalation.md)
 - [0006 Postgres schema v1](adr/0006-postgres-schema.md)
+- [0007 Auth, roles and row-level security](adr/0007-auth-and-row-level-security.md)
 
 ## Ingestion → narration → export pipeline (Phases 1–4)
 ```
