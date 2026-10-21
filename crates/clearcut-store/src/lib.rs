@@ -99,35 +99,13 @@ impl DocId {
     }
 }
 
-/// Where a document is in the pipeline. There is no failed state: a document
-/// ends `Done` or `NeedsReview` (ADR-0005).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DocumentStatus {
-    Received,
-    Processing,
-    NeedsReview,
-    Done,
-}
+/// Where a document is in the pipeline. Defined in the core (the job queue's
+/// rules need it too); there is no failed state (ADR-0005).
+pub use clearcut_core::document::DocumentStatus;
 
-impl DocumentStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            DocumentStatus::Received => "received",
-            DocumentStatus::Processing => "processing",
-            DocumentStatus::NeedsReview => "needs_review",
-            DocumentStatus::Done => "done",
-        }
-    }
-
-    fn parse(text: &str) -> Result<Self> {
-        Ok(match text {
-            "received" => DocumentStatus::Received,
-            "processing" => DocumentStatus::Processing,
-            "needs_review" => DocumentStatus::NeedsReview,
-            "done" => DocumentStatus::Done,
-            other => return Err(Error::UnknownStatus(other.to_string())),
-        })
-    }
+/// Reads a stored status name, refusing one we do not know.
+fn parse_status(text: &str) -> Result<DocumentStatus> {
+    DocumentStatus::parse(text).ok_or_else(|| Error::UnknownStatus(text.to_string()))
 }
 
 /// What is known about an uploaded file.
@@ -332,7 +310,7 @@ impl Store {
                 .fetch_optional(&mut *tx)
                 .await?;
         tx.commit().await?;
-        DocumentStatus::parse(&status.ok_or(Error::DocumentNotFound)?)
+        parse_status(&status.ok_or(Error::DocumentNotFound)?)
     }
 
     pub async fn set_document_status(

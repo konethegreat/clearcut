@@ -27,4 +27,17 @@ pub enum Error {
     UnknownScope(String),
     #[error("missing required scope {}", .0.as_str())]
     MissingScope(crate::auth::Scope),
+    #[error("unknown job kind {0:?}")]
+    UnknownJobKind(String),
+    #[error("unknown job state {0:?}")]
+    UnknownJobState(String),
+    #[error("invalid job transition from {from:?} to {to:?}")]
+    InvalidJobTransition {
+        from: crate::jobs::JobState,
+        to: crate::jobs::JobState,
+    },
+    #[error("invalid job progress: {0}")]
+    InvalidJobProgress(&'static str),
+    #[error("invalid job policy: {0}")]
+    InvalidJobPolicy(&'static str),
 }
