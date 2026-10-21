@@ -1,0 +1,26 @@
+[package]
+name = "clearcut-intake"
+description = "ClearCut document intake: validates an upload, stores its bytes, records the document and audits it. Transport-independent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clearcut-core = { path = "../clearcut-core" }
+clearcut-objects = { path = "../clearcut-objects" }
+clearcut-store = { path = "../clearcut-store" }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.53.3", features = ["io-util"] }
+
+[dev-dependencies]
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
+tempfile = "3"
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread"] }
+uuid = "1"
