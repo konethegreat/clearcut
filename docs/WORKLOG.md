@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 11) — Anthropic API research and ADR-0011 (bring your own key), proposed
+**Done** (docs only; branch `docs/adr-0011-byok`; no code)
+- Kone's constraint: the project has no money for an API key, so each user brings their own Anthropic key, and only Anthropic is used. Read the official docs (rate limits, prompt caching, models and pricing, errors, effort and thinking, structured outputs, PDF support, batch, data retention, authentication) and wrote the facts, with sources and dates, in `docs/research/06-anthropic-api.md`.
+- Findings that change the design: **forced tool use is unsupported** on the current models (structured outputs instead); **Fable 5.1 is a Covered Model** (30-day retention, refused under zero data retention, lower token limits); a **spend-cap 429 has no `retry-after`** and must not be retried; changing effort, images or the schema invalidates the prompt cache; **Haiku 5.5 costs 5x more above 100k prompt tokens**; the Batch and Files APIs store data. A 10-page invoice on Haiku 5.5 is about R0.15 (estimate, R18/USD), so a full 200-invoice gold-set run costs tens of rand.
+- **ADR-0011 (Proposed)**: bring-your-own key (environment first, encrypted per-tenant keys later), the key as an unprintable secret never given to the worker, validation without spending tokens, per-document and monthly budgets in rand, an adaptive rate-limit-aware client with an error-to-failure-kind table, one cached static prefix with stability rules, Fable off by default.
+- Kone's glyph-obfuscated PDF concern recorded as P2-20: detect, decode, and **verify against an independent read plus the to-the-cent arithmetic**, never trust one path; real samples needed.
+**Next**: Kone's review of ADR-0011. Then P2-23 (key handling), P2-13 (the adapter), P2-24, P2-12. Still to read before the adapter: the vision, token-counting, streaming, thinking and Files pages.
+
 ## 2026-10-22 (part 10) — ADR-0010 step 3: the collection kit and the repository guard
 **Done** (PR #35 merged first, CI green; own branch; tests first; 290 tests in `clearcut-eval`)
 - `clearcut-gold guard` and a new CI job `gold-set`: no documents or gold-set labels in the public repository outside the approved fixture folders (`gold-guard.json`), including renamed documents (by their first bytes) and real cases hiding among the samples; `.gitignore` must keep `/gold/` and `/gold-*/` out. In a git working copy it judges what git would commit. The same job runs `check` and `score` on the samples (the test split passes the gate, the dev split must fail it).
