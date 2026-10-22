@@ -28,8 +28,7 @@ import json
 import multiprocessing
 import time
 from collections.abc import Callable
-from multiprocessing.connection import Connection
-from typing import TypeGuard
+from typing import Protocol, TypeGuard
 
 from .inspect import (
     Encrypted,
@@ -52,10 +51,25 @@ _REFUSALS: dict[str, type[InspectError]] = {
     "TooSlow": TooSlow,
 }
 
-ChildTarget = Callable[[Connection, bytes, int, float], None]
+
+class AnswerChannel(Protocol):
+    """The child's end of the pipe, described by what the child does with it.
+
+    (The concrete class differs between Windows and Linux, so the code relies on
+    this shape instead of on either class.)
+    """
+
+    def send_bytes(self, buf: bytes) -> None: ...
+
+    def send(self, obj: object) -> None: ...
+
+    def close(self) -> None: ...
 
 
-def _child_main(conn: Connection, data: bytes, max_pages: int, timeout_seconds: float) -> None:
+ChildTarget = Callable[[AnswerChannel, bytes, int, float], None]
+
+
+def _child_main(conn: AnswerChannel, data: bytes, max_pages: int, timeout_seconds: float) -> None:
     """What runs in the child: inspect, and send back a tiny JSON answer."""
     deadline = time.monotonic() + timeout_seconds
     try:

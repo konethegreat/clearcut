@@ -8,9 +8,7 @@ import json
 import multiprocessing
 import threading
 import time
-from multiprocessing.connection import Connection
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 
@@ -190,9 +188,8 @@ def test_each_named_refusal_comes_back_as_itself(answer: bytes, expected: type[E
 
 
 def run_child(data: bytes, max_pages: int = 50, timeout: float = 30.0) -> list[object]:
-    receiver, sender = multiprocessing.Pipe(duplex=False)
-    # (On Windows the pipe has its own class, which the type stubs do not relate to Connection.)
-    _child_main(cast("Connection[Any, Any]", sender), data, max_pages, timeout)
+    receiver, sender = multiprocessing.get_context("spawn").Pipe(duplex=False)
+    _child_main(sender, data, max_pages, timeout)
     answer: list[object] = json.loads(receiver.recv_bytes())
     receiver.close()
     return answer
