@@ -28,7 +28,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P1-08 OpenAPI from code; TS types generated from JSON Schema; contract tests
 
 ## Phase 2 — Ingestion & understanding (≈6–8 weeks) ⭐ core
-- ⬜ P2-01 **Gold set:** collect and anonymise 200+ real SA invoices; label fields (with the document owners' consent and a POPIA review)
+- 🔄 P2-01 **Gold set:** collect and anonymise 200+ real SA invoices; label fields (with the document owners' consent and a POPIA review) — **tooling ✅** ([ADR-0010](adr/0010-gold-set-and-evaluation.md): label format, `clearcut-gold check`, synthetic sample set); **collection ⬜** (needs Kone: consent, anonymisation, labelling)
 - ⬜ P2-02 Document intake: type sniffing, page count, text-layer detection, de-duplication by hash
 - ⬜ P2-03 Embedded-structured-data reader (UBL/CII/Factur-X XML inside PDFs)
 - ✅ P2-04 Python worker skeleton (gRPC/HTTP), provider trait, no business rules — design accepted in [ADR-0009](adr/0009-worker-and-provider-boundary.md) (2026-10-22): the worker only reads documents (no API key, no egress) and the model provider lives in Rust, so P2-13 is a Rust adapter. Four small PRs: ~~`clearcut-provider` (trait, types, fake)~~ ✅ (25 tests), ~~the Python worker skeleton~~ ✅ (`services/worker`: FastAPI, bearer auth, limits, `/health`, `/v1/inspect`; 146 tests, a CI job on Python 3.12 and 3.14), `clearcut-docproc` (client and contract test), then the container with P1-07
@@ -37,7 +37,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-07 Map-reduce for long documents: page-spanning tables, carried balances, statement totals
 - 🔄 P2-08 **Deterministic validation** in `clearcut-core` (line/VAT/total checks, SA field rules, duplicate detection) — done: `extraction::{Extraction, validate}` (line arithmetic, stated vs recomputed totals, due-before-issue, `compliance_za` rules; exact to the cent; 27 tests). Remaining: duplicate detection (needs other documents as input)
 - ⬜ P2-09 Confidence scoring + human review queue (approve / correct / reject; corrections feed the gold set)
-- ⬜ P2-10 Evaluation harness in CI: field-level accuracy, "zero silent errors" gate
+- 🔄 P2-10 Evaluation harness in CI: field-level accuracy, "zero silent errors" gate — format and `check` ✅; **scoring and the gate next** (ADR-0010 step 2)
 - ⬜ P2-11 MCP tools: `upload_document`, `get_extraction`, `review_extraction`
 - ⬜ P2-12 Cost guardrails: token estimate, per-tenant budget, batch mode
 - ⬜ P2-13 Anthropic provider adapter (behind the provider trait); API key via env/secret manager; per-tenant budgets

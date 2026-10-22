@@ -1,0 +1,72 @@
+{
+  "format": 1,
+  "case": "g-0010",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "3f39bbc97f66f1ced69101b184936003dc7f3984c8ee912d5cbbf548ec045ba8",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard",
+    "wrong-totals"
+  ],
+  "split": "dev",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "DC-0319",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-06-01",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Drakensberg Catering CC",
+        "address": "61 Main Road, Underberg, 3257",
+        "vat_number": "4999900109"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Lunch buffet, per person",
+        "quantity": "25",
+        "unit_price": "85.00",
+        "line_total": "2125.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Venue set-up",
+        "quantity": "1",
+        "unit_price": "250.00",
+        "line_total": "260.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "2375.00",
+      "vat": "356.25",
+      "gross": "2731.25",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": [
+      "line_total_mismatch:2"
+    ]
+  }
+}

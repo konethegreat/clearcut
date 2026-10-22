@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "case": "g-0009",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "26e0d91725a5cb3b7721a68bed068dd3d32de6c20eec246f1d4976879e720921",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard",
+    "wrong-totals"
+  ],
+  "split": "dev",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "NL-5530",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-05-19",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Namib Logistics (Pty) Ltd",
+        "address": "5 Dock Road, Gqeberha, 6001",
+        "vat_number": "4999900108"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Pallet transfer, Gqeberha to Durban",
+        "quantity": "4",
+        "unit_price": "525.00",
+        "line_total": "2100.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Fuel surcharge",
+        "quantity": "1",
+        "unit_price": "180.00",
+        "line_total": "180.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "2280.00",
+      "vat": "442.00",
+      "gross": "2722.00",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": [
+      "totals_mismatch:gross",
+      "totals_mismatch:vat"
+    ]
+  }
+}

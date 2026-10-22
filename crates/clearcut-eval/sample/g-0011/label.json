@@ -1,0 +1,83 @@
+{
+  "format": 1,
+  "case": "g-0011",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "5f45d874bbb79941d664d5a91472863fd72a5dcbefc03ef327eaabf1ec6b0b65",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard",
+    "full-invoice"
+  ],
+  "split": "test",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "FS-1180",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-06-10",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Fynbos Software (Pty) Ltd",
+        "address": "2 Long Street, Cape Town, 8001",
+        "vat_number": "4999900201"
+      },
+      "page": 1
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Annual licence, 10 seats",
+        "quantity": "10",
+        "unit_price": "620.00",
+        "line_total": "6200.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Onboarding session",
+        "quantity": "2",
+        "unit_price": "950.00",
+        "line_total": "1900.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "8100.00",
+      "vat": "1215.00",
+      "gross": "9315.00",
+      "page": 1
+    },
+    "due": {
+      "date": "2026-07-10",
+      "terms": "30 days",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": []
+  }
+}

@@ -1,0 +1,49 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 450 >>
+stream
+BT
+/F1 10 Tf
+16 TL
+50 792 Td
+(TAX INVOICE) Tj T*
+(Namib Logistics \(Pty\) Ltd) Tj T*
+(5 Dock Road, Gqeberha, 6001) Tj T*
+(VAT No: 4999900108) Tj T*
+(Number: NL-5530) Tj T*
+(Date: 2026-05-19) Tj T*
+() Tj T*
+(Pallet transfer, Gqeberha to Durban | qty 4 | price 525.00 | total 2100.00 | VAT 15%) Tj T*
+(Fuel surcharge | qty 1 | price 180.00 | total 180.00 | VAT 15%) Tj T*
+() Tj T*
+(Net: 2280.00) Tj T*
+(VAT: 442.00) Tj T*
+(Total: ZAR 2722.00) Tj T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000185 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+811
+%%EOF

@@ -1,0 +1,140 @@
+{
+  "format": 1,
+  "case": "g-0003",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "d724081c69e001d5b1972df6227a70223f7f9cecb5b5a6a68954f17f247c1cb5",
+    "pages": 3
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard",
+    "multi-page",
+    "full-invoice"
+  ],
+  "split": "dev",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "TP-4410",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-03-03",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Tafelberg Print Works CC",
+        "address": "7 Loop Street, Cape Town, 8001",
+        "vat_number": "4999900102"
+      },
+      "page": 1
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Business cards, box of 500",
+        "quantity": "10",
+        "unit_price": "185.00",
+        "line_total": "1850.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Flyers A5, 1000",
+        "quantity": "4",
+        "unit_price": "420.00",
+        "line_total": "1680.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Brochures tri-fold",
+        "quantity": "5",
+        "unit_price": "650.00",
+        "line_total": "3250.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Posters A2",
+        "quantity": "12",
+        "unit_price": "95.00",
+        "line_total": "1140.00",
+        "tax": "standard"
+      },
+      {
+        "page": 2,
+        "description": "Banners 2m",
+        "quantity": "3",
+        "unit_price": "780.00",
+        "line_total": "2340.00",
+        "tax": "standard"
+      },
+      {
+        "page": 2,
+        "description": "Stickers, roll",
+        "quantity": "8",
+        "unit_price": "140.00",
+        "line_total": "1120.00",
+        "tax": "standard"
+      },
+      {
+        "page": 2,
+        "description": "Letterheads, ream",
+        "quantity": "6",
+        "unit_price": "310.00",
+        "line_total": "1860.00",
+        "tax": "standard"
+      },
+      {
+        "page": 2,
+        "description": "Envelopes DL, box",
+        "quantity": "9",
+        "unit_price": "120.00",
+        "line_total": "1080.00",
+        "tax": "standard"
+      },
+      {
+        "page": 3,
+        "description": "Design setup fee",
+        "quantity": "1",
+        "unit_price": "1500.00",
+        "line_total": "1500.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "15820.00",
+      "vat": "2373.00",
+      "gross": "18193.00",
+      "page": 3
+    },
+    "due": {
+      "date": "2026-04-02",
+      "terms": "30 days",
+      "page": 3
+    }
+  },
+  "expect": {
+    "findings": []
+  }
+}

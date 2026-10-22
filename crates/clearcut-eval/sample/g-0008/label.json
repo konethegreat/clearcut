@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "case": "g-0008",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "54d2eb944937ee9a1af7d91dffd6fdf6e11d1945ca8679f826ac8b4b7ef6d322",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "credit-note",
+    "vat-standard"
+  ],
+  "split": "dev",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "PP-2044",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-05-06",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Protea Plumbing (Pty) Ltd",
+        "address": "18 Voortrekker Road, Bellville, 7530",
+        "vat_number": "4999900107"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Refund: faulty valve",
+        "quantity": "1",
+        "unit_price": "300.00",
+        "line_total": "300.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "300.00",
+      "vat": "45.00",
+      "gross": "345.00",
+      "page": 1
+    },
+    "credit_note": {
+      "original_invoice_number": "PP-2031",
+      "amount": "345.00",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": []
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  "case": "g-0001",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "339d14b42c81919e53fa8594e878372f0db7ab2684824ceed0a54c1fd7b077d7",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard"
+  ],
+  "split": "dev",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "KS-0001",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-02-10",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Karoo Stationery (Pty) Ltd",
+        "address": "14 Church Street, Graaff-Reinet, 6280",
+        "vat_number": "4999900101"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "A4 paper, box of 5 reams",
+        "quantity": "3",
+        "unit_price": "189.50",
+        "line_total": "568.50",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "568.50",
+      "vat": "85.28",
+      "gross": "653.78",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": []
+  }
+}

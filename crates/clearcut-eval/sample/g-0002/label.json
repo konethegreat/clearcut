@@ -1,0 +1,91 @@
+{
+  "format": 1,
+  "case": "g-0002",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "1bbcc54304c28168e2fc1839fb5a260ab68b84cbd6447fa056c315ded1024687",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard",
+    "full-invoice"
+  ],
+  "split": "dev",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "KS-0002",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-02-24",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Karoo Stationery (Pty) Ltd",
+        "address": "14 Church Street, Graaff-Reinet, 6280",
+        "vat_number": "4999900101"
+      },
+      "page": 1
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Office chairs",
+        "quantity": "6",
+        "unit_price": "1250.00",
+        "line_total": "7500.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Standing desks",
+        "quantity": "2",
+        "unit_price": "4800.00",
+        "line_total": "9600.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Delivery",
+        "quantity": "1",
+        "unit_price": "350.00",
+        "line_total": "350.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "17450.00",
+      "vat": "2617.50",
+      "gross": "20067.50",
+      "page": 1
+    },
+    "due": {
+      "date": "2026-03-26",
+      "terms": "30 days",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": []
+  }
+}
