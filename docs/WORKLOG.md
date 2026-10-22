@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 7) — P2-04 step 3: the Rust document-worker client (`clearcut-docproc`)
+**Done** (worker PR #31 merged first, after fixing its CI: a typing difference between Windows and Linux in a test helper, fixed with a small protocol type; own branch; tests first; 39 unit tests, 1 proxy test, 7 live tests)
+- `DocumentProcessor`, `HttpWorker`, `FakeWorker`, `ProcessError` (mapped onto the queue's failure kinds), `Inspection`. The client is plain-`http` only, follows no redirects, ignores proxy environment variables, caps what it reads, and never prints the token, the address or anything the server said.
+- **Live contract test against the real worker**, passing locally (7 of 7, no token in the worker's log), and a new CI job `contract` that starts the worker with a fresh masked token and runs it. PDF fixtures (mixed, scan, three pages, encrypted, damaged) are synthetic; `.gitattributes` marks documents binary because `core.autocrlf` would otherwise corrupt their byte offsets.
+- Mutation-checked 64 rules in the client and its types. Eight survived the first pass: two did not compile (the compiler enforcing exhaustive error handling), one guard was dead code (deleted: a `http` URL always has a host), one is equivalent (the header library already rejects the byte the token check allows), and four were real gaps (a password with an empty user name, a zero page limit, the 598/599 status edge, and a media-type check). All real ones caught.
+- **P2-04 is complete.**
+**Next**: options are P2-02/P2-05 (intake sniffing and the worker's text and OCR, which need the first real handler to be useful), enqueue-on-upload with that handler, the container image with P1-07, P2-01 (the gold set, needs Kone), or P2-13 (the Anthropic adapter in Rust).
+
 ## 2026-10-22 (part 6) — P2-04 step 2: the Python worker skeleton
 **Done** (provider PR #30 merged first; own branch; tests first; 90 tests)
 - `services/worker`: a FastAPI app with `GET /health` and `POST /v1/inspect` (PDF page count and text-layer detection with `pypdf`), bearer auth checked before the body, size cap enforced as bytes arrive, page cap, deadline, encrypted and damaged PDFs refused with generic messages, JSON errors everywhere, the API description not served, logging that never carries content or the token. Refuses to start without a strong token.
