@@ -37,14 +37,22 @@ from .config import Settings
 from .inspect import (
     Encrypted,
     InspectError,
+    Inspection,
     NotAPdf,
     TooManyPages,
     TooSlow,
     Unreadable,
-    inspect_pdf,
 )
+from .isolation import inspect_isolated
+from .logs import safe_log_text
 
 log = logging.getLogger("clearcut_worker")
+
+# Looks inside a document: (bytes, page cap, seconds) -> what is in it.
+Inspector = Callable[[bytes, int, float], Inspection]
+
+# The most of an unknown path that is written to a log line.
+_LOGGED_PATH_CHARS = 200
 
 
 class Health(BaseModel):
@@ -88,7 +96,7 @@ def _bearer_token(header: str | None) -> str | None:
     return token if scheme.lower() == "bearer" else None
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, *, inspector: Inspector = inspect_isolated) -> FastAPI:
     app = FastAPI(
         title="ClearCut document worker",
         version=__version__,
@@ -112,10 +120,19 @@ def create_app(settings: Settings) -> FastAPI:
         started = time.monotonic()
         request.state.body_bytes = 0
         response = await call_next(request)
+        # A caller controls the path and could put a newline in it to forge log
+        # lines. A matched route is logged by its fixed template; an unknown path
+        # is escaped and cut short.
+        route = request.scope.get("route")
+        path = (
+            route.path
+            if route is not None
+            else safe_log_text(request.scope["path"])[:_LOGGED_PATH_CHARS]
+        )
         log.info(
             "%s %s -> %d (%d bytes, %.0f ms)",
-            request.method,
-            request.url.path,
+            safe_log_text(request.method),
+            path,
             response.status_code,
             request.state.body_bytes,
             (time.monotonic() - started) * 1000,
@@ -151,9 +168,10 @@ def create_app(settings: Settings) -> FastAPI:
     async def inspect(request: Request) -> InspectResponse:
         data = await _read_body(request, settings.max_request_bytes)
         request.state.body_bytes = len(data)
-        deadline = time.monotonic() + settings.timeout_seconds
         try:
-            result = await run_in_threadpool(inspect_pdf, data, settings.max_pages, deadline)
+            result = await run_in_threadpool(
+                inspector, data, settings.max_pages, settings.timeout_seconds
+            )
         except InspectError as error:
             raise _refusal(error, settings) from None
         return InspectResponse(

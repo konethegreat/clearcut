@@ -12,6 +12,16 @@ from __future__ import annotations
 import logging
 
 
+def safe_log_text(value: str) -> str:
+    """Text that came from a caller, made safe to put in a log line.
+
+    Control characters (a newline, say, that would start a forged log line) and
+    anything outside plain ASCII are written as escapes, so one request is always
+    exactly one line.
+    """
+    return value.encode("unicode_escape").decode("ascii")
+
+
 def configure_logging() -> None:
     """Shows the worker's INFO lines on stderr. Safe to call more than once."""
     logger = logging.getLogger("clearcut_worker")

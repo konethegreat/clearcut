@@ -11,6 +11,15 @@ from fastapi.testclient import TestClient
 
 from clearcut_worker import __version__
 from clearcut_worker.app import create_app
+from clearcut_worker.inspect import (
+    Encrypted,
+    InspectError,
+    Inspection,
+    NotAPdf,
+    TooManyPages,
+    TooSlow,
+    Unreadable,
+)
 
 from .conftest import AUTH, TOKEN, make_encrypted_pdf, make_pdf, settings
 
@@ -283,3 +292,62 @@ def test_an_unexpected_failure_is_a_500_that_says_nothing_and_logs_only_its_type
     assert "RuntimeError" in logged
     assert "SECRET" not in logged
     assert "SECRET" not in response.text
+
+
+# ---------- the inspector can be swapped, and is called as promised ----------
+
+
+def test_the_app_hands_the_inspector_the_bytes_the_page_cap_and_the_timeout() -> None:
+    seen: list[tuple[bytes, int, float]] = []
+
+    def fake(data: bytes, max_pages: int, timeout_seconds: float) -> Inspection:
+        seen.append((data, max_pages, timeout_seconds))
+        return Inspection(pages=7, pages_with_text=4)
+
+    app = TestClient(create_app(settings(max_pages=12, timeout_seconds=3.5), inspector=fake))
+    response = app.post(INSPECT, content=b"whatever bytes", headers=AUTH)
+    assert response.status_code == 200
+    assert response.json() == {
+        "media_type": "application/pdf",
+        "pages": 7,
+        "pages_with_text": 4,
+        "has_text_layer": True,
+    }
+    assert seen == [(b"whatever bytes", 12, 3.5)]
+
+
+def test_whatever_the_inspector_refuses_with_is_translated() -> None:
+    cases: list[tuple[InspectError, int, dict[str, object]]] = [
+        (NotAPdf(), 415, {"error": "unsupported file type"}),
+        (Encrypted(), 422, {"error": "the document is encrypted"}),
+        (Unreadable(), 422, {"error": "the document could not be read"}),
+        (TooManyPages(99), 422, {"error": "too many pages", "max_pages": 3}),
+        (TooSlow(), 504, {"error": "the document took too long to inspect"}),
+    ]
+    for error, status, body in cases:
+
+        def refuse(
+            data: bytes, max_pages: int, timeout_seconds: float, error: InspectError = error
+        ) -> Inspection:
+            raise error
+
+        app = TestClient(create_app(settings(max_pages=3), inspector=refuse))
+        response = app.post(INSPECT, content=b"x", headers=AUTH)
+        assert (response.status_code, response.json()) == (status, body), type(error).__name__
+
+
+def test_a_route_with_a_path_parameter_is_logged_by_its_template(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = create_app(settings())
+
+    async def numbered(n: int) -> dict[str, int]:
+        return {"n": n}
+
+    app.add_api_route("/test/{n}", numbered)
+    caplog.set_level(logging.INFO)
+    TestClient(app).get("/test/12345")
+    lines = [r.getMessage() for r in caplog.records if r.name == "clearcut_worker"]
+    assert len(lines) == 1
+    assert lines[0].startswith("GET /test/{n} -> 200 (")
+    assert "12345" not in lines[0]

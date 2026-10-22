@@ -27,7 +27,12 @@ All errors are JSON with one key: `{"error": "..."}`. Everything except `/health
 `/v1/inspect` refuses with: `400` empty body, `401` bad credentials (checked **before** the body is read),
 `413` over the size cap (enforced as bytes arrive, whatever length is claimed), `415` not a PDF (judged by the
 bytes, never by the caller's `Content-Type`), `422` encrypted, damaged, or over the page cap, `504` too slow.
-The worker never repeats anything from the file in an error or a log line.
+The worker never repeats anything from the file in an error or a log line, and a caller cannot forge a log line
+(control characters in a path are escaped).
+
+**Every inspection runs in a child process** that the worker kills if it overruns the timeout (plus a 2 second
+grace), so a hostile file cannot keep the worker busy or crash it. The child reports back in a few bytes of JSON
+that are checked field by field and never unpickled. Memory limits belong to the container.
 
 The API description is not served over HTTP. For the contract test it is generated in code:
 `create_app(settings).openapi()`.
