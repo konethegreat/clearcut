@@ -132,6 +132,13 @@ Built as proposed, with these refinements found while writing the tests:
 - **The loop** keeps up to `concurrency` jobs in flight, sleeps `poll_interval` when idle or when the database is unreachable (it logs and carries on rather than crashing), honours the per-tenant cap, and on the shutdown signal **stops claiming and waits for the jobs in flight to finish**.
 - **Handlers must be safe to run twice** (the queue is at-least-once, not exactly-once); the document pipeline's event writes are already idempotent for this reason.
 
+## Implementation notes (step 4, REST and SDK)
+- `GET /v1/documents/{id}/jobs` (needs `documents:read`) lists a document's jobs, newest first. `POST /v1/jobs/{id}/cancel` (needs `documents:write`) answers **200** with the job when it is now cancelled or had already finished, and **202** when it was running and has only been *asked* to stop. No new scopes.
+- Both answer **404 for something that does not exist or belongs to another tenant** (an unknown document is a 404, not an empty list), a JSON `400` for an id that is not a UUID, the usual identical 401 and a 403 naming the scope (authentication first, before the path is read), a detail-free 500 on a database failure, and a 503 if the server has no queue configured.
+- **A job is shown with its state, progress and timestamps only.** The payload, checkpoint, the worker's name, the lease and the tenant are internal. The cancel is audited with the calling key as the actor.
+- The server reaches the queue through a small `JobQueue` trait (like `Ingest` and `Authenticator`), so the HTTP rules are tested with a fake and end to end against the real store.
+- The SDK's `jobsForDocument(id)` and `cancelJob(id)` check that an id is a UUID before any request is made; `cancelJob` returns `{ job, stopping }`, where `stopping` is true for the 202 case.
+
 ## Alternatives considered
 - *One job per page, with a reduce step.* Needs dependencies between jobs ("reduce after all pages"), which is a workflow engine. A document-level job with page progress and a checkpoint gives resumability without one. Revisit only if per-page parallelism across workers is actually needed (P2-07).
 - *Workers update `jobs` directly under RLS.* Simpler SQL, but any bug (or SQL injection) in the service could then rewrite attempts, leases or states. Five narrow functions are a smaller surface to reason about and test.

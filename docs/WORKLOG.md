@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 3) — P1-03 step 4: job endpoints and SDK methods
+**Done** (runner PR #27 merged first; own branch and PR; tests first; server 61 tests, SDK 36)
+- `GET /v1/documents/{id}/jobs` and `POST /v1/jobs/{id}/cancel`, behind a `JobQueue` trait with a fake for the HTTP tests and the real store for the end-to-end ones. Behaviour is in ADR-0008's new implementation notes: 404 for unknown or foreign things, 200/202 on cancel, a JSON 400 for a bad id, authentication before the path is read, and a job shown without its payload, checkpoint, worker name, lease or tenant.
+- SDK: `jobsForDocument` and `cancelJob` (returns `{ job, stopping }`), ids checked as UUIDs before any request.
+- Mutation-checked 40 server rules (scopes, tenant and ids passed through, 200 vs 202, the audit actor, every field of the job view, ordering, each error's text and status, detail not leaked, the unknown-document check, the cancel really happening) and 17 SDK rules. All server mutations were caught first time. One SDK mutant survived (a UUID last group longer than 12 characters was accepted) and got its test cases.
+- **Smoke-tested the real binaries** against a scratch database: no key 401; writer-only key listing 403 naming `documents:read`; reader cancelling 403 naming `documents:write`; another tenant listing or cancelling 404; a queued job cancelled with 200 and again with 200; a running job asked to stop with 202; two audit rows by `api_key`; no key in the server log. The smoke test also showed the malformed-id response was axum's plain text, so it now returns the JSON error.
+**P1-03 is complete.** Nothing enqueues from the API yet (decision 4 in ADR-0008): that arrives with the first real handler.
+**Next**: P2-04 (the provider trait and worker skeleton), or the remaining P1-02 items (resumable uploads), or P2-01 (the gold set, which needs Kone).
+
 ## 2026-10-22 (part 2) — P1-03 step 3: the `clearcut-jobs` runner library
 **Done** (job queue store PR #26 merged first; own branch and PR; tests first; 42 tests)
 - New crate `clearcut-jobs`: `Runner::run_once` / `Runner::run(shutdown)`, the `Handler` trait (a native async trait method, so no boxing), `JobContext` (job, `checkpoint()`, `is_cancelled()`, `lease_lost()`, `report()`), `Finished`/`Failure`, `RunnerConfig` (validated: lease, retry, heartbeat rhythm, poll interval, concurrency, per-tenant cap, kinds), `Ended`/`RunReport`.

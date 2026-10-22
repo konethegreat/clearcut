@@ -76,11 +76,14 @@ async fn main() -> ExitCode {
         }
     };
     tracing::info!(%addr, "clearcut-server listening");
-    let served = axum::serve(listener, app(AppState::new(store).with_ingest(intake)))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await;
+    let served = axum::serve(
+        listener,
+        app(AppState::new(store.clone()).with_ingest(intake).with_jobs(store)),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await;
     match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
