@@ -14,7 +14,9 @@
 
 use crate::hash::sha256_hex_of_reader;
 use crate::keys::{compare, finding_keys, Difference};
-use crate::label::{is_case_id, is_tag, Label, LabelProblem, ParseError, Split, Tier, TruthError};
+use crate::label::{
+    is_case_id, is_finding_key, is_tag, Label, LabelProblem, ParseError, Split, Tier, TruthError,
+};
 use crate::personal::{personal_data_in, PersonalData};
 use clearcut_core::extraction::validate;
 use std::collections::{BTreeMap, BTreeSet};
@@ -324,7 +326,16 @@ fn check_case(folder: &Path, id: &str) -> (Vec<Problem>, Option<Case>) {
         Err(error) => problems.push(Problem::Truth(error)),
         Ok(extraction) => {
             let actual = finding_keys(&validate(&extraction).findings);
-            let difference = compare(&label.expect.findings, &actual);
+            // Only well-formed keys are compared (and so ever printed); a malformed
+            // one has already been reported by position as a label problem.
+            let expected: Vec<String> = label
+                .expect
+                .findings
+                .iter()
+                .filter(|key| is_finding_key(key))
+                .cloned()
+                .collect();
+            let difference = compare(&expected, &actual);
             if !difference.is_empty() {
                 problems.push(Problem::FindingsDiffer(difference));
             }

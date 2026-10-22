@@ -123,3 +123,45 @@ fn equal_lists_in_any_order_have_no_difference() {
     assert!(compare(&a, &b).is_empty());
     assert!(compare(&[], &[]).is_empty());
 }
+
+#[test]
+fn every_key_the_system_produces_is_accepted_in_a_label() {
+    use crate::label::is_finding_key;
+    let amount = Money::zar(1);
+    let findings = [
+        Finding::NoLines,
+        Finding::CurrencyMismatch { line: 3 },
+        Finding::NonPositiveQuantity { line: 1 },
+        Finding::AmountOutOfRange { line: 12 },
+        Finding::LineTotalMismatch {
+            line: 2,
+            stated: amount,
+            recomputed: amount,
+        },
+        Finding::TotalsMismatch {
+            field: TotalField::Net,
+            stated: amount,
+            recomputed: amount,
+        },
+        Finding::TotalsMismatch {
+            field: TotalField::Vat,
+            stated: amount,
+            recomputed: amount,
+        },
+        Finding::TotalsMismatch {
+            field: TotalField::Gross,
+            stated: amount,
+            recomputed: amount,
+        },
+        Finding::TotalsOutOfRange,
+        Finding::DueBeforeIssue,
+        Finding::Compliance(Issue {
+            field: "recipient_vat_number",
+            message: "m",
+        }),
+    ];
+    for finding in findings {
+        let key = finding_key(&finding);
+        assert!(is_finding_key(&key), "{key}");
+    }
+}

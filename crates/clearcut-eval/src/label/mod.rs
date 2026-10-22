@@ -217,6 +217,8 @@ pub enum LabelProblem {
     RetentionMissing,
     #[error("a document that is not synthetic must be anonymised before it enters the set")]
     NotAnonymised,
+    #[error("expect.findings entry number {index} is not a finding key such as totals_mismatch:vat")]
+    BadExpectedFinding { index: usize },
     #[error("labelled_by is blank")]
     LabellerMissing,
     #[error("reviewed_by is blank (leave it out until a review happens)")]
@@ -295,6 +297,12 @@ impl Label {
             }
         }
 
+        for (index, key) in self.expect.findings.iter().enumerate() {
+            if !is_finding_key(key) {
+                out.push(LabelProblem::BadExpectedFinding { index });
+            }
+        }
+
         let provenance = &self.provenance;
         if provenance.tier != Tier::Synthetic {
             if is_blank(provenance.consent_ref.as_deref()) {
@@ -318,6 +326,26 @@ impl Label {
             out.push(LabelProblem::ReviewerBlank);
         }
         out
+    }
+}
+
+/// Whether `key` has the shape of a finding key (see [`crate::keys`]). Keys
+/// from a label are printed in reports, so only this fixed vocabulary is
+/// ever echoed back; anything else is reported by position.
+pub fn is_finding_key(key: &str) -> bool {
+    let digits = |s: &str| (1..=10).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit());
+    match key.split_once(':') {
+        None => matches!(key, "no_lines" | "totals_out_of_range" | "due_before_issue"),
+        Some((kind, rest)) => match kind {
+            "currency_mismatch" | "non_positive_quantity" | "amount_out_of_range" | "line_total_mismatch" => {
+                digits(rest)
+            }
+            "totals_mismatch" => matches!(rest, "net" | "vat" | "gross"),
+            "compliance" => {
+                (1..=40).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+            }
+            _ => false,
+        },
     }
 }
 

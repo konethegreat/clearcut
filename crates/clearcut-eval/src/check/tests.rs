@@ -568,3 +568,21 @@ fn problems_found_across_cases_are_still_listed_in_case_order() {
     let order: Vec<&str> = report.problems.iter().filter_map(|p| p.case.as_deref()).collect();
     assert_eq!(order, ["g-0002", "g-0003"]);
 }
+
+#[test]
+fn text_in_expected_findings_never_reaches_the_report() {
+    let mut set = Set::new();
+    set.add_with("g-0001", |v| {
+        v["expect"]["findings"] = json!(["Secretname owes R5000", "due_before_issue"]);
+    });
+    let report = set.check();
+    let text = format!("{}\n{:?}", report.render(), report.problems);
+    assert!(!text.contains("Secret") && !text.contains("R5000"), "{text}");
+    // The malformed entry is reported by position, and the good one still counts.
+    assert!(
+        problems_of(&report, "g-0001")
+            .contains(&Problem::Label(LabelProblem::BadExpectedFinding { index: 0 })),
+        "{text}"
+    );
+    assert!(text.contains("due_before_issue"), "{text}");
+}

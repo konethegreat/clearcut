@@ -627,3 +627,43 @@ fn every_problem_in_a_label_is_reported_together() {
     let problems = problems_of(&value);
     assert_eq!(problems.len(), 3, "{problems:?}");
 }
+
+#[test]
+fn expected_findings_must_be_well_formed_keys() {
+    let good = [
+        "no_lines",
+        "totals_out_of_range",
+        "due_before_issue",
+        "currency_mismatch:1",
+        "non_positive_quantity:12",
+        "amount_out_of_range:3",
+        "line_total_mismatch:2",
+        "totals_mismatch:net",
+        "totals_mismatch:vat",
+        "totals_mismatch:gross",
+        "compliance:supplier_address",
+    ];
+    assert!(problems_of(&with("/expect/findings", json!(good))).is_empty());
+    for bad in [
+        "",
+        "Acme Corp owes 5000",
+        "no_lines ",
+        "line_total_mismatch",
+        "line_total_mismatch:",
+        "line_total_mismatch:x",
+        "line_total_mismatch:12345678901",
+        "totals_mismatch:tax",
+        "compliance:",
+        "compliance:Supplier",
+        "compliance:a b",
+        "unknown_kind",
+        "no_lines:1",
+        "0821234567",
+    ] {
+        assert_eq!(
+            problems_of(&with("/expect/findings", json!(["no_lines", bad]))),
+            [LabelProblem::BadExpectedFinding { index: 1 }],
+            "{bad:?}"
+        );
+    }
+}

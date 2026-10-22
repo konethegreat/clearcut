@@ -3,7 +3,7 @@
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
 ## 2026-10-22 (part 8) — ADR-0010 accepted; gold-set tooling step 1 (`clearcut-eval`)
-**Done** (ADR PR #33 merged as Accepted; own branch; tests first; 117 tests)
+**Done** (ADR PR #33 merged as Accepted; own branch; tests first; 120 tests)
 - New crate `clearcut-eval` with the `clearcut-gold` command: `check` (validates a gold set, shows coverage against the ADR's targets, exit code 1 on problems) and `sample` (writes the synthetic set).
 - The label format: strict JSON, amounts as decimal text read exactly into cents and thousandths (no floats anywhere), truth that converts to the core `Extraction` and runs through the real validator so `expect.findings` is checked against the system's own rules.
 - Reports never contain label or document content; a leak test found and fixed one real leak (malformed tags in the coverage line).
