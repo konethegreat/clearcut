@@ -80,6 +80,17 @@ Cross-language drift is the known risk (ADR-0001). The worker publishes its Open
 - **`FakeProvider`** gives scripted answers in order (or answers from the request), records every request, and says so loudly when a test asks for more than it scripted. It is public so the pipeline crates can use it in their own tests.
 - Tool definitions for the validator and calculator, and the context-pack builder, are not in the first version; they arrive with P2-16b.
 
+## Implementation notes (step 2, the worker skeleton)
+- **Layout:** `services/worker` with a `src/clearcut_worker` package (`app`, `config`, `inspect`, `logs`, `__main__`), a pytest suite, `pyproject.toml` (strict `mypy`, `ruff` with the security rules on, warnings as errors in tests), and exact pins: direct dependencies in `requirements*.txt`, everything they pull in in `constraints.txt`.
+- **Authentication before the body.** `/health` is public; `/v1/inspect` needs `Authorization: Bearer <token>`. Every failure is the same `401` with `WWW-Authenticate: Bearer`, and the check runs before a byte of the body is read (a test sends a huge body without a key and gets a 401, not a 413). The comparison is constant-time. The token must be at least 32 visible characters or the worker **refuses to start**.
+- **The file type comes from the bytes** (`%PDF-` at offset 0), never from the caller's `Content-Type`. Only PDFs in this skeleton; images and the rest arrive with P2-05, and anything else is a `415`.
+- **Limits:** a request-size cap enforced as the bytes arrive (so a chunked body with no declared length is cut off too), a page cap, and a deadline checked between pages. An encrypted PDF is refused, never opened (no password is ever tried). A page whose text cannot be pulled out counts as having none, and only the *kind* of error is logged.
+- **Errors say which rule failed and never repeat the file.** Parser messages are swallowed; the answer is "the document could not be read". JSON everywhere (`{"error": "..."}`), including 404, 405, framework validation errors and unexpected failures.
+- **Nothing in a log carries content or the token.** The log line is method, path, status, size and time. A first smoke test found the request lines never appeared at all (uvicorn only configures its own loggers), so the worker now sets up its logging on start.
+- **The API description is not served** (`/docs` and `/openapi.json` answer 404); it is generated in code for the contract test in step 3 (`create_app(settings).openapi()`).
+- **`httpx2`, not `httpx`,** is the test client dependency: Starlette now deprecates the old one, and the test configuration turns warnings into errors.
+- **CI:** a `worker` job runs `ruff`, `ruff format --check`, `mypy` and `pytest` on Python 3.12 and 3.14.
+
 ## Alternatives considered
 - *Everything in Python, as ADR-0004 words it.* Rejected as the default for the security reason above; remains a fallback that changes only the provider's implementation.
 - *Everything in Rust, no Python.* Rust can call PDFium and Tesseract, but layout-aware OCR and table extraction are far stronger in the Python ecosystem today, and Python is the one language already approved for this. Revisit if the worker's maintenance cost outweighs that.

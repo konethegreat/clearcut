@@ -1,0 +1,34 @@
+# Written by Kone Tshivhinda & Claude
+[project]
+name = "clearcut-worker"
+version = "0.1.0"
+description = "ClearCut document worker: reads untrusted documents (page counts, text layers, later OCR and page images). No API keys, no network egress, no business rules."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Kone Tshivhinda" }]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "PT", "RUF"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may assert freely and build throwaway secrets.
+"tests/*" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+files = ["src", "tests"]
