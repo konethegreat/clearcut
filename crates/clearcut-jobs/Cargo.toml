@@ -1,0 +1,27 @@
+[package]
+name = "clearcut-jobs"
+description = "ClearCut job runner: claims jobs from the queue, keeps their leases alive, runs a handler, and reports the outcome."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clearcut-core = { path = "../clearcut-core" }
+clearcut-store = { path = "../clearcut-store" }
+getrandom = "0.4"
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.53.3", features = ["rt", "sync", "time", "macros"] }
+tracing = "0.1.44"
+uuid = "1"
+
+[dev-dependencies]
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
+time = "0.3.55"
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread"] }

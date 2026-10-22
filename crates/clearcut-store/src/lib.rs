@@ -26,6 +26,7 @@ use clearcut_core::auth::{Principal, Scope};
 use clearcut_core::event::{DocumentId as CoreDocumentId, Event};
 
 pub mod jobs;
+pub use jobs::{ClaimedJob, EnqueuedJob, FailureResult, Heartbeat, Job, LeaseToken, NewJob};
 pub mod keys;
 use sqlx::postgres::PgPool;
 use std::num::NonZeroU32;
