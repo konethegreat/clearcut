@@ -25,6 +25,7 @@
 use clearcut_core::auth::{Principal, Scope};
 use clearcut_core::event::{DocumentId as CoreDocumentId, Event};
 
+pub mod jobs;
 pub mod keys;
 use sqlx::postgres::PgPool;
 use std::num::NonZeroU32;
@@ -64,6 +65,17 @@ pub enum Error {
     Unauthenticated,
     #[error("API key not found")]
     ApiKeyNotFound,
+    /// The job does not exist, or belongs to another tenant, or was erased.
+    #[error("job not found")]
+    JobNotFound,
+    /// The caller no longer holds the lease on this job (it was taken over, or
+    /// the job is no longer running). Whatever the caller was about to report
+    /// is not recorded.
+    #[error("the lease on this job is no longer held")]
+    LeaseLost,
+    /// A stored job no longer passes the core's rules.
+    #[error("a stored job is invalid: {0}")]
+    InvalidStoredJob(String),
     #[error("an API key needs a name")]
     BlankName,
     #[error("an API key needs at least one scope")]
@@ -223,7 +235,7 @@ impl Store {
     /// credentials by mistake would otherwise silently switch isolation off.
     pub async fn verify_service_role(&self) -> Result<()> {
         let (superuser, bypass_rls, owns_tables): (bool, bool, bool) = sqlx::query_as(
-            "select r.rolsuper, r.rolbypassrls,                     exists (select 1 from pg_tables t                             where t.schemaname = 'public'                               and t.tablename in ('tenants', 'documents', 'events', 'audit_log', 'api_keys')                               and t.tableowner = current_user)              from pg_roles r where r.rolname = current_user",
+            "select r.rolsuper, r.rolbypassrls,                     exists (select 1 from pg_tables t                             where t.schemaname = 'public'                               and t.tablename in ('tenants', 'documents', 'events', 'audit_log', 'api_keys', 'jobs')                               and t.tableowner = current_user)              from pg_roles r where r.rolname = current_user",
         )
         .fetch_one(&self.pool)
         .await?;
