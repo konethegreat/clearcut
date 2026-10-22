@@ -4,7 +4,7 @@ _Kone Tshivhinda & Claude. Read from Anthropic's official documentation on **22 
 
 Why this exists: ClearCut will use **only** the Anthropic API, and users will bring **their own API key** (ADR-0011). That makes the API's rules (rate limits, caching, errors, retention, prices) design inputs, not details. Prices below are USD as published; ZAR figures use the project's assumption of **R18 per USD**.
 
-Sources (all on `platform.claude.com/docs/en/`): `api/rate-limits`, `build-with-claude/prompt-caching`, `about-claude/models/overview`, `about-claude/pricing`, `api/errors`, `build-with-claude/effort`, `build-with-claude/pdf-support`, `build-with-claude/structured-outputs`, `build-with-claude/batch-processing`, `manage-claude/authentication`, `manage-claude/api-and-data-retention`.
+Sources (all on `platform.claude.com/docs/en/`): `api/rate-limits`, `build-with-claude/prompt-caching`, `about-claude/models/overview`, `about-claude/pricing`, `api/errors`, `build-with-claude/effort`, `build-with-claude/pdf-support`, `build-with-claude/structured-outputs`, `build-with-claude/batch-processing`, `manage-claude/authentication`, `manage-claude/api-and-data-retention`, `api/models/list`, `build-with-claude/token-counting`, `build-with-claude/vision`, `build-with-claude/streaming`, `build-with-claude/thinking`, `build-with-claude/files`.
 
 ## 1. The models we use
 
@@ -90,7 +90,28 @@ Sources (all on `platform.claude.com/docs/en/`): `api/rate-limits`, `build-with-
 - A PDF can be sent whole (base64, URL or Files API). Limits: 32 MB request, **600 pages** (100 when the context window is under 1M), standard PDF only (no password/encryption). Each page is given to the model as **both extracted text and a page image**; text costs about 1 500 to 3 000 tokens per page plus the image cost; no extra PDF fee.
 - Dense or heavily graphic pages can exhaust the context before the page limit: split into sections.
 - ClearCut's own design (ADR-0009) keeps the Python worker as the only thing that touches untrusted files and sends the model page images and text it has extracted. Sending the PDF directly is a possible simplification for text PDFs, but not for glyph-scrambled ones (see below), and it would give the model the raw file.
-- **Not yet read** (read before building the adapter): the vision page (image size and token rules), token counting, streaming, the Files API, and the thinking pages.
+### Images (the vision page)
+- Formats: JPEG, PNG, GIF (first frame only) and WebP. **At most 10 MB per image** (base64) on the Claude API, **8 000 x 8 000 px**. Up to 600 images per request (100 on a 200k-window model); above **20 images** in one request every image must be **2 000 px or less** on each side. The 32 MB request limit can be reached first.
+- Cost: an image is cut into **28 x 28 px patches**, one token each: `ceil(width/28) x ceil(height/28)`. The models we use (4.7 and later) take up to **2 576 px on the long edge and 4 784 tokens**; larger images are downscaled. An A4 page at 150 DPI (1 240 x 1 754 px) is about **2 835 tokens**; at 200 DPI it reaches the 4 784 cap after downscaling.
+- Put the **image before the text** question; label several images ("Image 1:"). Claude does not read image metadata. Uploaded images are **not stored beyond the request** and are not used to train models. Lossy compression artefacts hurt small text; do not compress invoices hard.
+- Claude can be wrong on low-quality, rotated or very small (under 200 px) images: this is why the deterministic checks matter.
+
+### Token counting
+- `POST /v1/messages/count_tokens` takes the same inputs as a message (system, tools, images, PDFs as **base64** only; no `url` or `file` sources) and returns `input_tokens`. It is **free**, has its own limits (Start 5 000 RPM, Build 10 000, Scale 20 000) separate from message limits, and is an **estimate**. It counts under the tokenizer of the `model` you name: Fable 5.1 and the 4.7-and-later models use a tokenizer that produces **about 30% more tokens** for the same text than earlier models, so never reuse counts from an older model. It does no caching.
+
+### The Models API (used to validate a key)
+- `GET /v1/models` (headers `anthropic-version`, and `anthropic-workspace-id` only for a key not tied to one workspace). Query: `limit` 1 to 1 000 (default 20), `after_id`, `before_id`, `lifecycle`. Response: `data[]` of `{id, display_name, created_at, lifecycle (active|deprecated|retired), deprecated_at, retires_at, line, max_input_tokens, max_tokens, capabilities}`, plus `has_more`, `first_id`, `last_id`.
+- `capabilities` includes `batch`, `citations`, `image_input`, `pdf_input`, `structured_outputs`, `effort` (with each level), and `thinking.types` (`adaptive`, `between_tools`, `disabled`, `enabled`), each `{supported: bool}`. So a client can learn what a key may use instead of guessing. A bad key gets 401. The call spends no tokens.
+- The documentation shows two version headers (`2023-06-01` in most examples, a newer date in the Models example); the older stays documented. Use a named constant.
+
+### Streaming
+- `stream: true` returns server-sent events: `message_start` (carries `usage` with input and cache token counts), `content_block_start/delta/stop`, `message_delta` (carries the stop reason and **cumulative** output tokens), `message_stop`, `ping`. An `error` event can arrive **after** a 200 (for example `overloaded_error`). Thinking ends with a `signature_delta`; tool JSON arrives as `input_json_delta` fragments. A hand-written client must handle all of these; the SDK's "get the final message" helper does it for you.
+
+### Thinking output
+- On the 5.x models thinking is already on and `display` **defaults to `omitted`**: the response has thinking blocks with an empty `thinking` field and a signature. `summarized` is opt-in. Thinking tokens are **billed as output and count toward `max_tokens`** even when not shown. `omitted` also makes streaming reach the first text sooner. For ClearCut this is right: we never need, store or log the model's reasoning text.
+
+### The Files API: ClearCut will not use it
+- Files persist until deleted (or an optional expiry of 1 hour to 90 days), are **visible to every key in the workspace**, cannot be scoped to a user, and the API is **not zero-data-retention eligible**. For invoices that is the wrong place to leave a document. ClearCut sends page images inline (base64) for the one request and keeps nothing at Anthropic. (If it ever did use Files, it would be one workspace per tenant and never a user-supplied `file_id`.)
 
 ## 8. Data retention and privacy (POPIA)
 
@@ -108,13 +129,13 @@ Sources (all on `platform.claude.com/docs/en/`): `api/rate-limits`, `build-with-
 
 ## 10. What a document costs (a planning estimate, not a promise)
 
-Assuming about 3 000 input tokens and 1 000 output tokens per page (text, a page image, instructions, and a JSON answer; thinking adds output tokens), at R18/USD:
+Assuming about **6 000 input tokens and 1 000 output tokens per page** (a page image of about 2 800 tokens, its extracted text of 1 500 to 3 000, the instructions, and a JSON answer; thinking adds output tokens), at R18/USD:
 
 | Model | Per page | A 10-page invoice |
 |---|---|---|
-| Haiku 5.5 | about R0.015 | about R0.15 |
-| Sonnet 5.5 | about R0.29 | about R2.90 |
-| Opus 5.5 | about R0.58 | about R5.80 |
-| Fable 5.1 | about R1.44 | about R14.40 |
+| Haiku 5.5 | about R0.02 | about R0.20 |
+| Sonnet 5.5 | about R0.40 | about R4 |
+| Opus 5.5 | about R0.79 | about R8 |
+| Fable 5.1 | about R1.98 | about R20 |
 
-The Batch API takes 50% off both input and output (a document is not urgent). Cache reads cut the repeated instruction prefix to 5% to 10% of its price. A full 200-document gold-set run on Haiku 5.5 alone is therefore in the order of tens of rand, which is why the cheap tier should be the default and escalation the exception. Measure real token counts with the first live run before trusting these numbers.
+The Batch API takes 50% off both input and output (a document is not urgent). Cache reads cut the repeated instruction prefix to 5% to 10% of its price (the page itself is new each time and is not cached). A full 200-document gold-set run on Haiku 5.5 alone is therefore in the order of tens of rand, which is why the cheap tier should be the default and escalation the exception. Token counting (free) gives exact input counts for a real document, so the estimate can be made precise before a large upload; the first live run replaces these guesses with measured numbers.
