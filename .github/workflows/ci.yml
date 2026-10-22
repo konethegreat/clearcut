@@ -72,3 +72,39 @@ jobs:
       - run: ruff format --check .
       - run: mypy
       - run: pytest -q
+  contract:
+    # The Rust client against the real Python worker (ADR-0009): proves the two
+    # sides still understand each other. The token is made fresh for each run and
+    # masked in the logs, so there is no secret in the repository.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/worker/constraints.txt
+      - run: pip install -r requirements.txt -c constraints.txt
+        working-directory: services/worker
+      - name: Start the worker
+        working-directory: services/worker
+        run: |
+          TOKEN=$(openssl rand -hex 32)
+          echo "::add-mask::$TOKEN"
+          echo "CLEARCUT_LIVE_WORKER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          # A 2-page cap and a 2 MB size cap: two of the contract tests probe those limits.
+          CLEARCUT_WORKER_TOKEN="$TOKEN" CLEARCUT_WORKER_MAX_PAGES=2 CLEARCUT_WORKER_MAX_BYTES=2000000 \
+            CLEARCUT_WORKER_PORT=8090 PYTHONPATH=src nohup python -m clearcut_worker > "$RUNNER_TEMP/worker.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8090/health > /dev/null && exit 0
+            sleep 0.5
+          done
+          echo "the worker did not start"; cat "$RUNNER_TEMP/worker.log"; exit 1
+      - run: cargo test -p clearcut-docproc --test live -- --ignored
+        env:
+          CLEARCUT_LIVE_WORKER_URL: http://127.0.0.1:8090
+      - name: Worker log
+        if: failure()
+        run: cat "$RUNNER_TEMP/worker.log"

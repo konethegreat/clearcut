@@ -64,6 +64,7 @@ crates/clearcut-mcp      Rust  MCP server (rmcp)
 crates/clearcut-store    Rust  Postgres storage, auth, the job queue
 crates/clearcut-jobs     Rust  job runner (claims jobs, heartbeats, retries)
 crates/clearcut-provider Rust  model-provider trait, checked requests, test fake
+crates/clearcut-docproc  Rust  document-worker client and test fake
 packages/sdk             TS    typed client
 plugin/                  Claude plugin manifest
 services/worker          Python document worker (reads untrusted files; no model calls)

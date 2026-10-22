@@ -1,0 +1,9 @@
+# Written by Kone Tshivhinda & Claude
+# Test documents are byte-exact fixtures: line-ending conversion would corrupt them
+# (a PDF records the byte offset of every object).
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tif binary
+*.tiff binary
