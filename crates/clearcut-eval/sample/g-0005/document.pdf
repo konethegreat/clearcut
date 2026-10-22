@@ -1,0 +1,53 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 535 >>
+stream
+BT
+/F1 10 Tf
+16 TL
+50 792 Td
+(TAX INVOICE) Tj T*
+(Bergsig Schools Trust) Tj T*
+(3 Kerk Street, Stellenbosch, 7600) Tj T*
+(VAT No: 4999900104) Tj T*
+(Number: BST-221) Tj T*
+(Date: 2026-04-02) Tj T*
+(Bill to: Sample Client \(Pty\) Ltd) Tj T*
+(1 Example Road, Midrand, 1685) Tj T*
+(Customer VAT No: 4999900301) Tj T*
+() Tj T*
+(Tuition fees, term 2 | qty 1 | price 12500.00 | total 12500.00 | Exempt) Tj T*
+() Tj T*
+(Net: 12500.00) Tj T*
+(VAT: 0.00) Tj T*
+(Total: ZAR 12500.00) Tj T*
+(Due date: 2026-04-16) Tj T*
+(Terms: 14 days) Tj T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000185 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+896
+%%EOF

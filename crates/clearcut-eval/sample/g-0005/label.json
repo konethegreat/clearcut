@@ -1,0 +1,75 @@
+{
+  "format": 1,
+  "case": "g-0005",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "7224ffceb560782dd48b027c2a731d5891f6e76574d68f841fd131b5b8b9645d",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "invoice",
+    "exempt",
+    "full-invoice"
+  ],
+  "split": "dev",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "BST-221",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-04-02",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Bergsig Schools Trust",
+        "address": "3 Kerk Street, Stellenbosch, 7600",
+        "vat_number": "4999900104"
+      },
+      "page": 1
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Tuition fees, term 2",
+        "quantity": "1",
+        "unit_price": "12500.00",
+        "line_total": "12500.00",
+        "tax": "exempt"
+      }
+    ],
+    "stated_totals": {
+      "net": "12500.00",
+      "vat": "0.00",
+      "gross": "12500.00",
+      "page": 1
+    },
+    "due": {
+      "date": "2026-04-16",
+      "terms": "14 days",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": []
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "format": 1,
+  "case": "g-0012",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "ee9fe13310e92d650434301d949def3ae7a8a4777a0ce62e18fe10034149e1ae",
+    "pages": 2
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard",
+    "multi-page",
+    "full-invoice"
+  ],
+  "split": "test",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "LA-7702",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-06-18",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Limpopo Agri Supplies (Pty) Ltd",
+        "address": "30 Nelson Mandela Drive, Polokwane, 0699",
+        "vat_number": "4999900202"
+      },
+      "page": 1
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Maize meal, 12.5 kg bag",
+        "quantity": "120",
+        "unit_price": "98.00",
+        "line_total": "11760.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Sunflower oil, 5 l",
+        "quantity": "60",
+        "unit_price": "145.00",
+        "line_total": "8700.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Sugar, 10 kg bag",
+        "quantity": "80",
+        "unit_price": "210.00",
+        "line_total": "16800.00",
+        "tax": "standard"
+      },
+      {
+        "page": 1,
+        "description": "Salt, 1 kg",
+        "quantity": "200",
+        "unit_price": "12.00",
+        "line_total": "2400.00",
+        "tax": "standard"
+      },
+      {
+        "page": 2,
+        "description": "Flour, 12.5 kg bag",
+        "quantity": "50",
+        "unit_price": "175.00",
+        "line_total": "8750.00",
+        "tax": "standard"
+      },
+      {
+        "page": 2,
+        "description": "Delivery",
+        "quantity": "1",
+        "unit_price": "450.00",
+        "line_total": "450.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "48860.00",
+      "vat": "7329.00",
+      "gross": "56189.00",
+      "page": 2
+    },
+    "due": {
+      "date": "2026-07-18",
+      "terms": "30 days",
+      "page": 2
+    }
+  },
+  "expect": {
+    "findings": []
+  }
+}

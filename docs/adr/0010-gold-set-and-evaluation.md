@@ -50,12 +50,12 @@ Case ids are opaque (`g-0001`), never a supplier or client name.
     "invoice_number": { "value": "INV-000123", "page": 1 },
     "invoice_date":   { "value": "2026-03-31", "page": 1 },
     "supplier":  { "value": { "name": "Acme Advisory (Pty) Ltd", "vat_number": "4123456789", "address": "1 Main Rd, Rosebank" }, "page": 1 },
-    "recipient": { "value": { "name": "Client Co" }, "page": 1 },
+    "recipient": { "value": { "name": "Client Co", "vat_number": "4123456780", "address": "2 Side St, Sandton" }, "page": 1 },
     "lines": [
       { "page": 1, "description": "Consulting", "quantity": "10", "unit_price": "1500.00",
         "line_total": "15000.00", "tax": "standard" }
     ],
-    "stated_totals": { "net": "16000.00", "vat": "2250.00", "gross": "18250.00", "page": 2 },
+    "stated_totals": { "net": "15000.00", "vat": "2250.00", "gross": "17250.00", "page": 2 },
     "due": { "date": "2026-04-30", "terms": "30 days", "page": 2 }
   },
   "expect": { "findings": [] }
@@ -128,6 +128,17 @@ The rules that make the set safe to build, drafted as a checklist the tooling th
 1. **`clearcut-eval`: the format.** Types, the exact decimal loader, `check`, and the synthetic sample set.
 2. **`clearcut-eval`: scoring.** Outcomes, the silent-error rule, the report, the gate, with golden-file tests.
 3. **The collection kit** in `docs/gold-set/`: the labelling guide, a consent form template, the anonymisation guide, the checklist, and the CI guard and `.gitignore` entries.
+
+## Implementation notes (step 1, `clearcut-eval`)
+- **Example corrected.** The label example above had totals that did not add up and a recipient too thin for a full tax invoice (over R5 000 the rules need the recipient's address and VAT number). It is now a document the validator accepts cleanly, which a test checks.
+- **The crate** has a library and the `clearcut-gold` command (`check <folder>`, `sample <new folder>`). Exit codes: 0 fine, 1 problems found in the gold set, 2 wrong usage, 3 a folder could not be read or written.
+- **Strict labels.** Every struct rejects unknown fields (a typo is an error, not a dropped value) and amounts must be JSON **strings** (a JSON number would pass through a float parser). `1,500`, `1.005`, `01.5`, `-0` and anything that does not fit an `i64` are rejected, never rounded; `i64::MIN` is refused too. Dates are real dates, tax categories and currencies must be known words.
+- **Reports never contain content.** A parse error says "line 14, column 9", never what was there; a bad amount is reported as `lines[2].unit_price` with the kind of mistake; folder names that are not case ids are counted ("folder number 2"), never printed. A test builds a set full of marker words and asserts none reaches the report. That test found a real leak while it was being written: malformed tags were being counted into the "Tags:" line of the coverage table. Only well-formed tags are counted now.
+- **What `check` verifies** (beyond the list above): a case folder holds exactly `label.json` and the document (anything else is counted as unexpected); the document must be a plain file (a link or folder is refused, so a label cannot point outside its folder) and its SHA-256 must match; a label over 1 MiB is refused unread; the same document in two cases is reported; `consent_ref`, `retain_until` and `anonymised: true` are required for `own` and `consented` cases; a supplier (by VAT number **or** by normalised name) may not appear in both splits.
+- **Not verified yet: the page count against the PDF itself.** `check` confirms that every cited page is within the declared page count, but not that the declared count is the file's real one: that needs a PDF reader, and the right one is the worker through `clearcut-docproc`. It joins the check when the pipeline slice reads documents.
+- **The personal-data net looks for shapes** in free-text fields: an SA ID number (13 digits, a valid date, a valid check digit), an email address, or nine or more digits in a row or in groups of three or more. It cannot see a person's name. Invoice numbers and VAT numbers are not scanned, since long digit strings are normal there.
+- **The synthetic sample set** is 15 invented invoices with real PDF text layers (a small deterministic PDF writer; read back with the worker's own PDF library to confirm): every tax category, a multi-page document, a credit note, USD, a rounding case (2.5 x 99.99), and planted mistakes (wrong printed VAT, wrong line total, due date before invoice date, missing supplier address, a non-VAT supplier) each with the exact findings expected. 10 dev and 5 test cases from 13 suppliers. It is checked in under `crates/clearcut-eval/sample`, and a test fails if the files differ from what the generator produces.
+- **Mutation-checked** 100 rules in the loader, label rules, checker, scanner, command line and generators. Eleven did not die first time: nine were real test gaps (a non-digit after the dot, a 256-character file name, a blank-but-spaced reviewer, the checksum's carry, the two group-length rules and the gap rule of the long-number scanner, a single unexpected file, and cross-case problem ordering) and each got a test; one led to a small design change (file names compare case-insensitively only on Windows); two had patterns that no longer matched after formatting and were checked by hand. All caught now.
 
 ## Alternatives considered
 - *Keeping the gold set in the repository.* Rejected: the repository is public and the documents are personal and financial data.

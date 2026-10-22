@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "case": "g-0013",
+  "document": {
+    "file": "document.pdf",
+    "sha256": "996ae7e06d2e984ea2d1ff8847b248ee0596427af34e904dafc6f527d739dc03",
+    "pages": 1
+  },
+  "tags": [
+    "text-layer",
+    "tax-invoice",
+    "vat-standard",
+    "wrong-dates"
+  ],
+  "split": "test",
+  "provenance": {
+    "tier": "synthetic",
+    "consent_ref": null,
+    "anonymised": true,
+    "retain_until": null,
+    "labelled_by": "sample-generator",
+    "reviewed_by": null
+  },
+  "truth": {
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "EO-0456",
+      "page": 1
+    },
+    "invoice_date": {
+      "value": "2026-07-08",
+      "page": 1
+    },
+    "supplier": {
+      "value": {
+        "name": "Eland Office Hire CC",
+        "address": "12 Kruger Avenue, Pretoria, 0002",
+        "vat_number": "4999900203"
+      },
+      "page": 1
+    },
+    "lines": [
+      {
+        "page": 1,
+        "description": "Marquee hire, weekend",
+        "quantity": "1",
+        "unit_price": "1850.00",
+        "line_total": "1850.00",
+        "tax": "standard"
+      }
+    ],
+    "stated_totals": {
+      "net": "1850.00",
+      "vat": "277.50",
+      "gross": "2127.50",
+      "page": 1
+    },
+    "due": {
+      "date": "2026-07-03",
+      "terms": "Payable on receipt",
+      "page": 1
+    }
+  },
+  "expect": {
+    "findings": [
+      "due_before_issue"
+    ]
+  }
+}

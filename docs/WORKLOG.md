@@ -2,6 +2,16 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 8) — ADR-0010 accepted; gold-set tooling step 1 (`clearcut-eval`)
+**Done** (ADR PR #33 merged as Accepted; own branch; tests first; 117 tests)
+- New crate `clearcut-eval` with the `clearcut-gold` command: `check` (validates a gold set, shows coverage against the ADR's targets, exit code 1 on problems) and `sample` (writes the synthetic set).
+- The label format: strict JSON, amounts as decimal text read exactly into cents and thousandths (no floats anywhere), truth that converts to the core `Extraction` and runs through the real validator so `expect.findings` is checked against the system's own rules.
+- Reports never contain label or document content; a leak test found and fixed one real leak (malformed tags in the coverage line).
+- 15-case synthetic sample set with real PDFs, checked in and kept in sync by a test; read back with pypdf to confirm the text layer and page counts match the labels.
+- 100 rules in the loader, label rules, checker, scanner, command line and generators. Eleven did not die first time: nine were real test gaps (a non-digit after the dot, a 256-character file name, a blank-but-spaced reviewer, the checksum's carry, the two group-length rules and the gap rule of the long-number scanner, a single unexpected file, and cross-case problem ordering) and each got a test; one led to a small design change (file names compare case-insensitively only on Windows); two had patterns that no longer matched after formatting and were checked by hand. All caught now.
+- ADR-0010's label example was wrong (totals did not add up; recipient too thin for a full tax invoice); corrected in the implementation notes.
+**Next**: ADR-0010 step 2 (scoring: outcomes per critical field, the silent-error rule, report, gate), then step 3 (collection kit and the CI guard against documents in the repo). **Needs Kone**: where the private gold folder lives, a first source of real invoices, consent wording, the POPIA Information Officer.
+
 ## 2026-10-22 (part 7) — P2-04 step 3: the Rust document-worker client (`clearcut-docproc`)
 **Done** (worker PR #31 merged first, after fixing its CI: a typing difference between Windows and Linux in a test helper, fixed with a small protocol type; own branch; tests first; 39 unit tests, 1 proxy test, 7 live tests)
 - `DocumentProcessor`, `HttpWorker`, `FakeWorker`, `ProcessError` (mapped onto the queue's failure kinds), `Inspection`. The client is plain-`http` only, follows no redirects, ignores proxy environment variables, caps what it reads, and never prints the token, the address or anything the server said.
