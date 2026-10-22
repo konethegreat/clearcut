@@ -319,3 +319,347 @@ fn sample_results_are_written_once_and_never_overwritten() {
     assert_eq!(code, EXIT_USAGE);
     assert!(err.contains("Usage:"));
 }
+
+// ---- guard ----
+
+fn small_repo() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("gold-guard.json"),
+        r#"{ "approved_folders": ["fixtures"] }"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join(".gitignore"), "/gold/\n/gold-*/\n").unwrap();
+    fs::write(dir.path().join("README.md"), "hello").unwrap();
+    dir
+}
+
+#[test]
+fn guarding_a_clean_repository_succeeds() {
+    let repo = small_repo();
+    let (code, out, err) = run_args(&["guard", repo.path().to_str().unwrap()]);
+    assert_eq!(code, EXIT_OK, "{out}{err}");
+    assert!(
+        out.contains("Checked 3 files") && out.contains("no problems"),
+        "{out}"
+    );
+    assert!(err.is_empty());
+}
+
+#[test]
+fn guarding_a_repository_with_a_document_in_it_fails_and_names_the_path() {
+    let repo = small_repo();
+    fs::create_dir(repo.path().join("docs")).unwrap();
+    fs::write(repo.path().join("docs").join("invoice.pdf"), "x").unwrap();
+    fs::create_dir(repo.path().join("fixtures")).unwrap();
+    fs::write(repo.path().join("fixtures").join("fine.pdf"), "x").unwrap();
+    let (code, out, _) = run_args(&["guard", repo.path().to_str().unwrap()]);
+    assert_eq!(code, EXIT_PROBLEMS);
+    assert!(out.contains("Found 1 problem(s)"), "{out}");
+    assert!(
+        out.contains("docs/invoice.pdf: a document file outside the approved fixture folders"),
+        "{out}"
+    );
+    assert!(!out.contains("fixtures/fine.pdf"), "{out}");
+}
+
+#[test]
+fn guarding_without_the_config_file_is_reported() {
+    let repo = small_repo();
+    fs::remove_file(repo.path().join("gold-guard.json")).unwrap();
+    let (code, out, err) = run_args(&["guard", repo.path().to_str().unwrap()]);
+    assert_eq!(code, EXIT_UNUSABLE);
+    assert!(out.is_empty());
+    assert!(err.contains("gold-guard.json is missing"), "{err}");
+}
+
+#[test]
+fn this_repository_passes_the_guard_through_the_command() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..");
+    let (code, out, err) = run_args(&["guard", root.to_str().unwrap()]);
+    assert_eq!(code, EXIT_OK, "{out}{err}");
+}
+
+// ---- new-case ----
+
+fn new_case_args<'a>(gold: &'a str, document: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec!["new-case", gold, document];
+    args.extend_from_slice(extra);
+    args
+}
+
+const REQUIRED: [&str; 8] = [
+    "--split",
+    "dev",
+    "--tier",
+    "consented",
+    "--labelled-by",
+    "KT",
+    "--pages",
+    "2",
+];
+
+#[test]
+fn new_case_creates_the_case_and_says_what_to_do_next() {
+    let dir = tempfile::tempdir().unwrap();
+    let document = dir.path().join("invoice.pdf");
+    fs::write(&document, b"%PDF-1.4 hello").unwrap();
+    let gold = dir.path().join("gold");
+    let mut extra = REQUIRED.to_vec();
+    extra.extend(["--consent-ref", "C-017", "--retain-until", "2031-03-31"]);
+    let (code, out, err) = run_args(&new_case_args(
+        gold.to_str().unwrap(),
+        document.to_str().unwrap(),
+        &extra,
+    ));
+    assert_eq!(code, EXIT_OK, "{err}");
+    assert!(
+        out.contains("Created g-0001") && out.contains("clearcut-gold check"),
+        "{out}"
+    );
+    assert!(gold.join("g-0001").join("document.pdf").is_file());
+    assert!(gold.join("g-0001").join("label.json").is_file());
+    // A second one continues the numbering.
+    let (code, out, _) = run_args(&new_case_args(
+        gold.to_str().unwrap(),
+        document.to_str().unwrap(),
+        &extra,
+    ));
+    assert_eq!(code, EXIT_OK);
+    assert!(out.contains("Created g-0002"), "{out}");
+}
+
+#[test]
+fn new_case_used_wrongly_is_a_usage_error() {
+    let g = "gold";
+    let d = "doc.pdf";
+    let without = |flag: &str| -> Vec<&str> {
+        let mut kept = Vec::new();
+        let mut pairs = REQUIRED.chunks(2);
+        for pair in &mut pairs {
+            if pair[0] != flag {
+                kept.extend_from_slice(pair);
+            }
+        }
+        kept
+    };
+    for flag in ["--split", "--tier", "--labelled-by", "--pages"] {
+        let (code, out, err) = run_args(&new_case_args(g, d, &without(flag)));
+        assert_eq!(code, EXIT_USAGE, "missing {flag}");
+        assert!(out.is_empty() && err.contains("Usage:"), "{err}");
+    }
+    for extra in [
+        vec![
+            "--split",
+            "train",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "2",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--tier",
+            "scraped",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "2",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "two",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "-1",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "2",
+            "--retain-until",
+            "soon",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "2",
+            "--retain-until",
+            "2031-02-30",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--split",
+            "test",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "2",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "2",
+            "--verbose",
+        ],
+        vec![
+            "--split",
+            "dev",
+            "--tier",
+            "consented",
+            "--labelled-by",
+            "KT",
+            "--pages",
+        ],
+    ] {
+        let (code, _, err) = run_args(&new_case_args(g, d, &extra));
+        assert_eq!(code, EXIT_USAGE, "{extra:?}");
+        assert!(err.contains("Usage:"), "{err}");
+    }
+    let (code, _, _) = run_args(&["new-case", g]);
+    assert_eq!(code, EXIT_USAGE);
+}
+
+#[test]
+fn new_case_reports_unusable_input_without_echoing_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let gold = dir.path().join("gold");
+    let empty = dir.path().join("SecretClient.pdf");
+    fs::write(&empty, b"").unwrap();
+    let (code, out, err) = run_args(&new_case_args(
+        gold.to_str().unwrap(),
+        empty.to_str().unwrap(),
+        &REQUIRED,
+    ));
+    assert_eq!(code, EXIT_UNUSABLE);
+    assert!(
+        out.is_empty() && err.contains("empty") && !err.contains("Secret"),
+        "{err}"
+    );
+
+    let missing = dir.path().join("SecretMissing.pdf");
+    let (code, _, err) = run_args(&new_case_args(
+        gold.to_str().unwrap(),
+        missing.to_str().unwrap(),
+        &REQUIRED,
+    ));
+    assert_eq!(code, EXIT_UNUSABLE);
+    assert!(err.contains("cannot be used") && !err.contains("Secret"), "{err}");
+}
+
+#[test]
+fn new_case_with_a_bad_value_is_refused_as_bad_usage_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let document = dir.path().join("a.pdf");
+    fs::write(&document, b"x").unwrap();
+    let gold = dir.path().join("gold");
+    let extra = [
+        "--split",
+        "dev",
+        "--tier",
+        "own",
+        "--labelled-by",
+        "KT",
+        "--pages",
+        "0",
+    ];
+    let (code, _, err) = run_args(&new_case_args(
+        gold.to_str().unwrap(),
+        document.to_str().unwrap(),
+        &extra,
+    ));
+    assert_eq!(code, EXIT_USAGE);
+    assert!(err.contains("--pages"), "{err}");
+}
+
+#[test]
+fn the_usage_lists_guard_and_new_case() {
+    let (_, out, _) = run_args(&["--help"]);
+    for word in [
+        "guard",
+        "new-case",
+        "--labelled-by",
+        "--retain-until",
+        "--consent-ref",
+        "--tier",
+    ] {
+        assert!(out.contains(word), "{word}");
+    }
+}
+
+#[test]
+fn new_case_records_the_tier_and_split_it_was_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let document = dir.path().join("a.pdf");
+    fs::write(&document, b"x").unwrap();
+    let gold = dir.path().join("gold");
+    for (split, tier, expected_split, expected_tier) in [
+        ("dev", "own", "dev", "own"),
+        ("test", "consented", "test", "consented"),
+        ("dev", "synthetic", "dev", "synthetic"),
+        ("test", "own", "test", "own"),
+    ] {
+        let extra = [
+            "--split",
+            split,
+            "--tier",
+            tier,
+            "--labelled-by",
+            "KT",
+            "--pages",
+            "1",
+        ];
+        let (code, out, err) = run_args(&new_case_args(
+            gold.to_str().unwrap(),
+            document.to_str().unwrap(),
+            &extra,
+        ));
+        assert_eq!(code, EXIT_OK, "{out}{err}");
+        let id = out
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .trim_end_matches('.')
+            .to_string();
+        let label: serde_json::Value =
+            serde_json::from_slice(&fs::read(gold.join(&id).join("label.json")).unwrap()).unwrap();
+        assert_eq!(label["split"], expected_split, "{id}");
+        assert_eq!(label["provenance"]["tier"], expected_tier, "{id}");
+    }
+}

@@ -13,3 +13,8 @@ __pycache__
 .mypy_cache
 .ruff_cache
 .pytest_cache
+
+# Private gold sets (real, anonymised invoices) must live outside the repository;
+# these entries are a second net. See docs/gold-set/README.md.
+/gold/
+/gold-*/

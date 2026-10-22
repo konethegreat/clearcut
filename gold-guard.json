@@ -1,0 +1,7 @@
+{
+  "approved_folders": [
+    "crates/clearcut-eval/sample",
+    "crates/clearcut-eval/sample-results",
+    "crates/clearcut-docproc/tests/fixtures"
+  ]
+}
