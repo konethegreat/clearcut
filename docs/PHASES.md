@@ -31,7 +31,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-01 **Gold set:** collect and anonymise 200+ real SA invoices; label fields (with the document owners' consent and a POPIA review)
 - ⬜ P2-02 Document intake: type sniffing, page count, text-layer detection, de-duplication by hash
 - ⬜ P2-03 Embedded-structured-data reader (UBL/CII/Factur-X XML inside PDFs)
-- ⬜ P2-04 Python worker skeleton (gRPC/HTTP), provider trait, no business rules
+- 🔄 P2-04 Python worker skeleton (gRPC/HTTP), provider trait, no business rules — design proposed in [ADR-0009](adr/0009-worker-and-provider-boundary.md), awaiting review; recommends the worker only reads documents (no API key, no egress) and the model provider lives in Rust, which would make P2-13 a Rust adapter
 - ⬜ P2-05 Text-layer extraction + OCR fallback for scans
 - ⬜ P2-06 LLM/vision structuring with JSON-Schema output, per-page chunking, page-level provenance
 - ⬜ P2-07 Map-reduce for long documents: page-spanning tables, carried balances, statement totals

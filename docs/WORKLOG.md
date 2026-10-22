@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 4) — P2-04: worker and provider design (no code)
+**Done** (PR #28 merged first, completing P1-03; then docs only: ADR-0009 as Proposed, design before code)
+- Read ADR-0004/0005 for the worker. Found a real design question: they put OCR **and** model calls in the Python worker, so the component that parses untrusted PDFs and images would also hold `ANTHROPIC_API_KEY` and have internet access. Proposed splitting: the worker only reads documents (no key, no egress, no database), and the `ModelProvider` trait with its Anthropic adapter lives in Rust beside the router, budgets and logging. The cost is maintaining the request types for the small slice of the API we use (no official Rust SDK). If Kone prefers the original wording, only the provider's implementation changes.
+- Also proposed: HTTP and JSON (not gRPC), a walking skeleton (health plus inspect), two Rust traits (`DocumentProcessor`, `ModelProvider`) with fakes, an error table mapping onto the queue's failure kinds, a CI job that runs the real worker against a Rust contract test, and four small PRs.
+- Five questions for Kone are at the end of the ADR.
+**Next**: on approval, `clearcut-provider`, then the worker skeleton, then `clearcut-docproc`.
+
 ## 2026-10-22 (part 3) — P1-03 step 4: job endpoints and SDK methods
 **Done** (runner PR #27 merged first; own branch and PR; tests first; server 61 tests, SDK 36)
 - `GET /v1/documents/{id}/jobs` and `POST /v1/jobs/{id}/cancel`, behind a `JobQueue` trait with a fake for the HTTP tests and the real store for the end-to-end ones. Behaviour is in ADR-0008's new implementation notes: 404 for unknown or foreign things, 200/202 on cancel, a JSON 400 for a bad id, authentication before the path is read, and a job shown without its payload, checkpoint, worker name, lease or tenant.
