@@ -1,0 +1,85 @@
+{
+  "case": "g-0013",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0013",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "EO-0456",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-07-08",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Eland Office Hire CC",
+        "address": "12 Kruger Avenue, Pretoria, 0002",
+        "vat_number": "4999900203"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Marquee hire, weekend",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 185000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 185000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 185000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 27750,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 212750,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-07-03",
+        "terms": "Payable on receipt"
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

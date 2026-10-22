@@ -185,9 +185,9 @@ pub struct Label {
 /// Why a label file could not be read. Positions only, never content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ParseError {
-    #[error("the label is not valid JSON (line {line}, column {column})")]
+    #[error("the file is not valid JSON (line {line}, column {column})")]
     NotJson { line: usize, column: usize },
-    #[error("the label does not match the label format (line {line}, column {column})")]
+    #[error("the file does not have the expected shape (line {line}, column {column})")]
     WrongShape { line: usize, column: usize },
 }
 

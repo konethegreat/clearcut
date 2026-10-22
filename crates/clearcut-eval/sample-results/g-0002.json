@@ -1,0 +1,128 @@
+{
+  "case": "g-0002",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0002",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "KS-0002",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-02-24",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Karoo Stationery (Pty) Ltd",
+        "address": "14 Church Street, Graaff-Reinet, 6280",
+        "vat_number": "4999900102"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Office chairs",
+          "quantity_milli": 6000,
+          "unit_price": {
+            "minor": 125000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 750000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Standing desks",
+          "quantity_milli": 2000,
+          "unit_price": {
+            "minor": 480000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 960000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Delivery",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 35000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 35000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 1745000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 261750,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 2006750,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-03-26",
+        "terms": "30 days"
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

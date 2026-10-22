@@ -1,0 +1,84 @@
+{
+  "case": "g-0007",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0007",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "USD",
+    "invoice_number": {
+      "value": "IC-90412",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-03-31",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Indigo Cloud Services Inc",
+        "address": "100 Market Street, Austin, Texas"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "CLOUD  hosting, MARCH",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 24000,
+            "currency": "USD"
+          },
+          "line_total": {
+            "minor": 24000,
+            "currency": "USD"
+          },
+          "tax": "out_of_scope"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 24000,
+          "currency": "USD"
+        },
+        "vat": {
+          "minor": 0,
+          "currency": "USD"
+        },
+        "gross": {
+          "minor": 24000,
+          "currency": "USD"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-04-15",
+        "terms": "Net 15"
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

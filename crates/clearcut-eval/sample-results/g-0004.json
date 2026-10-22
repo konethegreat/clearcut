@@ -1,0 +1,89 @@
+{
+  "case": "g-0004",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0004",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "HE-0087",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Highveld Export Traders (Pty) Ltd",
+        "address": "22 Rivonia Road, Sandton, 2196",
+        "vat_number": "4999900103"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Export of machine parts",
+          "quantity_milli": 40000,
+          "unit_price": {
+            "minor": 85000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 3400000,
+            "currency": "ZAR"
+          },
+          "tax": "zero_rated"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 3400000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 0,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 3400000,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-05-11",
+        "terms": "60 days"
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}
