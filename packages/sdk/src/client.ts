@@ -1,5 +1,5 @@
 // Written by Kone Tshivhinda & Claude
-import type { Calculation, Invoice, Scope, UploadedDocument, WhoAmI } from "./types.js";
+import type { Calculation, CancelOutcome, Invoice, Job, Scope, UploadedDocument, WhoAmI } from "./types.js";
 
 export class ClearCutError extends Error {
   /**
@@ -37,6 +37,14 @@ const VALID_KEY = /^[\x21-\x7e]+$/;
 /** Printable ASCII, spaces allowed (as in `text/xml; charset=utf-8`); no control characters, so no header injection. */
 const VALID_CONTENT_TYPE = /^[\x20-\x7e]*[\x21-\x7e][\x20-\x7e]*$/;
 
+/** A UUID in its usual text form. Ids are checked before they go into an address. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function checkedId(kind: string, id: string): string {
+  if (!UUID.test(id)) throw new TypeError(`${kind} must be a UUID`);
+  return id;
+}
+
 /** A whole file held in memory. */
 export type UploadBytes = Blob | ArrayBuffer | Uint8Array;
 
@@ -68,6 +76,11 @@ export class ClearCutClient {
   }
 
   private async request<T>(path: string, init: RequestInit = {}, authenticated = true): Promise<T> {
+    return (await this.send<T>(path, init, authenticated)).body;
+  }
+
+  /** Like [`request`], but also gives the HTTP status (some answers differ by it). */
+  private async send<T>(path: string, init: RequestInit = {}, authenticated = true): Promise<{ status: number; body: T }> {
     const headers = new Headers(init.headers);
     if (!headers.has("content-type")) headers.set("content-type", "application/json");
     if (authenticated && this.#apiKey !== undefined) {
@@ -76,7 +89,7 @@ export class ClearCutClient {
     const res = await this.#fetch(new URL(path, this.#baseUrl), { ...init, headers });
     const body = (await res.json().catch(() => ({}))) as { error?: string; required_scope?: Scope };
     if (!res.ok) throw new ClearCutError(res.status, body.error ?? res.statusText, body.required_scope);
-    return body as T;
+    return { status: res.status, body: body as T };
   }
 
   /** Public: needs no key, and none is sent. */
@@ -109,6 +122,28 @@ export class ClearCutClient {
       headers: { "content-type": contentType },
       body: file as BodyInit,
     });
+  }
+
+  /**
+   * Every background job of a document, newest first. Needs `documents:read`.
+   * An unknown document (or another tenant's) is a 404 `ClearCutError`.
+   */
+  async jobsForDocument(documentId: string): Promise<Job[]> {
+    const id = checkedId("documentId", documentId);
+    const { jobs } = await this.request<{ jobs: Job[] }>(`/v1/documents/${id}/jobs`);
+    return jobs;
+  }
+
+  /**
+   * Stops a job. Needs `documents:write`. A queued job is cancelled at once; a
+   * running one is only asked to stop (`stopping: true`) and finishes at its
+   * next heartbeat, so look at the job again later; a finished job is left as
+   * it was. An unknown job (or another tenant's) is a 404 `ClearCutError`.
+   */
+  async cancelJob(jobId: string): Promise<CancelOutcome> {
+    const id = checkedId("jobId", jobId);
+    const { status, body } = await this.send<{ job: Job }>(`/v1/jobs/${id}/cancel`, { method: "POST" });
+    return { job: body.job, stopping: status === 202 };
   }
 
   /** Needs a valid API key (no particular scope). */

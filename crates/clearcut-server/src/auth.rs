@@ -19,6 +19,7 @@
 //!   `Debug` print of the request headers shows it redacted.
 
 use crate::documents::Ingest;
+use crate::jobs::JobQueue;
 use axum::extract::FromRequestParts;
 use axum::http::{header, request::Parts, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -70,6 +71,7 @@ impl Authenticator for clearcut_store::Store {
 pub struct AppState {
     auth: Arc<dyn Authenticator>,
     ingest: Option<Arc<dyn Ingest>>,
+    jobs: Option<Arc<dyn JobQueue>>,
 }
 
 impl AppState {
@@ -77,17 +79,32 @@ impl AppState {
         Self {
             auth: Arc::new(auth),
             ingest: None,
+            jobs: None,
         }
     }
 
     pub fn shared(auth: Arc<dyn Authenticator>) -> Self {
-        Self { auth, ingest: None }
+        Self {
+            auth,
+            ingest: None,
+            jobs: None,
+        }
     }
 
     /// Turns on `POST /v1/documents`. Without it that route answers 503.
     pub fn with_ingest(mut self, ingest: impl Ingest) -> Self {
         self.ingest = Some(Arc::new(ingest));
         self
+    }
+
+    /// Turns on the job endpoints. Without it they answer 503.
+    pub fn with_jobs(mut self, jobs: impl JobQueue) -> Self {
+        self.jobs = Some(Arc::new(jobs));
+        self
+    }
+
+    pub(crate) fn jobs(&self) -> Option<&dyn JobQueue> {
+        self.jobs.as_deref()
     }
 
     pub(crate) fn ingest(&self) -> Option<&dyn Ingest> {

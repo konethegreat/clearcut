@@ -49,6 +49,49 @@ export interface UploadedDocument {
   media_type: "application/pdf" | "image/png" | "image/jpeg" | "image/tiff" | "application/xml";
 }
 
+/** Where a background job is. There is no "failed": a job that cannot be completed ends in `needs_review`. */
+export type JobState = "queued" | "running" | "succeeded" | "needs_review" | "cancelled";
+
+/** How far along a job is. `total` and `percent` are null until the total is known. */
+export interface JobProgress {
+  done: number;
+  total: number | null;
+  percent: number | null;
+}
+
+/** A background job on a document, as the API shows it. Timestamps are RFC 3339. */
+export interface Job {
+  id: string;
+  document_id: string;
+  kind: "process_document";
+  state: JobState;
+  attempts: number;
+  max_attempts: number;
+  progress: JobProgress;
+  progress_note: string | null;
+  /** The latest failure message, kept even if a later attempt succeeded. */
+  last_error: string | null;
+  /** Someone asked for this job to stop. */
+  cancel_requested: boolean;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  run_after: string;
+  deadline_at: string;
+}
+
+/** The answer to cancelling a job. */
+export interface CancelOutcome {
+  job: Job;
+  /**
+   * True when the job is still running and has only been asked to stop (the
+   * worker stops at its next heartbeat); false when it is now cancelled or had
+   * already finished.
+   */
+  stopping: boolean;
+}
+
 /** The caller as the server sees it (GET /v1/whoami). */
 export interface WhoAmI {
   tenant: string;
