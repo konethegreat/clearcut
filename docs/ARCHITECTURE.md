@@ -36,7 +36,7 @@ _Author: Kone Tshivhinda · Written by Kone Tshivhinda & Claude_
 | `crates/clearcut-mcp` | Rust (rmcp) | MCP tools over stdio: `calculate_invoice`, `za_required_tax_invoice`, `check_status_transition` | smoke-tested |
 | `packages/sdk` | TypeScript | Typed client for the REST API (API key, `whoami`, `calculate`, `uploadDocument`, `jobsForDocument`, `cancelJob`) | 36 tests |
 | `plugin/` | JSON | Claude plugin manifest + MCP entry | alpha |
-| `services/worker` _(was `analytics`)_ | Python | OCR + model calls for extraction/narration; no business rules | planned, Phase 2 |
+| `services/worker` _(was `analytics`)_ | Python (FastAPI) | Reads untrusted documents only ([ADR-0009](adr/0009-worker-and-provider-boundary.md)): `GET /health`, `POST /v1/inspect` (page count and text-layer detection for PDFs; OCR and page images arrive with P2-05). Bearer-token auth before the body is read, size, page and time caps, each inspection in a killable child process (JSON answer, never unpickled), JSON errors, no content in logs and no forgeable log lines. No API key, no egress, no database, no business rules | 146 tests |
 
 ## Key design decisions
 See [adr/](adr/):

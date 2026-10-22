@@ -1,0 +1,8 @@
+# Written by Kone Tshivhinda & Claude
+# What it takes to test and check the worker. Install with:
+#   pip install -r requirements-dev.txt -c constraints.txt
+-r requirements.txt
+httpx2==2.16.0
+mypy==2.4.0
+pytest==9.1.1
+ruff==0.17.1

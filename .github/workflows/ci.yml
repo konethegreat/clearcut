@@ -50,3 +50,25 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+  worker:
+    # The Python document worker (ADR-0009). Checked on the oldest and the
+    # newest Python it supports.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.14"]
+    defaults:
+      run:
+        working-directory: services/worker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: services/worker/constraints.txt
+      - run: pip install -r requirements-dev.txt -c constraints.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest -q

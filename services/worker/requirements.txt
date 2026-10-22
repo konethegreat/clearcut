@@ -1,0 +1,8 @@
+# Written by Kone Tshivhinda & Claude
+# Runtime dependencies, pinned exactly (ADR-0009). Everything else they need is
+# pinned in constraints.txt, which is how CI and the container install them:
+#   pip install -r requirements.txt -c constraints.txt
+fastapi==0.159.1
+pydantic==2.14.1
+pypdf==6.21.2
+uvicorn==0.54.0

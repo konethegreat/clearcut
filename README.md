@@ -66,7 +66,7 @@ crates/clearcut-jobs     Rust  job runner (claims jobs, heartbeats, retries)
 crates/clearcut-provider Rust  model-provider trait, checked requests, test fake
 packages/sdk             TS    typed client
 plugin/                  Claude plugin manifest
-services/worker          Python OCR/model worker (planned, Phase 2)
+services/worker          Python document worker (reads untrusted files; no model calls)
 docs/                    research, architecture, ADRs, phases, worklog
 ```
 
