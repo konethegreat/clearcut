@@ -1,7 +1,7 @@
 # ADR-0009: The Python worker and the model-provider boundary
 
-Status: **Proposed** (awaiting review by Kone Tshivhinda) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
-Design for task P2-04. **No code has been written.** It asks Kone to confirm or overrule one decision that refines [ADR-0004](0004-ingestion-and-narration-pipeline.md) (see "The decision to confirm").
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-22, with all five leanings below) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
+Design for task P2-04. It refines [ADR-0004](0004-ingestion-and-narration-pipeline.md): the worker reads documents, and model calls live in Rust (see "The decision to confirm").
 
 ## Context
 [ADR-0004](0004-ingestion-and-narration-pipeline.md) says a thin Python worker "owns OCR and model calls", holds no business rules, and sits behind a provider interface. [ADR-0005](0005-model-strategy-escalation.md) adds the escalation ladder, per-call logging, budgets and the rule that a document's text is never trusted. The job queue and runner (ADR-0008) now exist, so the pipeline's next layer is the code that actually reads a document and calls a model.
@@ -84,9 +84,9 @@ Cross-language drift is the known risk (ADR-0001). The worker publishes its Open
 - **Resource limits.** Rasterising a large scan can use a lot of memory. The size and page caps, a per-request timeout and container memory limits are part of the skeleton, not an afterthought.
 - **Cost in Rand.** This ADR adds no model spend. The worker runs on our own compute; the per-page model cost is as in ADR-0005 (assumed R18/USD).
 
-## Questions for Kone
-1. **Split the worker (reads documents only) from the model provider (in Rust)?** Recommended. Or keep model calls in Python as ADR-0004 is worded?
-2. **HTTP and JSON** between Rust and the worker, rather than gRPC?
-3. **Python 3.12 or newer with FastAPI, pydantic and pypdf**, exact-pinned, with `ruff` and `mypy` in CI: fine?
-4. **Deployment constraints** for the worker (no egress, no secrets, non-root, private network, size and page caps): agreed as requirements, built with P1-07?
-5. **The walking skeleton** (health plus inspect, proven end to end before OCR): the right first slice?
+## Decisions (Kone, 2026-10-22)
+1. **The worker is split from the model provider.** The Python worker only reads documents; the `ModelProvider` trait and the Anthropic adapter live in Rust. ADR-0004 is refined accordingly, and P2-13 becomes a Rust adapter.
+2. **HTTP and JSON** between Rust and the worker (not gRPC).
+3. **Python 3.12 or newer with FastAPI, pydantic and pypdf**, exact-pinned, with `ruff` and `mypy` in CI.
+4. **Deployment constraints** are requirements (no egress, no secrets, non-root, private network, size and page caps), built with P1-07.
+5. **The walking skeleton** (health plus inspect, proven end to end before OCR) is the first slice.
