@@ -1,7 +1,7 @@
 # ADR-0010: The gold set, its labelling format, and the evaluation harness
 
-Status: **Proposed** (awaiting review by Kone Tshivhinda) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
-Design for tasks P2-01 (tooling) and P2-10. **No code has been written.**
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-22, as written) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
+Design for tasks P2-01 (tooling) and P2-10. Build order is at the end.
 
 ## Context
 [Research 05 §7](../research/05-ingestion-narration-export.md) makes a gold set of 200+ real South African invoices "non-negotiable", with one release-blocking target: **zero silent critical errors**. Everything downstream (prompts, model tiers, the escalation ladder, confidence thresholds) can only be tuned against it. Collecting and labelling real invoices is the long pole, and it depends on people, consent and POPIA care rather than on code, so it should start before the pipeline exists.
