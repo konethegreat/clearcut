@@ -4,12 +4,17 @@
 //! program.
 
 use crate::check::check_set;
+use crate::guard::guard;
+use crate::label::{Split, Tier};
+use crate::newcase::{create, NewCase, NewCaseError};
 use crate::sample::results::write_sample_results;
 use crate::sample::write_sample;
 use crate::score::{score_folders, Gate, ScoreError, SplitChoice};
+use serde::Deserialize;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
+use time::Date;
 
 /// Everything is fine.
 pub const EXIT_OK: u8 = 0;
@@ -29,6 +34,14 @@ Usage:
                       [--gate <gate.json>] [--json <report.json>]
       score a run against the gold set and apply the release gate
       (default: the test split and the research-05 targets)
+  clearcut-gold guard <repository-folder>
+      fail if a document, or a gold-set label, is anywhere in the repository
+      outside the approved fixture folders listed in gold-guard.json
+  clearcut-gold new-case <gold-set-folder> <document> --split dev|test
+                      --tier own|consented|synthetic --labelled-by <name> --pages <n>
+                      [--consent-ref <reference>] [--retain-until YYYY-MM-DD]
+      start the next case: copies the document in under a neutral name and
+      writes a label.json to fill in (it fails `check` until it is finished)
   clearcut-gold sample <new-folder>
       write the synthetic sample gold set
   clearcut-gold sample-results <new-folder>
@@ -54,6 +67,11 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> u8 {
             EXIT_OK
         }
         ["check", folder] => check(Path::new(folder), out, err),
+        ["guard", folder] => guard_command(Path::new(folder), out, err),
+        ["new-case", rest @ ..] => match NewCaseArgs::parse(rest) {
+            Some(parsed) => new_case(&parsed, out, err),
+            None => usage(err),
+        },
         ["sample", folder] => sample(Path::new(folder), out, err),
         ["sample-results", folder] => sample_results(Path::new(folder), out, err),
         ["score", rest @ ..] => match ScoreArgs::parse(rest) {
@@ -111,6 +129,159 @@ fn sample_results(folder: &Path, out: &mut dyn Write, err: &mut dyn Write) -> u8
                 "Wrote sample results for 15 cases. Score them with: clearcut-gold score <gold folder> <folder>"
             );
             EXIT_OK
+        }
+        Err(error) => {
+            let _ = writeln!(err, "{error}");
+            EXIT_UNUSABLE
+        }
+    }
+}
+
+fn guard_command(folder: &Path, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    match guard(folder) {
+        Ok(report) if report.is_clean() => {
+            let _ = writeln!(
+                out,
+                "Checked {} files against gold-guard.json: no problems.",
+                report.files_scanned
+            );
+            EXIT_OK
+        }
+        Ok(report) => {
+            let _ = writeln!(
+                out,
+                "Checked {} files. Found {} problem(s):",
+                report.files_scanned,
+                report.violations.len()
+            );
+            for violation in &report.violations {
+                let _ = writeln!(out, "  {violation}");
+            }
+            EXIT_PROBLEMS
+        }
+        Err(error) => {
+            let _ = writeln!(err, "{error}");
+            EXIT_UNUSABLE
+        }
+    }
+}
+
+/// The arguments of `new-case`.
+struct NewCaseArgs<'a> {
+    gold: &'a Path,
+    document: &'a Path,
+    split: Split,
+    tier: Tier,
+    labelled_by: &'a str,
+    pages: u32,
+    consent_ref: Option<&'a str>,
+    retain_until: Option<Date>,
+}
+
+impl<'a> NewCaseArgs<'a> {
+    /// `None` unless there are two paths, the four required flags, and each
+    /// flag at most once with a value that makes sense.
+    fn parse(args: &[&'a str]) -> Option<NewCaseArgs<'a>> {
+        let mut paths = Vec::new();
+        let (mut split, mut tier, mut labelled_by, mut pages) = (None, None, None, None);
+        let (mut consent_ref, mut retain_until) = (None, None);
+        let mut rest = args.iter();
+        while let Some(&arg) = rest.next() {
+            match arg {
+                "--split" => {
+                    let value = match *rest.next()? {
+                        "dev" => Split::Dev,
+                        "test" => Split::Test,
+                        _ => return None,
+                    };
+                    if split.replace(value).is_some() {
+                        return None;
+                    }
+                }
+                "--tier" => {
+                    let value = match *rest.next()? {
+                        "own" => Tier::Own,
+                        "consented" => Tier::Consented,
+                        "synthetic" => Tier::Synthetic,
+                        _ => return None,
+                    };
+                    if tier.replace(value).is_some() {
+                        return None;
+                    }
+                }
+                "--labelled-by" => {
+                    if labelled_by.replace(*rest.next()?).is_some() {
+                        return None;
+                    }
+                }
+                "--pages" => {
+                    let value: u32 = rest.next()?.parse().ok()?;
+                    if pages.replace(value).is_some() {
+                        return None;
+                    }
+                }
+                "--consent-ref" => {
+                    if consent_ref.replace(*rest.next()?).is_some() {
+                        return None;
+                    }
+                }
+                "--retain-until" => {
+                    let value = parse_date(rest.next()?)?;
+                    if retain_until.replace(value).is_some() {
+                        return None;
+                    }
+                }
+                flag if flag.starts_with("--") => return None,
+                path => paths.push(Path::new(path)),
+            }
+        }
+        let [gold, document] = paths.as_slice() else {
+            return None;
+        };
+        Some(NewCaseArgs {
+            gold,
+            document,
+            split: split?,
+            tier: tier?,
+            labelled_by: labelled_by?,
+            pages: pages?,
+            consent_ref,
+            retain_until,
+        })
+    }
+}
+
+/// `YYYY-MM-DD`, a real date.
+fn parse_date(text: &str) -> Option<Date> {
+    Date::deserialize(serde::de::value::StrDeserializer::<serde::de::value::Error>::new(
+        text,
+    ))
+    .ok()
+}
+
+fn new_case(args: &NewCaseArgs<'_>, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    let request = NewCase {
+        gold: args.gold,
+        document: args.document,
+        split: args.split,
+        tier: args.tier,
+        labelled_by: args.labelled_by,
+        pages: args.pages,
+        consent_ref: args.consent_ref,
+        retain_until: args.retain_until,
+    };
+    match create(&request) {
+        Ok(id) => {
+            let _ = writeln!(
+                out,
+                "Created {id}. Next: anonymise the document, fill in {id}/label.json from it \
+                 (see docs/gold-set/labelling-guide.md), then run: clearcut-gold check <gold folder>"
+            );
+            EXIT_OK
+        }
+        Err(error @ NewCaseError::BadArgument(_)) => {
+            let _ = writeln!(err, "{error}");
+            EXIT_USAGE
         }
         Err(error) => {
             let _ = writeln!(err, "{error}");

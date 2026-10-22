@@ -108,3 +108,27 @@ jobs:
       - name: Worker log
         if: failure()
         run: cat "$RUNNER_TEMP/worker.log"
+  gold-set:
+    # ADR-0010. The repository guard (no real documents or gold-set labels
+    # outside the approved fixture folders), and the gold-set tools run on the
+    # synthetic samples: the check passes, the test split of the sample results
+    # passes the release gate, and the dev split fails it on purpose (the sample
+    # results are flawed there), which proves the gate can fail.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p clearcut-eval
+      - name: No documents or gold-set labels outside the approved folders
+        run: ./target/debug/clearcut-gold guard .
+      - name: The sample gold set is well formed
+        run: ./target/debug/clearcut-gold check crates/clearcut-eval/sample
+      - name: The test split of the sample results passes the gate
+        run: ./target/debug/clearcut-gold score crates/clearcut-eval/sample crates/clearcut-eval/sample-results --split test
+      - name: The dev split fails it
+        run: |
+          if ./target/debug/clearcut-gold score crates/clearcut-eval/sample crates/clearcut-eval/sample-results --split dev > /dev/null; then
+            echo "the dev split of the sample results was expected to fail the gate"
+            exit 1
+          fi
