@@ -96,7 +96,7 @@ impl AnthropicConfig {
         Ok(self)
     }
 
-    /// Reads \`CLEARCUT_ANTHROPIC_BASE_URL\` and \`ANTHROPIC_WORKSPACE_ID\` (an empty
+    /// Reads `CLEARCUT_ANTHROPIC_BASE_URL` and `ANTHROPIC_WORKSPACE_ID` (an empty
     /// value counts as not set). A bad value is an error, never a quiet default.
     pub fn from_env(env: impl Fn(&str) -> Option<OsString>) -> Result<AnthropicConfig, ConfigError> {
         let set = |name: &str| -> Result<Option<String>, ConfigError> {
@@ -128,8 +128,8 @@ impl AnthropicConfig {
     }
 }
 
-/// \`localhost\` or a loopback address (\`127.x.x.x\`, \`::1\`). A name such as
-/// \`127.0.0.1.example.com\` is a different host and does not count.
+/// `localhost` or a loopback address (`127.x.x.x`, `::1`). A name such as
+/// `127.0.0.1.example.com` is a different host and does not count.
 fn is_this_computer(host: &Host<&str>) -> bool {
     match host {
         Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),

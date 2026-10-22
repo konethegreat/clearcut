@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 14) — P2-13: the Anthropic adapter, built (not yet run against the real API)
+**Done** (ADR-0012 accepted first, PR #39; then built tests-first with no key and no live call)
+- `clearcut-provider`: `CacheTtl`, `Usage.cache_write_1h_tokens` (a part of the writes, never counted twice), `KeyProblem` and `ProviderError::KeyProblem` / `ModelUnavailable`, the `Thinking::Off` doc.
+- `clearcut-anthropic`: `schema` (the deterministic profile), `request` (exact JSON, golden tests), `response` (untrusted answer, usage with the one-hour split), `failure` (every status to the exact `ProviderError`, cap reset by calendar arithmetic, the inline-retry rule), `http::post_json` (per-request timeout, bounded read, no redirect), and `AnthropicProvider` (timeouts that grow with the answer, two inline retries at most, 120 s of waiting in total). Waiting and the clock sit behind `Pacing` so tests are exact and never sleep.
+- Two ignored live tests: the free key check and one tiny real call (a fraction of a cent) for Kone to run.
+- 193 tests in the crate (+2 ignored), 30 in the provider crate.
+- Mutation check: 99 deliberate breakages of the new code; every one is caught by a test except one equivalent case (the 120-second total-wait guard cannot be reached with two retries of at most 60 seconds, so it is defence in depth, kept on purpose).
+**Next**: Kone runs the live tests with their own key (`docs/BYOK.md` section 4), then P2-13b (the model-facing reading shape), P2-24 (rate-limit-aware client), P2-12 (cost guardrails), P2-14 (router). Still to wire: `load` and `reject_key_in_arguments` at server and MCP start-up.
+
 ## 2026-10-22 (part 13) — ADR-0012: the Anthropic adapter (P2-13), proposed
 **Done** (docs only; PR #38 for the key crate merged first, CI green)
 - Read the Messages API reference for the exact request and response shapes (`system` blocks with `cache_control` and `ttl`, `output_config.effort` and `.format`, stop reasons including `refusal` and `model_context_window_exceeded`, the `usage` and `cache_creation` fields, thinking blocks, `diagnostics` for cache misses).

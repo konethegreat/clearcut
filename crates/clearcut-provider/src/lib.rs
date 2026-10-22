@@ -82,10 +82,35 @@ impl Effort {
 
 /// Whether the model may think before it answers. Always the adaptive kind:
 /// the old fixed-budget mode is rejected by current models (ADR-0005 §3).
+///
+/// `Off` means *no up-front thinking*. Some models cannot do that (Opus 5.5 and
+/// Fable 5.1 always think); a provider refuses `Off` for them with
+/// [`ProviderError::Rejected`] rather than thinking anyway and charging for it
+/// (ADR-0012).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Thinking {
     Off,
     Adaptive,
+}
+
+/// How long a cached prefix lives (ADR-0011): five minutes suits uploads whose
+/// pages follow within seconds; an hour suits batches and bulk uploads whose
+/// calls are minutes apart (it costs more to write, the same to read).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CacheTtl {
+    #[default]
+    FiveMinutes,
+    OneHour,
+}
+
+impl CacheTtl {
+    /// The name the API uses.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CacheTtl::FiveMinutes => "5m",
+            CacheTtl::OneHour => "1h",
+        }
+    }
 }
 
 /// The image formats we send. We render page images ourselves, so two are enough.
@@ -247,6 +272,7 @@ pub struct ModelRequest {
     model: String,
     effort: Effort,
     thinking: Thinking,
+    cache_ttl: CacheTtl,
     system: Vec<TextBlock>,
     content: Vec<Block>,
     output_schema: Value,
@@ -263,6 +289,7 @@ impl ModelRequest {
             call,
             effort: Effort::Medium,
             thinking: Thinking::Adaptive,
+            cache_ttl: CacheTtl::default(),
             system: Vec::new(),
             content: Vec::new(),
             output_schema: None,
@@ -280,6 +307,11 @@ impl ModelRequest {
 
     pub fn thinking(&self) -> Thinking {
         self.thinking
+    }
+
+    /// How long the cache breakpoints in this request keep their prefix.
+    pub fn cache_ttl(&self) -> CacheTtl {
+        self.cache_ttl
     }
 
     /// The instructions, in order. Always text.
@@ -326,6 +358,7 @@ impl fmt::Debug for ModelRequest {
             .field("model", &self.model)
             .field("effort", &self.effort)
             .field("thinking", &self.thinking)
+            .field("cache_ttl", &self.cache_ttl)
             .field("max_output_tokens", &self.max_output_tokens)
             .field(
                 "system",
@@ -355,6 +388,7 @@ pub struct RequestBuilder {
     call: CallContext,
     effort: Effort,
     thinking: Thinking,
+    cache_ttl: CacheTtl,
     system: Vec<TextBlock>,
     content: Vec<Block>,
     output_schema: Option<Value>,
@@ -369,6 +403,12 @@ impl RequestBuilder {
 
     pub fn thinking(mut self, thinking: Thinking) -> Self {
         self.thinking = thinking;
+        self
+    }
+
+    /// How long cached prefixes live (default five minutes).
+    pub fn cache_ttl(mut self, ttl: CacheTtl) -> Self {
+        self.cache_ttl = ttl;
         self
     }
 
@@ -469,6 +509,7 @@ impl RequestBuilder {
             model: self.model,
             effort: self.effort,
             thinking: self.thinking,
+            cache_ttl: self.cache_ttl,
             system: self.system,
             content: self.content,
             output_schema,
@@ -489,10 +530,20 @@ pub struct Usage {
     pub cache_read_tokens: u64,
     /// Input written to the cache (billed at a premium).
     pub cache_write_tokens: u64,
+    /// The part of `cache_write_tokens` written with the one-hour lifetime,
+    /// which costs more than the five-minute kind. Never counted twice.
+    pub cache_write_1h_tokens: u64,
 }
 
 impl Usage {
-    /// All four counts added up. Saturates rather than wrapping around.
+    /// Cache writes with the five-minute lifetime: the writes that were not
+    /// one-hour ones (and never negative, whatever the provider reports).
+    pub fn cache_write_5m_tokens(&self) -> u64 {
+        self.cache_write_tokens.saturating_sub(self.cache_write_1h_tokens)
+    }
+
+    /// The four counts added up (the one-hour part of the writes is inside
+    /// `cache_write_tokens` already). Saturates rather than wrapping around.
     pub fn total(&self) -> u64 {
         self.input_tokens
             .saturating_add(self.output_tokens)
@@ -510,6 +561,9 @@ impl Add for Usage {
             output_tokens: self.output_tokens.saturating_add(other.output_tokens),
             cache_read_tokens: self.cache_read_tokens.saturating_add(other.cache_read_tokens),
             cache_write_tokens: self.cache_write_tokens.saturating_add(other.cache_write_tokens),
+            cache_write_1h_tokens: self
+                .cache_write_1h_tokens
+                .saturating_add(other.cache_write_1h_tokens),
         }
     }
 }
@@ -555,6 +609,35 @@ impl fmt::Debug for ModelResponse {
 
 // --------------------------------------------------------------------- errors ----
 
+/// What is wrong with the API key or the account behind it (ADR-0011). None of
+/// these is the document's fault, and retrying at once will not help: the owner
+/// of the key has to act (or wait for the cap to reset).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyProblem {
+    /// The key is wrong, revoked or expired.
+    Rejected,
+    /// The key may not use this.
+    NoPermission,
+    /// A billing problem on the account.
+    Billing,
+    /// The monthly spend cap of the account's tier was reached.
+    SpendCap,
+    /// A spend limit the account owner set themselves was reached.
+    UserSpendLimit,
+}
+
+impl fmt::Display for KeyProblem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            KeyProblem::Rejected => "the API key was rejected (wrong, revoked or expired)",
+            KeyProblem::NoPermission => "the API key does not have permission for this",
+            KeyProblem::Billing => "the account behind the API key has a billing problem",
+            KeyProblem::SpendCap => "the monthly spend cap of the account has been reached",
+            KeyProblem::UserSpendLimit => "the spend limit set on the account has been reached",
+        })
+    }
+}
+
 /// Why a call did not produce a usable answer. None of the messages contain
 /// invoice content: a `reason` states which rule failed, never what the
 /// document said.
@@ -580,6 +663,17 @@ pub enum ProviderError {
     /// Our credentials were refused (a missing, revoked or wrong key).
     #[error("the model provider refused our credentials")]
     Auth,
+    /// The user's API key or account needs attention (ADR-0011). `retry_after`
+    /// says when it is worth trying again, when that is known (the monthly cap
+    /// resets at a known moment).
+    #[error("{problem}")]
+    KeyProblem {
+        problem: KeyProblem,
+        retry_after: Option<Duration>,
+    },
+    /// This key cannot use the model we asked for. The router tries the next one.
+    #[error("the model is not available to this API key")]
+    ModelUnavailable,
 }
 
 impl ProviderError {
@@ -590,11 +684,15 @@ impl ProviderError {
     /// refusal, or a request we got wrong, needs a person.
     pub fn failure_kind(&self) -> FailureKind {
         match self {
-            ProviderError::Unavailable { .. } | ProviderError::Auth => FailureKind::ProviderUnavailable,
+            ProviderError::Unavailable { .. } | ProviderError::Auth | ProviderError::KeyProblem { .. } => {
+                FailureKind::ProviderUnavailable
+            }
             ProviderError::Timeout
             | ProviderError::Truncated { .. }
             | ProviderError::InvalidOutput { .. } => FailureKind::Transient,
-            ProviderError::Refused { .. } | ProviderError::Rejected(_) => FailureKind::NeedsReview,
+            ProviderError::Refused { .. } | ProviderError::Rejected(_) | ProviderError::ModelUnavailable => {
+                FailureKind::NeedsReview
+            }
         }
     }
 
@@ -611,7 +709,9 @@ impl ProviderError {
     /// How long the provider asked us to wait, when it said.
     pub fn retry_after(&self) -> Option<Duration> {
         match self {
-            ProviderError::Unavailable { retry_after } => *retry_after,
+            ProviderError::Unavailable { retry_after } | ProviderError::KeyProblem { retry_after, .. } => {
+                *retry_after
+            }
             _ => None,
         }
     }
@@ -719,3 +819,5 @@ impl ModelProvider for FakeProvider {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_adapter;

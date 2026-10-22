@@ -23,6 +23,7 @@ pub(crate) struct Seen {
     pub path: String,
     pub query: Option<String>,
     pub headers: HeaderMap,
+    pub body: Vec<u8>,
 }
 
 /// One scripted answer.
@@ -90,12 +91,19 @@ impl Stub {
     }
 }
 
-async fn respond(State(script): State<Script>, method: Method, uri: Uri, headers: HeaderMap) -> Response {
+async fn respond(
+    State(script): State<Script>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
     script.seen.lock().unwrap().push(Seen {
         method,
         path: uri.path().to_string(),
         query: uri.query().map(str::to_string),
         headers,
+        body: body.to_vec(),
     });
     let index = script
         .next

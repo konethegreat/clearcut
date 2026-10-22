@@ -17,9 +17,9 @@
 use crate::config::{AnthropicConfig, ConfigError, ANTHROPIC_VERSION};
 use crate::key::ApiKey;
 use bytes::{Bytes, BytesMut};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use reqwest::redirect::Policy;
-use reqwest::{Client, Url};
+use reqwest::{Client, RequestBuilder, Url};
 use std::fmt;
 use std::time::Duration;
 
@@ -108,9 +108,35 @@ impl AnthropicHttp {
         if !query.is_empty() {
             url.query_pairs_mut().extend_pairs(query);
         }
-        let mut request = self
+        self.send(self.client.get(url), max_bytes).await
+    }
+
+    /// A POST of `body` (JSON) to `path` (such as `/v1/messages`). `timeout`
+    /// is this request's own allowance and replaces the client's default: a long
+    /// answer needs longer than a key check does (ADR-0012 §5). At most
+    /// `max_bytes` of the answer are read; more is an error.
+    pub async fn post_json(
+        &self,
+        path: &str,
+        body: impl Into<Bytes>,
+        max_bytes: usize,
+        timeout: Duration,
+    ) -> Result<Reply, TransportError> {
+        let mut url = self.base.clone();
+        url.set_path(path);
+        let request = self
             .client
-            .get(url)
+            .post(url)
+            .header(CONTENT_TYPE, "application/json")
+            .timeout(timeout)
+            .body(body.into());
+        self.send(request, max_bytes).await
+    }
+
+    /// Adds the headers every request carries, sends it, and reads the answer
+    /// into a [`Reply`].
+    async fn send(&self, request: RequestBuilder, max_bytes: usize) -> Result<Reply, TransportError> {
+        let mut request = request
             .header(AUTHORIZATION, self.authorization.clone())
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header(ACCEPT, "application/json")
