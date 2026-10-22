@@ -367,6 +367,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "clearcut-provider"
+version = "0.1.0"
+dependencies = [
+ "clearcut-core",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "clearcut-server"
 version = "0.1.0"
 dependencies = [
