@@ -1,0 +1,21 @@
+[package]
+name = "clearcut-provider"
+description = "ClearCut model provider: the trait every language-model backend implements, its request and response types, and a scripted fake for tests."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clearcut-core = { path = "../clearcut-core" }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+uuid = "1"
+
+[dev-dependencies]
+tokio = { version = "1.53.3", features = ["macros", "rt"] }

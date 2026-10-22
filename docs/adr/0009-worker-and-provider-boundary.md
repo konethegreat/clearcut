@@ -71,6 +71,15 @@ Cross-language drift is the known risk (ADR-0001). The worker publishes its Open
 3. **`clearcut-docproc`:** the trait, `HttpWorker`, `FakeWorker`, error mapping onto `FailureKind`, and the live contract test in CI.
 4. (Later, with P1-07) a container image and compose service for the worker with no egress and no secrets.
 
+## Implementation notes (step 1, `clearcut-provider`)
+- **A request is checked when it is built**, against the API's real limits: a model id of plain identifier characters (at most 128), something to read, no blank text, an object output schema, an output cap of 1 to 64 000 tokens, images with bytes and at most 5 MiB each and 20 per request, at most 4 cache breakpoints across the whole request, and at most 25 MiB of text and image bytes (text counted in bytes, not characters). A request that could never be sent fails in our code with a named reason; one the provider still refuses is `ProviderError::Rejected`, which means a bug on our side.
+- **Defaults** follow ADR-0005: adaptive thinking and `medium` effort. Which model belongs to which tier is the router's decision (P2-14), not this crate's.
+- **Nothing prints invoice content.** The `Debug` output of a request, a text or image block and a response shows sizes and ids only, so a stray `{:?}` in a log line cannot leak a document. Tests assert this for every type.
+- **Failed calls that were billed carry their usage** (`Truncated`, `Refused`, `InvalidOutput`), so budgets (P2-12) count what a failure cost.
+- **Errors map onto the queue's failure kinds** as the table above says (`Unavailable` and `Auth` to provider-unavailable, so a bad key never burns a document's attempts; `Timeout`, `Truncated` and `InvalidOutput` to transient; `Refused` and `Rejected` to needs-review), and `Unavailable` can carry the provider's `retry_after`.
+- **`FakeProvider`** gives scripted answers in order (or answers from the request), records every request, and says so loudly when a test asks for more than it scripted. It is public so the pipeline crates can use it in their own tests.
+- Tool definitions for the validator and calculator, and the context-pack builder, are not in the first version; they arrive with P2-16b.
+
 ## Alternatives considered
 - *Everything in Python, as ADR-0004 words it.* Rejected as the default for the security reason above; remains a fallback that changes only the provider's implementation.
 - *Everything in Rust, no Python.* Rust can call PDFium and Tesseract, but layout-aware OCR and table extraction are far stronger in the Python ecosystem today, and Python is the one language already approved for this. Revisit if the worker's maintenance cost outweighs that.

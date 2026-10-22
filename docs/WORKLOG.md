@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 5) — P2-04 step 1: the `clearcut-provider` crate
+**Done** (ADR-0009 merged as Accepted first, with Kone's five decisions recorded; own branch; tests first; 25 tests)
+- New crate: the `ModelProvider` trait (`complete(request) -> Result<ModelResponse, ProviderError>`), a `RequestBuilder` whose `build()` checks the request against the API's limits, `Block`/`TextBlock` (text, images, cache breakpoints), `CallContext` (tenant, job, document, page, purpose; for logging only), `Usage` (saturating arithmetic, `Add`/`Sum`), `ProviderError` with `failure_kind()`, `usage()` and `retry_after()`, and `FakeProvider`.
+- Privacy by construction: nothing in the crate prints prompt text, image bytes or extracted data. Costs and tokens only; prices in Rand arrive with budgets (P2-12).
+- Mutation-checked 69 rules (every limit and its boundary, the defaults, the model-id rules, each validation, every `Debug` leak, each `Usage` field and overflow, the failure-kind table, the usage and retry accessors, the messages, and the fake's order, recording and exhaustion). Ten survived the first pass and were real gaps: unpinned constants, the model-id length, system text not counted toward the size cap, a "bytes not characters" test that was too weak, exact `Debug` strings, and a total that overflowed in only some positions. All now caught.
+**Next**: step 2, the Python worker skeleton (`services/worker`: FastAPI app, bearer auth, limits, `/health`, `/v1/inspect`, pytest, a CI job).
+
 ## 2026-10-22 (part 4) — P2-04: worker and provider design (no code)
 **Done** (PR #28 merged first, completing P1-03; then docs only: ADR-0009 as Proposed, design before code)
 - Read ADR-0004/0005 for the worker. Found a real design question: they put OCR **and** model calls in the Python worker, so the component that parses untrusted PDFs and images would also hold `ANTHROPIC_API_KEY` and have internet access. Proposed splitting: the worker only reads documents (no key, no egress, no database), and the `ModelProvider` trait with its Anthropic adapter lives in Rust beside the router, budgets and logging. The cost is maintaining the request types for the small slice of the API we use (no official Rust SDK). If Kone prefers the original wording, only the provider's implementation changes.
