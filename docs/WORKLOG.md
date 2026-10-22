@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 13) — ADR-0012: the Anthropic adapter (P2-13), proposed
+**Done** (docs only; PR #38 for the key crate merged first, CI green)
+- Read the Messages API reference for the exact request and response shapes (`system` blocks with `cache_control` and `ttl`, `output_config.effort` and `.format`, stop reasons including `refusal` and `model_context_window_exceeded`, the `usage` and `cache_creation` fields, thinking blocks, `diagnostics` for cache misses).
+- ADR-0012 (Proposed): the exact JSON we send and read, how each part of `ModelRequest` maps, the error-to-`ProviderError` table, a deterministic **schema profile** (strip unsupported keywords and say so, refuse recursion, count optional and union parameters), non-streaming with a 16 000-token output cap, retry and timeout rules, and the small additive changes to `clearcut-provider` (cache TTL, a 1-hour split in `Usage`, `KeyProblem` and `ModelUnavailable`).
+- A risk flagged for Kone: core's `Extraction` schema is probably over the structured-output limits (24 optional / 16 union), so the model should be asked for a purpose-built reading shape (P2-13b) that Rust converts to an `Extraction`.
+**Next**: Kone's answers to the six questions at the end of the ADR; then build the adapter tests first.
+
 ## 2026-10-22 (part 12) — ADR-0011 accepted; P2-23: the user's own key (`clearcut-anthropic`)
 **Done** (ADR PR #37 merged as Accepted with Kone's six answers; own branch; tests first; 78 tests)
 - Read the remaining Anthropic docs (vision, token counting, streaming, thinking, Files, the Models API) into research 06: images cost 28x28-pixel patches and the models we use take up to 4 784 tokens an image; token counting is free; `display` of thinking defaults to `omitted`; the **Files API is not used** (files stay until deleted, are visible workspace-wide and are not ZDR-eligible). Cost estimate updated to about 6 000 input tokens a page (R0.20 for 10 pages on Haiku 5.5).
