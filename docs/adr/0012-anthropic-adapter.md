@@ -1,7 +1,7 @@
 # ADR-0012: The Anthropic adapter
 
-Status: **Proposed** (awaiting review by Kone Tshivhinda) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
-Task P2-13. Builds on [ADR-0011](0011-bring-your-own-anthropic-key.md) (the key, budgets, limits, caching), [ADR-0009](0009-worker-and-provider-boundary.md) (the `ModelProvider` trait), [ADR-0005](0005-model-strategy-escalation.md) (escalation). Facts and sources: [research 06](../research/06-anthropic-api.md). Design only; no adapter code yet.
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-22, with all six recommended answers below) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
+Task P2-13. Builds on [ADR-0011](0011-bring-your-own-anthropic-key.md) (the key, budgets, limits, caching), [ADR-0009](0009-worker-and-provider-boundary.md) (the `ModelProvider` trait), [ADR-0005](0005-model-strategy-escalation.md) (escalation). Facts and sources: [research 06](../research/06-anthropic-api.md). Design; the build order follows the sections.
 
 ## What it is
 `AnthropicProvider` in `clearcut-anthropic` implements `ModelProvider::complete`. It turns one checked `ModelRequest` into one `POST /v1/messages`, and the answer into a `ModelResponse` or a `ProviderError`. It does **not** choose models (the router, P2-14), limit concurrency (P2-24), or keep budgets (P2-12); it is the translation layer, and it must be impossible to leak a document or a key through it.
@@ -153,10 +153,10 @@ No concurrency or rate-limit logic (P2-24), no budgets or estimates (P2-12), no 
 - *Streaming from the start.* More code (event parsing, mid-stream errors) for no gain at per-page output sizes; added when something needs more than 16 000 tokens.
 - *The official SDK.* No first-party Rust SDK; the thin client keeps the key, redirects and proxies under our control.
 
-## Questions for Kone
-1. **Approve the additive changes to `clearcut-provider`** (§6): cache TTL per request, the 1-hour split in `Usage`, `KeyProblem` and `ModelUnavailable`?
-2. **Non-streaming with a 16 000-token output cap in v1**, streaming later if needed?
-3. **Strip unsupported schema keywords and say so in the description** (my recommendation), rather than refuse any schema that has one?
-4. **A separate model-facing reading shape** instead of asking the model for core's `Extraction` (P2-13b), converted in Rust with the exact decimal loader?
-5. **`Thinking::Off` on Opus 5.5 and Fable 5.1 is an error,** not a silent "think anyway"?
-6. **One live test** that makes a real call costing about R0.003, run only by you with your key?
+## Decisions (Kone's answers to the six questions)
+1. **The additive changes to `clearcut-provider`** (§6) are approved.
+2. **Non-streaming in v1, with a 16 000-token output cap;** streaming later if something needs it.
+3. **Unsupported schema keywords are stripped and said so** in the field's description.
+4. **A separate model-facing reading shape (P2-13b)** instead of asking for core's `Extraction`.
+5. **`Thinking::Off` on Opus 5.5 and Fable 5.1 is an error.**
+6. **One live test,** run only by Kone with their own key (about R0.003).
