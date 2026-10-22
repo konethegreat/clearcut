@@ -336,7 +336,10 @@ name = "clearcut-anthropic"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bytes",
+ "clearcut-core",
+ "clearcut-provider",
  "reqwest",
  "serde",
  "serde_json",
@@ -344,6 +347,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+ "uuid",
  "zeroize",
 ]
 

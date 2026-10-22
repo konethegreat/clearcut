@@ -5,9 +5,10 @@ _Kone Tshivhinda & Claude, 22 Oct 2026. Design: [ADR-0011](adr/0011-bring-your-o
 ClearCut has **no API key of its own and never will**. Whoever runs it uses their own Anthropic
 API key, and Anthropic bills them directly. This page explains how to set that up safely.
 
-**Status:** the key handling and the free key check described in sections 2 to 4 exist and are
-tested. The part that reads invoices with the key (the Anthropic adapter) is not built yet; sections
-5 and 6 say what it will do.
+**Status:** the key handling, the free key check and the adapter that talks to Anthropic with your key
+(sections 2 to 5) exist and are tested against a stand-in server. The adapter has **not yet been run
+against the real API**: section 4 has the one small, optional real call that does that, with your key.
+Nothing reads invoices end to end yet.
 
 ## 1. What it costs
 
@@ -75,7 +76,14 @@ that, never the key (only its last four characters). If it fails, the message sa
 the key is wrong or expired, a billing problem, the monthly cap was reached, or just a rate limit
 (wait and retry).
 
-## 5. What ClearCut sends, and where (planned for the adapter)
+To try one tiny real call through the adapter (**this one costs a fraction of a cent**, on the cheapest
+model, and prints the tokens used and a rough bill in rand):
+
+```text
+ANTHROPIC_API_KEY=sk-ant-api03-... cargo test -p clearcut-anthropic --test live -- --ignored --nocapture one_tiny
+```
+
+## 5. What ClearCut sends, and where
 
 - Only to `api.anthropic.com`, over HTTPS. The key is in one request header and nowhere else. It never
   follows a redirect and never uses a proxy from the environment, so the key cannot be handed on.
@@ -85,6 +93,11 @@ the key is wrong or expired, a billing problem, the monthly cap was reached, or 
 - The Python document worker never sees the key.
 - Every response's usage (tokens in and out, cache reads and writes) is recorded, so cost is a sum of
   facts, shown in rand.
+- Nothing about who or what a call is for (tenant, job, document) is sent, and no tools, sampling
+  settings or metadata. Anthropic's error messages are never copied into ClearCut's errors or logs,
+  because they can quote what was sent.
+- A rate limit that clears within a minute is waited out; an outage is retried twice; anything else
+  (a bad key, a billing problem, the monthly cap) is reported at once and says who has to act.
 
 ## 6. Privacy and limits worth knowing
 

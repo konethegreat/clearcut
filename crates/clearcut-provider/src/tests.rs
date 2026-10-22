@@ -359,12 +359,14 @@ fn usage_adds_up_and_cannot_overflow() {
         output_tokens: 200,
         cache_read_tokens: 30,
         cache_write_tokens: 4,
+        cache_write_1h_tokens: 0,
     };
     let b = Usage {
         input_tokens: 1,
         output_tokens: 2,
         cache_read_tokens: 3,
         cache_write_tokens: 4,
+        cache_write_1h_tokens: 0,
     };
     let sum = a + b;
     assert_eq!(
@@ -373,7 +375,8 @@ fn usage_adds_up_and_cannot_overflow() {
             input_tokens: 1001,
             output_tokens: 202,
             cache_read_tokens: 33,
-            cache_write_tokens: 8
+            cache_write_tokens: 8,
+            cache_write_1h_tokens: 0,
         }
     );
     assert_eq!(sum.total(), 1001 + 202 + 33 + 8);
@@ -383,6 +386,7 @@ fn usage_adds_up_and_cannot_overflow() {
         output_tokens: u64::MAX,
         cache_read_tokens: u64::MAX,
         cache_write_tokens: u64::MAX,
+        cache_write_1h_tokens: 0,
     };
     assert_eq!((big + big).input_tokens, u64::MAX, "saturates");
     assert_eq!(big.total(), u64::MAX, "saturates");
@@ -397,6 +401,7 @@ fn usage_adds_up_and_cannot_overflow() {
                 output_tokens: counts[1],
                 cache_read_tokens: counts[2],
                 cache_write_tokens: counts[3],
+                cache_write_1h_tokens: 0,
             };
             assert_eq!(usage.total(), u64::MAX, "positions {position} and {other}");
         }

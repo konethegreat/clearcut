@@ -8,9 +8,14 @@
 //! first thing it does with a key is check it, for free, against the Models API.
 
 pub mod config;
+pub mod failure;
 pub mod http;
 pub mod key;
 pub mod models;
+pub mod provider;
+pub mod request;
+pub mod response;
+pub mod schema;
 pub mod source;
 
 #[cfg(test)]
