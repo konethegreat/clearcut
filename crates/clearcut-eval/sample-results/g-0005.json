@@ -1,0 +1,94 @@
+{
+  "case": "g-0005",
+  "disposition": "needs_review",
+  "extraction": {
+    "document": "g-0005",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "BST-221",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-04-02",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Bergsig Schools Trust",
+        "address": "3 Kerk Street, Stellenbosch, 7600",
+        "vat_number": "4999900104"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Tuition fees, term 2",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 1250000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 1250000,
+            "currency": "ZAR"
+          },
+          "tax": "exempt"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 1250000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 0,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 1250100,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-04-16",
+        "terms": "14 days"
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "case": "g-0011",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0011",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "FS-1180",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-06-10",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Fynbos Software (Pty) Ltd",
+        "address": "2 Long Street, Cape Town, 8001",
+        "vat_number": "4999900201"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Annual licence, 10 seats",
+          "quantity_milli": 10000,
+          "unit_price": {
+            "minor": 62000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 620000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Onboarding session",
+          "quantity_milli": 2000,
+          "unit_price": {
+            "minor": 95000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 190000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 810000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 121500,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 931500,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-07-10",
+        "terms": "30 days"
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

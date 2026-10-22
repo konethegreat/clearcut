@@ -1,0 +1,94 @@
+{
+  "case": "g-0009",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0009",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "NL-5530",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-05-19",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Namib Logistics (Pty) Ltd",
+        "address": "5 Dock Road, Gqeberha, 6001",
+        "vat_number": "4999900108"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Pallet transfer, Gqeberha to Durban",
+          "quantity_milli": 4000,
+          "unit_price": {
+            "minor": 52500,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 210000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Fuel surcharge",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 18000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 18000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 228000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 44200,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 272200,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

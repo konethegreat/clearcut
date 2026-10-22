@@ -1,0 +1,77 @@
+{
+  "case": "g-0008",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0008",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "PP-2044",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-05-06",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Protea Plumbing (Pty) Ltd",
+        "address": "18 Voortrekker Road, Bellville, 7530",
+        "vat_number": "4999900107"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Refund: faulty valve",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 30000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 30000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 30000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 4500,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 34500,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

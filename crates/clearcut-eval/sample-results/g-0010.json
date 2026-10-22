@@ -1,0 +1,94 @@
+{
+  "case": "g-0010",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0010",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "DC-0319",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-06-01",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Drakensberg Catering CC",
+        "address": "61 Main Road, Underberg, 3257",
+        "vat_number": "4999900109"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Lunch buffet, per person",
+          "quantity_milli": 25000,
+          "unit_price": {
+            "minor": 8500,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 212500,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Venue set-up",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 25000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 26000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 237500,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 35625,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 273125,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

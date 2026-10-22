@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-22 (part 9) — ADR-0010 step 2: scoring and the release gate
+**Done** (PR #34 merged first, CI green; own branch; tests first; 240 tests in `clearcut-eval`)
+- `clearcut-gold score`: compares a run's `results/<case>.json` with the labels, field by field. Each field is correct or wrong / missing / spurious, flagged or silent (flagged = case ended in review, a validator finding about it, or confidence under the threshold). **Silent critical errors are listed first** and the gate fails on any (default). Also: critical and non-critical accuracy, completion, review rate, validation precision/recall against each label's `expect`, citation accuracy, tokens, a per-tag breakdown with a shortfall check, Markdown and JSON reports.
+- Percentages are exact integer ratios; the gate compares without rounding. Reports hold ids, field names and counts only (a test proves it).
+- Sample results with deliberate flaws, committed and kept in sync by a test; the test split passes the gate, the dev split fails on exactly two silent critical errors.
+- 116 rules across the tally, field names, finding-to-field mapping, comparison, scoring loop, gate, loader, report and command line. Ten did not die first time: eight were test gaps (the per-tag non-critical tally, a tag exactly at the allowed shortfall, a broken result outside the selected split, precision and recall being swapped, an unknown flag, overwriting a report file, a gate file of exactly 64 KiB) and each got a test; one was a sample flaw (low confidence) that another finding was also catching, so it now rests on the low confidence alone; one (refusing a link in place of a result file) can only be tested on Linux: its test is `cfg(unix)` and runs in CI, not on this Windows machine. All others caught.
+- Eight decisions the ADR left open are written in its step 2 notes for Kone to check (notably: missing and invented critical values also count as silent errors; the scorer recomputes the validator's findings itself).
+**Next**: ADR-0010 step 3 (collection kit: labelling guide, consent form template, anonymisation guide, the CI guard against documents in the repo, and a CI job that runs `check` and `score` on the samples). Then task B (the end-to-end slice with fakes). **Needs Kone**: the private gold folder's location, a first source of real invoices, consent wording, the POPIA Information Officer.
+
 ## 2026-10-22 (part 8) — ADR-0010 accepted; gold-set tooling step 1 (`clearcut-eval`)
 **Done** (ADR PR #33 merged as Accepted; own branch; tests first; 120 tests)
 - New crate `clearcut-eval` with the `clearcut-gold` command: `check` (validates a gold set, shows coverage against the ADR's targets, exit code 1 on problems) and `sample` (writes the synthetic set).

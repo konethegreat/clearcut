@@ -1,0 +1,230 @@
+{
+  "case": "g-0003",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0003",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "TP-4410",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-03-03",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Tafelberg Print Works",
+        "address": "7 Loop Street, Cape Town, 8001",
+        "vat_number": "4999900102"
+      },
+      "page": 1,
+      "confidence": 400
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Business cards, box of 500",
+          "quantity_milli": 10000,
+          "unit_price": {
+            "minor": 18500,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 185000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Flyers A5, 1000",
+          "quantity_milli": 4000,
+          "unit_price": {
+            "minor": 42000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 168000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Brochures tri-fold",
+          "quantity_milli": 5000,
+          "unit_price": {
+            "minor": 65000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 325000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Posters A2",
+          "quantity_milli": 12000,
+          "unit_price": {
+            "minor": 9500,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 114000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Banners 2m",
+          "quantity_milli": 3000,
+          "unit_price": {
+            "minor": 78000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 234000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 2,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Stickers, roll",
+          "quantity_milli": 8000,
+          "unit_price": {
+            "minor": 14000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 112000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 2,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Letterheads, ream",
+          "quantity_milli": 6000,
+          "unit_price": {
+            "minor": 31000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 186000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 2,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Envelopes DL, box",
+          "quantity_milli": 9000,
+          "unit_price": {
+            "minor": 12000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 108000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 2,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Design setup fee",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 150000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 150000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 3,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 1582000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 237300,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 1819300,
+          "currency": "ZAR"
+        }
+      },
+      "page": 3,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-04-02",
+        "terms": "30 days"
+      },
+      "page": 3,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

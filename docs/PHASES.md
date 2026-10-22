@@ -37,7 +37,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-07 Map-reduce for long documents: page-spanning tables, carried balances, statement totals
 - 🔄 P2-08 **Deterministic validation** in `clearcut-core` (line/VAT/total checks, SA field rules, duplicate detection) — done: `extraction::{Extraction, validate}` (line arithmetic, stated vs recomputed totals, due-before-issue, `compliance_za` rules; exact to the cent; 27 tests). Remaining: duplicate detection (needs other documents as input)
 - ⬜ P2-09 Confidence scoring + human review queue (approve / correct / reject; corrections feed the gold set)
-- 🔄 P2-10 Evaluation harness in CI: field-level accuracy, "zero silent errors" gate — format and `check` ✅; **scoring and the gate next** (ADR-0010 step 2)
+- 🔄 P2-10 Evaluation harness in CI: field-level accuracy, "zero silent errors" gate — format, `check` and **scoring with the gate ✅** (`clearcut-gold score`, ADR-0010 step 2); **running it in CI against a real pipeline run** waits for the pipeline slice
 - ⬜ P2-11 MCP tools: `upload_document`, `get_extraction`, `review_extraction`
 - ⬜ P2-12 Cost guardrails: token estimate, per-tenant budget, batch mode
 - ⬜ P2-13 Anthropic provider adapter (behind the provider trait); API key via env/secret manager; per-tenant budgets

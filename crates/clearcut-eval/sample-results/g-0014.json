@@ -1,0 +1,76 @@
+{
+  "case": "g-0014",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0014",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "KP-2210",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-07-22",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Kalahari Print & Pack (Pty) Ltd",
+        "vat_number": "4999900204"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Pallet wrap, carton of 6",
+          "quantity_milli": 12000,
+          "unit_price": {
+            "minor": 28000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 336000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 336000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 50400,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 386400,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

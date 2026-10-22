@@ -1,0 +1,179 @@
+{
+  "case": "g-0012",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0012",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "LA-7702",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-06-18",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Limpopo Agri Supplies (Pty) Ltd",
+        "address": "30 Nelson Mandela Drive, Polokwane, 0699",
+        "vat_number": "4999900202"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "recipient": {
+      "value": {
+        "name": "Sample Client (Pty) Ltd",
+        "address": "1 Example Road, Midrand, 1685",
+        "vat_number": "4999900301"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Maize meal, 12.5 kg bag",
+          "quantity_milli": 120000,
+          "unit_price": {
+            "minor": 9800,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 1176000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Sunflower oil, 5 l",
+          "quantity_milli": 60000,
+          "unit_price": {
+            "minor": 14500,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 870000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Sugar, 10 kg bag",
+          "quantity_milli": 80000,
+          "unit_price": {
+            "minor": 21000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 1680000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Salt, 1 kg",
+          "quantity_milli": 200000,
+          "unit_price": {
+            "minor": 1200,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 240000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Flour, 12.5 kg bag",
+          "quantity_milli": 50000,
+          "unit_price": {
+            "minor": 17500,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 875000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 2,
+        "confidence": 950
+      },
+      {
+        "value": {
+          "description": "Delivery",
+          "quantity_milli": 1000,
+          "unit_price": {
+            "minor": 45000,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 45000,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 2,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 4886000,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 732900,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 5618900,
+          "currency": "ZAR"
+        }
+      },
+      "page": 2,
+      "confidence": 950
+    },
+    "due": {
+      "value": {
+        "due": "2026-07-18",
+        "terms": "30 days"
+      },
+      "page": 2,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

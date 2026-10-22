@@ -7,3 +7,4 @@ pub mod keys;
 pub mod label;
 pub mod personal;
 pub mod sample;
+pub mod score;

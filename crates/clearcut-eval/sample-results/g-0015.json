@@ -1,0 +1,77 @@
+{
+  "case": "g-0015",
+  "disposition": "done",
+  "extraction": {
+    "document": "g-0015",
+    "extractor": {
+      "type": "model",
+      "name": "sample-model",
+      "prompt_version": "p0"
+    },
+    "currency": "ZAR",
+    "invoice_number": {
+      "value": "FS-1204",
+      "page": 1,
+      "confidence": 950
+    },
+    "invoice_date": {
+      "value": "2026-08-05",
+      "page": 1,
+      "confidence": 950
+    },
+    "supplier": {
+      "value": {
+        "name": "Fynbos Software (Pty) Ltd",
+        "address": "2 Long Street, Cape Town, 8001",
+        "vat_number": "4999900201"
+      },
+      "page": 1,
+      "confidence": 950
+    },
+    "lines": [
+      {
+        "value": {
+          "description": "Licence seats, per seat",
+          "quantity_milli": 2500,
+          "unit_price": {
+            "minor": 9999,
+            "currency": "ZAR"
+          },
+          "line_total": {
+            "minor": 24998,
+            "currency": "ZAR"
+          },
+          "tax": "standard"
+        },
+        "page": 1,
+        "confidence": 950
+      }
+    ],
+    "stated_totals": {
+      "value": {
+        "net": {
+          "minor": 24998,
+          "currency": "ZAR"
+        },
+        "vat": {
+          "minor": 3750,
+          "currency": "ZAR"
+        },
+        "gross": {
+          "minor": 28748,
+          "currency": "ZAR"
+        }
+      },
+      "page": 1,
+      "confidence": 950
+    }
+  },
+  "model": {
+    "name": "sample-model",
+    "prompt_version": "p0"
+  },
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 300
+  }
+}

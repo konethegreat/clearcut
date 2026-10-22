@@ -245,3 +245,131 @@ fn the_committed_sample_set_passes_the_check() {
     let report = check_set(&committed()).unwrap();
     assert!(report.is_ok(), "{}", report.render());
 }
+
+// ---- the sample results ----
+
+mod results {
+    use super::super::results::{results, write_sample_results};
+    use super::*;
+    use crate::score::{
+        score, CaseInput, Disposition, ErrorKind, Field, Gate, RunResult, SilentError, SplitChoice, Tally,
+    };
+
+    fn committed_results() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sample-results")
+    }
+
+    fn inputs() -> Vec<CaseInput> {
+        let mut by_case: Vec<RunResult> = results();
+        cases()
+            .into_iter()
+            .map(|c| {
+                let position = by_case
+                    .iter()
+                    .position(|r| r.case == c.label.case)
+                    .expect("a result per case");
+                let result = by_case.remove(position);
+                CaseInput {
+                    id: c.label.case.clone(),
+                    split: c.label.split,
+                    tags: c.label.tags.clone(),
+                    expected_findings: c.label.expect.findings.clone(),
+                    truth: c.label.truth.to_extraction(&c.label.case, "KT").unwrap(),
+                    result: Some(result),
+                }
+            })
+            .collect()
+    }
+
+    fn gate(split: SplitChoice) -> Gate {
+        Gate {
+            split,
+            ..Gate::default()
+        }
+    }
+
+    #[test]
+    fn there_is_one_result_per_case_and_one_ends_in_review() {
+        let all = results();
+        let ids: Vec<&str> = all.iter().map(|r| r.case.as_str()).collect();
+        let expected: Vec<String> = (1..=15).map(|n| format!("g-{n:04}")).collect();
+        assert_eq!(ids, expected.iter().map(String::as_str).collect::<Vec<_>>());
+        let in_review: Vec<&str> = all
+            .iter()
+            .filter(|r| r.disposition == Disposition::NeedsReview)
+            .map(|r| r.case.as_str())
+            .collect();
+        assert_eq!(in_review, ["g-0005"]);
+        assert!(all.iter().all(|r| r.usage.is_some() && r.model.is_some()));
+    }
+
+    #[test]
+    fn the_test_split_is_clean_so_it_passes_the_gate() {
+        let report = score(&inputs(), &gate(SplitChoice::Test), Vec::new());
+        assert!(report.passed(), "{:?}", report.gate.failures);
+        assert_eq!(report.cases, 5);
+        assert!(report.silent_critical_errors.is_empty());
+    }
+
+    #[test]
+    fn the_dev_split_shows_every_kind_of_outcome_and_fails_on_two_silent_errors() {
+        let report = score(&inputs(), &gate(SplitChoice::Dev), Vec::new());
+        assert!(!report.passed());
+        assert_eq!(
+            report.silent_critical_errors,
+            [
+                SilentError {
+                    case: "g-0002".into(),
+                    field: Field::Supplier(crate::score::field::PartyPart::VatNumber),
+                    error: ErrorKind::Wrong
+                },
+                SilentError {
+                    case: "g-0008".into(),
+                    field: Field::CreditNoteAmount,
+                    error: ErrorKind::Missing
+                },
+            ]
+        );
+        let c = report.critical;
+        assert_eq!((c.wrong_silent, c.missing_silent), (1, 1));
+        // Flagged mistakes: a wrong supplier name read with low confidence (g-0003), a missing date (g-0004),
+        // and a wrong total in a case sent to review (g-0005).
+        assert_eq!(c.wrong_flagged, 2);
+        assert_eq!(c.missing_flagged, 1);
+        assert_eq!(report.non_critical.spurious_silent, 2);
+        assert_eq!(report.non_critical.missing_silent, 1);
+        assert_eq!(report.review_rate.num, 1);
+        // Casing and spacing differences are not mistakes (g-0007).
+        assert!(Tally::accuracy(&c).basis_points().unwrap() > 9_000);
+    }
+
+    #[test]
+    fn writing_refuses_a_folder_that_already_has_something_in_it() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("keep.txt"), "x").unwrap();
+        assert!(matches!(
+            write_sample_results(dir.path()),
+            Err(SampleError::NotEmpty)
+        ));
+    }
+
+    #[test]
+    fn the_committed_sample_results_are_exactly_what_the_generator_produces() {
+        // If this fails, run `cargo run -p clearcut-eval -- sample-results <empty folder>`
+        // and commit the result as crates/clearcut-eval/sample-results.
+        let mut files: Vec<String> = fs::read_dir(committed_results())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        let expected: Vec<String> = results().iter().map(|r| format!("{}.json", r.case)).collect();
+        assert_eq!(files, expected);
+        for result in results() {
+            let on_disk = RunResult::parse(
+                &fs::read(committed_results().join(format!("{}.json", result.case))).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(on_disk, result, "{}", result.case);
+        }
+    }
+}

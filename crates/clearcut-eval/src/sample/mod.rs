@@ -17,6 +17,7 @@
 //! (10 digits starting with 4) but are not issued to anyone.
 
 mod pdf;
+pub mod results;
 
 use crate::decimal::{format_money, format_quantity};
 use crate::hash::sha256_hex;
