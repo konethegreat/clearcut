@@ -1,7 +1,7 @@
 # ADR-0011: Bring your own Anthropic key, and how ClearCut uses the API
 
-Status: **Proposed** (awaiting review by Kone Tshivhinda) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
-Builds on [ADR-0005](0005-model-strategy-escalation.md) (escalation) and [ADR-0009](0009-worker-and-provider-boundary.md) (the provider trait). Facts and sources: [research 06](../research/06-anthropic-api.md). Design only; no code.
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-22, with all six recommended answers below) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
+Builds on [ADR-0005](0005-model-strategy-escalation.md) (escalation) and [ADR-0009](0009-worker-and-provider-boundary.md) (the provider trait). Facts and sources: [research 06](../research/06-anthropic-api.md). Design; the build order is at the end.
 
 ## Context
 ClearCut will be open source, uses **only the Anthropic API**, and the project has no money for an API key of its own. So **whoever runs ClearCut supplies their own key**, and every call is billed to them. Three things follow:
@@ -102,10 +102,10 @@ With a user's key, the data agreement is between that user and Anthropic. By def
 - *Use the official SDK.* Rust has no first-party SDK; the adapter is a thin HTTP client behind the trait (as `HttpWorker` is), which also keeps the base URL and redirects under our control.
 - *Send whole PDFs to the model.* Possible for clean text PDFs (up to 600 pages, text plus page images), but it hands the model the raw file, gives less per-page control for escalation, and fails for glyph-scrambled files (P2-20). Revisit as an optimisation.
 
-## Questions for Kone
-1. **Build mode A (environment key) first, mode B (encrypted tenant keys) later?** I recommend yes: mode A is small and safe; mode B stores secrets for others and deserves its own review.
-2. **Fable 5.1 off by default**, switchable per tenant?
-3. **Default budgets:** per document R5 and per month R100, both visible and changeable? (A 10-page invoice on Haiku is about R0.15; an escalation to Opus about R5.80.)
-4. **Batch API as an opt-in** for bulk uploads (cheaper, but stores data on Anthropic's side)?
-5. **Cost shown in rand** at a configurable rate, default R18/USD?
-6. I should read before the adapter: the vision page (image rules), token counting, streaming, thinking, and the Files API. Anything else you want covered?
+## Decisions (Kone's answers to the six questions)
+1. **Mode A first** (environment or file key); mode B (encrypted per-tenant keys) later, with its own review.
+2. **Fable 5.1 is off by default**, switchable per tenant.
+3. **Default budgets: R5 per document and R100 per month**, both visible and changeable.
+4. **The Batch API is an opt-in** for bulk uploads (cheaper, but stores data on Anthropic's side).
+5. **Cost is shown in rand** at a configurable rate, default R18 per USD.
+6. **Docs still to read before the adapter** (vision, token counting, streaming, thinking, Files): read as part of building P2-23 and P2-13, and recorded in research 06.
