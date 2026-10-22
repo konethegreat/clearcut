@@ -61,6 +61,8 @@ Tools: `calculate_invoice`, `za_required_tax_invoice`, `check_status_transition`
 crates/clearcut-core     Rust  domain: money, tax, invoice, lifecycle, ZA compliance
 crates/clearcut-server   Rust  REST API (axum)
 crates/clearcut-mcp      Rust  MCP server (rmcp)
+crates/clearcut-store    Rust  Postgres storage, auth, the job queue
+crates/clearcut-jobs     Rust  job runner (claims jobs, heartbeats, retries)
 packages/sdk             TS    typed client
 plugin/                  Claude plugin manifest
 services/worker          Python OCR/model worker (planned, Phase 2)

@@ -328,6 +328,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "clearcut-jobs"
+version = "0.1.0"
+dependencies = [
+ "clearcut-core",
+ "clearcut-store",
+ "getrandom",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "clearcut-mcp"
 version = "0.1.0"
 dependencies = [

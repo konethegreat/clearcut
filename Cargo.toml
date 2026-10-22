@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/clearcut-core", "crates/clearcut-server", "crates/clearcut-mcp", "crates/clearcut-store", "crates/clearcut-objects", "crates/clearcut-admin", "crates/clearcut-intake"]
+members = ["crates/clearcut-core", "crates/clearcut-server", "crates/clearcut-mcp", "crates/clearcut-store", "crates/clearcut-objects", "crates/clearcut-admin", "crates/clearcut-intake", "crates/clearcut-jobs"]
 
 [workspace.package]
 version = "0.1.0"

@@ -122,6 +122,16 @@ Built as proposed, with these refinements found while writing the tests:
 - `erase_document` now deletes the document's jobs first (the foreign key would otherwise block erasure). A worker whose document was erased under it gets `JobNotFound` at its next heartbeat.
 - Not wired to uploads yet (decision 4). A new login-less role `clearcut_queue` appears in the database; like the others it has no password and nobody logs in as it.
 
+## Implementation notes (step 3, the runner library)
+`clearcut-jobs` is the loop between the queue and the work. It knows nothing about invoices; the work is a `Handler` (a trait the real pipeline implements from P2-04 on).
+- **Per claimed job:** a background task sends the heartbeat at a steady rhythm (a third of the lease unless set) carrying the *latest reported* progress, while the handler runs on a task of its own. A heartbeat and a handler's own `report()` take the same lock, so an older progress can never overwrite a newer one.
+- **A worker that loses its lease is stopped, not just told.** If a heartbeat finds the job taken over or erased, the handler's task is aborted at once and **nothing is reported**; the new holder's job is untouched. (A live worker that heartbeats cannot be robbed, which a test shows.)
+- **Cancellation is cooperative:** the heartbeat sets a flag the handler reads with `is_cancelled()`; it ends with `Finished::Cancelled`.
+- **Every handler result becomes a report.** `Finished::{Succeeded, NeedsReview, Cancelled}` complete the job; a `Failure` (transient, provider-unavailable, needs-review) goes through the core's `RetryPolicy`; **a panic is caught and treated as a transient failure**, so a bug in one handler cannot kill the runner or leave a job stuck.
+- **Progress is durable:** `report(progress, note, checkpoint)` saves immediately; a retry's handler starts with `ctx.checkpoint()` from the last run, so long documents resume.
+- **The loop** keeps up to `concurrency` jobs in flight, sleeps `poll_interval` when idle or when the database is unreachable (it logs and carries on rather than crashing), honours the per-tenant cap, and on the shutdown signal **stops claiming and waits for the jobs in flight to finish**.
+- **Handlers must be safe to run twice** (the queue is at-least-once, not exactly-once); the document pipeline's event writes are already idempotent for this reason.
+
 ## Alternatives considered
 - *One job per page, with a reduce step.* Needs dependencies between jobs ("reduce after all pages"), which is a workflow engine. A document-level job with page progress and a checkpoint gives resumability without one. Revisit only if per-page parallelism across workers is actually needed (P2-07).
 - *Workers update `jobs` directly under RLS.* Simpler SQL, but any bug (or SQL injection) in the service could then rewrite attempts, leases or states. Five narrow functions are a smaller surface to reason about and test.
