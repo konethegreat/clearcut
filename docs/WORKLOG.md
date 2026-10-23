@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-23 (part 19) — ADR-0015: the try-it deployment (P1-09), proposed
+**Done** (docs only; PR #44, the context-pack builder, merged first with CI green after two review fixes)
+- Read the free-tier terms of Oracle Cloud, Google Cloud Run, Render, Koyeb, Hugging Face Spaces, Fly.io, Neon and Cloudflare R2 (several changed recently; flagged to re-check on each provider's own site).
+- ADR-0015 (Proposed): one codebase with `CLEARCUT_MODE` `local` or `trial`; the local `docker compose` path as the recommended way to try it (worker and Postgres on a network with no internet, port on 127.0.0.1 only, key from a mounted secret or pasted); **mode C session key** for a hosted trial (in server memory only, an opaque HttpOnly cookie in the browser, a Remove button that wipes the key and the session's data, idle and absolute timeouts, a per-address limit and an Origin check so the endpoint cannot be used to test stolen keys); ephemeral tenants with a janitor and samples first; recommended free host an Oracle Always Free VM with Caddy and a Cloudflare Tunnel, Cloud Run with one instance as fallback; a R20 per-session ceiling. Open point for Kone: who runs the hosted trial (POPIA responsible party).
+**Next**: Kone's answers to the seven questions at the end of the ADR. Build order after approval: the end-to-end slice, cost guard (P2-12) and router (P2-14) come first, then the Docker stack (P1-07), the session store, ephemeral tenants, the try page and `docs/DEPLOY.md`.
+
 ## 2026-10-23 (part 18) — P2-16b: the context-pack builder, built
 **Done** (ADR-0014 accepted first, PR #43; then tests first, no key, no live call)
 - `clearcut_core::redact`: conservative detection of SA ID, card, IBAN (check digits), labelled bank account, branch code, SWIFT, phone, and e-mail; never VAT numbers, invoice numbers, amounts or dates; fuzzed for panics and idempotence.
