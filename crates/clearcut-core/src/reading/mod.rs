@@ -32,7 +32,7 @@ use time::{Date, Month};
 
 /// The version of the shape and its descriptions. It goes into the extractor's
 /// `prompt_version`, so every stored extraction says which shape produced it.
-pub const READING_SHAPE_VERSION: &str = "reading-v1";
+pub const READING_SHAPE_VERSION: &str = "reading-v2";
 
 /// At most this many lines are kept from one page.
 pub const MAX_LINES_PER_PAGE: usize = 200;
@@ -75,6 +75,18 @@ pub enum ReadTax {
     NotShown,
 }
 
+/// Whether the line amounts on this page include VAT: yes if the page says its prices include
+/// VAT, no if they exclude it, not_shown if the page does not say. Never add or remove VAT
+/// yourself; write amounts exactly as printed.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadVatBasis {
+    Yes,
+    No,
+    NotShown,
+}
+
 /// A supplier or recipient. Empty text for anything not printed.
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,12 +110,12 @@ pub struct ReadLine {
     /// The quantity: digits and at most one dot, at most 3 decimals, such as 2 or 1.5.
     /// If the line shows only an amount and no quantity, write 1.
     pub quantity: String,
-    /// The price of one unit excluding VAT: digits and at most one dot, at most 2
+    /// The price of one unit exactly as printed: digits and at most one dot, at most 2
     /// decimals, no thousands separators, no currency symbol, a leading minus for
-    /// a negative amount, such as 1500.00. If only a line amount is printed,
-    /// repeat it here.
+    /// a negative amount, such as 1500.00. Do not add or remove VAT. If only a line
+    /// amount is printed, repeat it here.
     pub unit_price: String,
-    /// The line amount excluding VAT, written the same way.
+    /// The line amount exactly as printed, written the same way.
     pub line_total: String,
     /// How the page shows this line is taxed.
     pub tax: ReadTax,
@@ -154,6 +166,8 @@ pub struct ReadCreditNote {
 pub struct PageReading {
     /// The currency of the amounts on this page.
     pub currency: ReadCurrency,
+    /// Whether the line amounts on this page include VAT.
+    pub amounts_include_vat: ReadVatBasis,
     /// The invoice or credit note number as printed. Empty if not on this page.
     pub invoice_number: String,
     /// The invoice date as YYYY-MM-DD (South African dates are day/month/year).
@@ -211,6 +225,8 @@ pub enum ProblemKind {
     TaxNotShown,
     /// Only part of a group that must be complete was printed.
     Incomplete,
+    /// The line amounts include VAT, which is not backed out here (ADR-0014 §6).
+    AmountsIncludeVat,
 }
 
 /// A value that could not be read exactly. `path` names where
@@ -263,7 +279,7 @@ impl PageReading {
         let invoice_date = converter.date("invoice_date", &self.invoice_date);
         let supplier = converter.party("supplier", &self.supplier);
         let recipient = converter.party("recipient", &self.recipient);
-        let lines = converter.lines(&self.lines);
+        let lines = converter.lines(&self.lines, self.amounts_include_vat);
         let stated_totals = converter.totals(&self.totals);
         let due = converter.due(&self.due);
         let credit_note = converter.credit_note(&self.credit_note);
@@ -392,7 +408,13 @@ impl Converter {
         }
     }
 
-    fn lines(&mut self, raw: &[ReadLine]) -> Vec<ExtractedLine> {
+    fn lines(&mut self, raw: &[ReadLine], basis: ReadVatBasis) -> Vec<ExtractedLine> {
+        // VAT-inclusive amounts cannot be used as amounts excluding VAT, and backing the
+        // VAT out is a rule that has not been agreed yet: report it and read no lines.
+        if basis == ReadVatBasis::Yes && !raw.is_empty() {
+            self.problem("amounts_include_vat", ProblemKind::AmountsIncludeVat);
+            return Vec::new();
+        }
         let mut lines = Vec::new();
         for (index, line) in raw.iter().take(MAX_LINES_PER_PAGE).enumerate() {
             if let Some(line) = self.line(index + 1, line) {

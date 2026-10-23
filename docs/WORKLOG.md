@@ -2,6 +2,17 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-23 (part 18) — P2-16b: the context-pack builder, built
+**Done** (ADR-0014 accepted first, PR #43; then tests first, no key, no live call)
+- `clearcut_core::redact`: conservative detection of SA ID, card, IBAN (check digits), labelled bank account, branch code, SWIFT, phone, and e-mail; never VAT numbers, invoice numbers, amounts or dates; fuzzed for panics and idempotence.
+- `clearcut_core::untrusted`: flags instruction-like text (kinds only), robust to spacing, case and hidden characters; never alters text.
+- `reading-v2`: the required `amounts_include_vat` field; VAT-inclusive pages are reported, not guessed.
+- New crate `clearcut-pack`: cached rules plus three invented worked examples (golden file), per-page image, context, nonce-tagged text and a closing instruction, redaction with an `ImageMasker` interface and a `best_effort` / `strict` policy, injection flags, a manifest with no text.
+- Tests: core 329, pack 48, anthropic 200, eval 276.
+- Review fixes (automated security review of the PR): text with nothing in it no longer counts as a checked text layer, so the strict policy refuses an image that came with an empty text layer; the previous-attempt block now carries the per-request id like the other data tags, and all of our tags (including document context and previous attempt) are flagged when a page imitates them.
+- Mutation check: 62 deliberate breakages across redaction, the instruction scan and the pack builder; the first run missed nine (check-digit edges, 30-day months, citizenship digit 1, Mastercard 2720, long IBANs and phone numbers, word boundaries of labels) and tests were added; every mutant is now caught except one equivalent case (the end-of-word check on a label, because the value must start with a digit anyway).
+**Next**: the cost guard (P2-12) and then the router (P2-14), then the end-to-end slice with fakes; the real image masker waits for the worker (P2-05). Kone runs the two live tests with their own key (docs/BYOK.md section 4).
+
 ## 2026-10-23 (part 17) — ADR-0014: the context-pack builder (P2-16b), proposed
 **Done** (docs only; PR #42, the reading shape, merged first with CI green)
 - ADR-0014 (Proposed): what is cached and what is per page (one rules block with synthetic worked examples, an optional tenant block, then image-before-text per page, document context and the previous tier's failure report in our own vocabulary); byte-identical cached prefix tested across pages, documents and tenants plus a golden prompt file; no tools in v1; a pure `redact` in core (SA ID, card, IBAN checks; labelled bank account, branch code and phone; e-mail) that never touches VAT numbers, invoice numbers, amounts or dates, with image masking through a worker-side `ImageMasker` later and a `best_effort` / `strict` policy; prompt-injection handling by nonce-delimited data, no tools, a closed output and flag-and-record; a per-call manifest with no text; new crate `clearcut-pack`.

@@ -9,7 +9,7 @@ use clearcut_anthropic::schema::profile;
 use clearcut_core::reading::{reading_schema, READING_SHAPE_VERSION};
 use serde_json::Value;
 
-const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reading-v1.schema.json");
+const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reading-v2.schema.json");
 
 fn schema() -> Value {
     serde_json::to_value(reading_schema()).unwrap()
@@ -92,8 +92,8 @@ fn the_schema_asks_for_nothing_the_model_must_not_decide() {
 
 #[test]
 fn the_version_names_the_shape() {
-    assert_eq!(READING_SHAPE_VERSION, "reading-v1");
-    assert!(GOLDEN.ends_with("reading-v1.schema.json"));
+    assert_eq!(READING_SHAPE_VERSION, "reading-v2");
+    assert!(GOLDEN.ends_with("reading-v2.schema.json"));
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn the_schema_has_not_changed_by_accident() {
         return;
     }
     let golden = std::fs::read_to_string(GOLDEN)
-        .expect("tests/reading-v1.schema.json is missing; run with UPDATE_GOLDEN=1")
+        .expect("tests/reading-v2.schema.json is missing; run with UPDATE_GOLDEN=1")
         .replace("\r\n", "\n");
     assert_eq!(
         current, golden,

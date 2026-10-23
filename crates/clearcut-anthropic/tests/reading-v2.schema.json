@@ -3,6 +3,15 @@
   "additionalProperties": false,
   "description": "Everything printed on one page of a document, as text. Empty text or an\nempty list means \"not shown on this page\". Never guess a value that is not\nprinted, and copy numbers exactly.",
   "properties": {
+    "amounts_include_vat": {
+      "description": "Whether the line amounts on this page include VAT.",
+      "enum": [
+        "yes",
+        "no",
+        "not_shown"
+      ],
+      "type": "string"
+    },
     "credit_note": {
       "additionalProperties": false,
       "description": "The credited invoice, if this is a credit note.",
@@ -71,7 +80,7 @@
             "type": "string"
           },
           "line_total": {
-            "description": "The line amount excluding VAT, written the same way.",
+            "description": "The line amount exactly as printed, written the same way.",
             "type": "string"
           },
           "quantity": {
@@ -90,7 +99,7 @@
             "type": "string"
           },
           "unit_price": {
-            "description": "The price of one unit excluding VAT: digits and at most one dot, at most 2\ndecimals, no thousands separators, no currency symbol, a leading minus for\na negative amount, such as 1500.00. If only a line amount is printed,\nrepeat it here.",
+            "description": "The price of one unit exactly as printed: digits and at most one dot, at most 2\ndecimals, no thousands separators, no currency symbol, a leading minus for\na negative amount, such as 1500.00. Do not add or remove VAT. If only a line\namount is printed, repeat it here.",
             "type": "string"
           }
         },
@@ -180,6 +189,7 @@
   },
   "required": [
     "currency",
+    "amounts_include_vat",
     "invoice_number",
     "invoice_date",
     "supplier",
