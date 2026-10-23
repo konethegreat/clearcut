@@ -8,6 +8,7 @@ The Python half of document processing ([ADR-0009](../../docs/adr/0009-worker-an
 | Counts pages, finds out which pages have a text layer | Call a language model or hold `ANTHROPIC_API_KEY` |
 | Reads each page's text, word boxes and font facts (now) | Open a network connection of its own |
 | Draws page images and re-encodes PNG and JPEG documents (now), always as plain pixels with no metadata | Judge whether a page's text can be trusted: it reports facts, `clearcut-core` decides |
+| Paints boxes black on a picture, and returns only pixels (the image masker of ADR-0014) | |
 | OCR with Tesseract in English and Afrikaans, and the agreement between OCR and the text layer (when Tesseract is installed and named) | |
 | Refuses what it cannot read, in a named way | Touch the database or the object store |
 | | Decide what an invoice means: validation and every business rule live in `clearcut-core` |
@@ -25,9 +26,17 @@ All errors are JSON with one key: `{"error": "..."}`. Everything except `/health
 |---|---|
 | `GET /health` | `200 {"status","version","capabilities"}` (no key needed) |
 | `POST /v1/inspect` | Body: the file's bytes. `200 {"media_type":"application/pdf","pages","pages_with_text","has_text_layer"}` |
+| `POST /v1/mask?format=png&max_edge=2000` | Body: JSON `{"image": "<base64 PNG or JPEG>", "boxes": [{"x","y","w","h"}]}`. `200` the picture with the boxes painted black (`image/png` or `image/jpeg`), size in `X-Image-Width` and `X-Image-Height` |
 | `POST /v1/ocr?page=1&agreement=false` | Body: the file's bytes. `200` the text answer with one page, `source` `ocr`, a `confidence` (0 to 1000) on every word, and `agreement` if asked. `503` when OCR is not set up |
 | `POST /v1/render?page=1&dpi=150&format=png&max_edge=2000` | Body: the file's bytes. `200` the image (`image/png` or `image/jpeg`), size in `X-Image-Width` and `X-Image-Height` |
 | `POST /v1/text?from=1&to=50&words=false` | Body: the file's bytes. `200 {"pages":[{"page","source","text","width_pt","height_pt","fonts":[{"kind","has_to_unicode","encoding","embedded"}],"words":[{"start","end","x","y","w","h"}]}]}` |
+
+`/v1/mask` paints boxes solid black on a PNG or JPEG and gives the picture back. A box is `{"x","y","w","h"}` in thousandths of the
+picture from its top left (the unit of the word boxes in the text and OCR answers), at most 500 of them, each inside the picture,
+whole numbers only. They are rounded outwards to whole pixels. The worker has **no rules**: `clearcut-core` decides which words
+to hide and how much margin to leave, and sends rectangles. The picture is rebuilt from pixels, so nothing under a box, and no
+metadata or transparency, is in the result; a photo is turned upright first. The base64 must be plain, the picture at most 16 MiB
+(`413` otherwise), `415` for any other file type, `422` for a damaged or over-large picture.
 
 `/v1/ocr` reads one page (or a PNG/JPEG document) with Tesseract, in English and Afrikaans together. The page is drawn at 300 dpi
 for it. The answer has the shape of the `/v1/text` answer: one page with `source: "ocr"`, `fonts: []`, the text (words joined by a

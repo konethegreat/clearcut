@@ -37,7 +37,7 @@ def test_health_is_public_and_says_what_the_worker_can_do(client: TestClient) ->
     assert response.json() == {
         "status": "ok",
         "version": __version__,
-        "capabilities": ["inspect", "text", "render"],
+        "capabilities": ["inspect", "text", "render", "mask"],
     }
 
 
@@ -120,6 +120,7 @@ def test_the_api_description_can_still_be_generated_for_the_contract_test() -> N
         "/v1/text",
         "/v1/render",
         "/v1/ocr",
+        "/v1/mask",
     }
 
 

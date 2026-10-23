@@ -66,9 +66,15 @@ def client() -> TestClient:
 
 def test_health_lists_ocr_only_when_there_is_an_engine() -> None:
     with_engine = TestClient(create_app(settings(), ocr_engine=ENGINE))
-    assert with_engine.get("/health").json()["capabilities"] == ["inspect", "text", "render", "ocr"]
+    assert with_engine.get("/health").json()["capabilities"] == [
+        "inspect",
+        "text",
+        "render",
+        "mask",
+        "ocr",
+    ]
     without = TestClient(create_app(settings()))
-    assert without.get("/health").json()["capabilities"] == ["inspect", "text", "render"]
+    assert without.get("/health").json()["capabilities"] == ["inspect", "text", "render", "mask"]
 
 
 def test_without_an_engine_ocr_is_a_503_that_says_so_after_the_key_is_checked() -> None:

@@ -124,7 +124,7 @@ def test_without_a_named_program_ocr_is_off_and_nothing_is_looked_for(
 
     monkeypatch.setattr("clearcut_worker.__main__.find_engine", must_not_look)
     main(TOKEN_ENV)
-    assert capabilities_of(fake_run.calls[0]) == ["inspect", "text", "render"]
+    assert capabilities_of(fake_run.calls[0]) == ["inspect", "text", "render", "mask"]
 
 
 def test_a_named_program_that_works_turns_ocr_on(
@@ -141,7 +141,7 @@ def test_a_named_program_that_works_turns_ocr_on(
     monkeypatch.setattr("clearcut_worker.__main__.find_engine", found)
     main({**TOKEN_ENV, "CLEARCUT_WORKER_TESSERACT": "/opt/t", "CLEARCUT_WORKER_TESSDATA": "/opt/d"})
     assert asked == [("/opt/t", "/opt/d")]
-    assert capabilities_of(fake_run.calls[0]) == ["inspect", "text", "render", "ocr"]
+    assert capabilities_of(fake_run.calls[0]) == ["inspect", "text", "render", "mask", "ocr"]
 
 
 def test_a_named_program_that_cannot_be_used_stops_the_worker_from_starting(

@@ -19,6 +19,7 @@ Rules, each with a test:
 
 from __future__ import annotations
 
+import base64
 import hmac
 import logging
 import time
@@ -29,7 +30,7 @@ from fastapi import Depends, FastAPI, Header, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
@@ -44,8 +45,15 @@ from .inspect import (
     TooSlow,
     Unreadable,
 )
-from .isolation import inspect_isolated, ocr_isolated, render_isolated, text_isolated
+from .isolation import (
+    inspect_isolated,
+    mask_isolated,
+    ocr_isolated,
+    render_isolated,
+    text_isolated,
+)
 from .logs import safe_log_text
+from .mask import MAX_BOXES
 from .ocr import OcrEngine
 from .pagetext import MAX_PAGES_PER_CALL, PageContent, PageOutOfRange, PageTooLarge
 from .render import DEFAULT_DPI, MAX_DPI, MIN_DPI, PageTooBig
@@ -61,6 +69,9 @@ TextReader = Callable[..., list[PageContent]]
 
 # Draws a page: (bytes, page, dpi=, fmt=, max_edge=, max_pages=, timeout_seconds=) -> the picture.
 Renderer = Callable[..., EncodedImage]
+
+# Paints boxes black on a picture: (bytes, boxes, fmt=, max_edge=, timeout_seconds=) -> the picture.
+Masker = Callable[..., EncodedImage]
 
 # Reads a page by OCR: (bytes, page, engine=, agreement=, max_pages=, timeout_seconds=) -> the page.
 OcrReader = Callable[..., PageContent]
@@ -114,6 +125,35 @@ class TextResponse(BaseModel):
     pages: list[PageOut]
 
 
+# The biggest picture the masker will be given (the pictures the worker draws are far smaller).
+MAX_MASK_INPUT_BYTES = 16 * 1024 * 1024
+
+
+class MaskBox(BaseModel):
+    """A rectangle to paint, in thousandths of the picture from its top left."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    x: int = Field(ge=0, le=1000)
+    y: int = Field(ge=0, le=1000)
+    w: int = Field(ge=1, le=1000)
+    h: int = Field(ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def inside_the_picture(self) -> MaskBox:
+        if self.x + self.w > 1000 or self.y + self.h > 1000:
+            raise ValueError("the box leaves the picture")
+        return self
+
+
+class MaskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    # A PNG or JPEG, base64 encoded.
+    image: str = Field(min_length=1)
+    boxes: list[MaskBox] = Field(max_length=MAX_BOXES)
+
+
 class WorkerError(Exception):
     """An answer that is not a success: a status, a JSON body, maybe headers."""
 
@@ -150,6 +190,7 @@ def create_app(
     renderer: Renderer = render_isolated,
     ocr_engine: OcrEngine | None = None,
     ocr_reader: OcrReader = ocr_isolated,
+    masker: Masker = mask_isolated,
 ) -> FastAPI:
     app = FastAPI(
         title="ClearCut document worker",
@@ -214,7 +255,9 @@ def create_app(
         log.error("unexpected %s", type(error).__name__)
         return JSONResponse({"error": "internal error"}, status_code=500)
 
-    capabilities = ["inspect", "text", "render"] + (["ocr"] if ocr_engine is not None else [])
+    capabilities = ["inspect", "text", "render", "mask"] + (
+        ["ocr"] if ocr_engine is not None else []
+    )
 
     @app.get("/health")
     async def health() -> Health:
@@ -313,18 +356,61 @@ def create_app(
             )
         except InspectError as error:
             raise _refusal(error, settings) from None
-        return Response(
-            content=image.data,
-            media_type=image.media_type,
-            headers={
-                "X-Image-Width": str(image.width),
-                "X-Image-Height": str(image.height),
-                # A page of someone's invoice: nothing should keep a copy.
-                "Cache-Control": "no-store",
-            },
-        )
+        return _image_response(image)
+
+    @app.post("/v1/mask", dependencies=[Depends(require_token)])
+    async def mask(
+        request: Request,
+        fmt: Annotated[Literal["png", "jpeg"], Query(alias="format")] = "png",
+        max_edge: Annotated[int, Query(ge=500, le=MAX_EDGE_LIMIT)] = DEFAULT_MAX_EDGE,
+    ) -> Response:
+        raw = await _read_body(request, settings.max_request_bytes)
+        request.state.body_bytes = len(raw)
+        picture, boxes = _parse_mask_request(raw)
+        try:
+            image = await run_in_threadpool(
+                masker,
+                picture,
+                boxes,
+                fmt=fmt,
+                max_edge=max_edge,
+                timeout_seconds=settings.timeout_seconds,
+            )
+        except InspectError as error:
+            raise _refusal(error, settings) from None
+        return _image_response(image)
 
     return app
+
+
+def _image_response(image: EncodedImage) -> Response:
+    return Response(
+        content=image.data,
+        media_type=image.media_type,
+        headers={
+            "X-Image-Width": str(image.width),
+            "X-Image-Height": str(image.height),
+            # A page of someone's invoice: nothing should keep a copy.
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _parse_mask_request(raw: bytes) -> tuple[bytes, list[tuple[int, int, int, int]]]:
+    """The picture and the boxes of a mask request, or a 400 that says nothing about why."""
+    invalid = WorkerError(400, {"error": "invalid request"})
+    too_large = WorkerError(413, {"error": "file too large", "max_bytes": MAX_MASK_INPUT_BYTES})
+    try:
+        request = MaskRequest.model_validate_json(raw)
+    except ValidationError:
+        raise invalid from None
+    try:
+        picture = base64.b64decode(request.image, validate=True)
+    except ValueError:
+        raise invalid from None
+    if len(picture) > MAX_MASK_INPUT_BYTES:
+        raise too_large
+    return picture, [(box.x, box.y, box.w, box.h) for box in request.boxes]
 
 
 def _page_out(page: PageContent) -> PageOut:

@@ -38,7 +38,7 @@ import tempfile
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Protocol, TypeGuard
 
@@ -55,6 +55,7 @@ from .inspect import (
     inspect_pdf,
 )
 from .limits import ChildLimits, apply_limits, scrub_environment
+from .mask import mask_image
 from .ocr import OcrEngine, ocr_page
 from .pagetext import (
     MAX_PAGE_TEXT_BYTES,
@@ -670,19 +671,18 @@ def _render_child(
     try:
         answer: bytes
         try:
-            image = render_page(
-                data,
-                page,
-                dpi=dpi,
-                fmt=fmt,
-                max_edge=max_edge,
-                max_bytes=max_bytes,
-                max_pages=max_pages,
-                deadline=deadline,
+            answer = _image_frame(
+                render_page(
+                    data,
+                    page,
+                    dpi=dpi,
+                    fmt=fmt,
+                    max_edge=max_edge,
+                    max_bytes=max_bytes,
+                    max_pages=max_pages,
+                    deadline=deadline,
+                )
             )
-            kind = b"P" if image.media_type == "image/png" else b"J"
-            answer = _IMAGE_FRAME + kind + struct.pack(">II", image.width, image.height)
-            answer += image.data
         except TooManyPages:
             answer = _ERROR_FRAME + b"TooManyPages"
         except PageOutOfRange as error:
@@ -694,6 +694,12 @@ def _render_child(
         conn.send_bytes(answer)
     finally:
         conn.close()
+
+
+def _image_frame(image: EncodedImage) -> bytes:
+    """A picture as the child sends it: a short header, then the picture's own bytes."""
+    kind = b"P" if image.media_type == "image/png" else b"J"
+    return _IMAGE_FRAME + kind + struct.pack(">II", image.width, image.height) + image.data
 
 
 def render_isolated(
@@ -995,3 +1001,63 @@ def _decode_ocr_page(
         words=words,
         agreement=shared,
     )
+
+
+# --------------------------------------------------------------------------- masking ----
+
+
+def _mask_child(
+    conn: AnswerChannel,
+    data: bytes,
+    boxes: list[tuple[int, int, int, int]],
+    fmt: str,
+    max_edge: int,
+    timeout_seconds: float,
+    max_bytes: int,
+) -> None:
+    """What runs in the child: paint the boxes and send back one framed answer."""
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        answer: bytes
+        try:
+            answer = _image_frame(
+                mask_image(
+                    data, boxes, deadline=deadline, fmt=fmt, max_edge=max_edge, max_bytes=max_bytes
+                )
+            )
+        except InspectError as error:
+            answer = _ERROR_FRAME + type(error).__name__.encode("ascii")
+        except BaseException:
+            answer = _ERROR_FRAME + b"Unreadable"
+        conn.send_bytes(answer)
+    finally:
+        conn.close()
+
+
+def mask_isolated(
+    data: bytes,
+    boxes: Sequence[tuple[int, int, int, int]],
+    *,
+    fmt: str,
+    max_edge: int,
+    timeout_seconds: float,
+    grace_seconds: float = 2.0,
+    target: ChildTarget = _mask_child,
+    limits: ChildLimits | None = DEFAULT_LIMITS,
+    max_answer_bytes: int = DEFAULT_RENDER_ANSWER_BYTES,
+    max_bytes: int = MAX_IMAGE_BYTES,
+) -> EncodedImage:
+    """Paints ``boxes`` black on a PNG or JPEG in a child process and returns the picture.
+
+    The picture is decoded in the child only; the parent measures what comes back
+    (``decode_render_answer``) and never decodes it.
+    """
+    raw = run_in_child(
+        target,
+        (data, list(boxes), fmt, max_edge, timeout_seconds, max_bytes),
+        timeout_seconds=timeout_seconds,
+        max_answer_bytes=max_answer_bytes,
+        grace_seconds=grace_seconds,
+        limits=limits,
+    )
+    return decode_render_answer(raw, fmt=fmt, max_edge=max_edge, max_bytes=max_bytes, max_pages=1)

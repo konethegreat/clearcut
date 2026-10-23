@@ -327,3 +327,46 @@ def ocr_echo(
 ) -> None:
     """A child whose answer is exactly the bytes it was given as the document."""
     conn.send_bytes(data)
+
+
+# ---- stand-ins for the masking child:
+#      (conn, data, boxes, fmt, max_edge, timeout, max_bytes)
+
+
+def mask_hang(
+    conn: AnswerChannel,
+    data: bytes,
+    boxes: list[tuple[int, int, int, int]],
+    fmt: str,
+    max_edge: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A masker stuck for ever on a hostile picture."""
+    time.sleep(120)
+
+
+def mask_crash(
+    conn: AnswerChannel,
+    data: bytes,
+    boxes: list[tuple[int, int, int, int]],
+    fmt: str,
+    max_edge: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A masker that dies hard."""
+    os._exit(3)
+
+
+def mask_echo(
+    conn: AnswerChannel,
+    data: bytes,
+    boxes: list[tuple[int, int, int, int]],
+    fmt: str,
+    max_edge: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A child whose answer is exactly the bytes it was given as the picture."""
+    conn.send_bytes(data)

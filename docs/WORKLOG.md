@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 27) — P2-05 step 5: `POST /v1/mask`
+**Done** (PR #52, `/v1/ocr`, merged first with CI green; tests first, no key)
+- `mask.py` and the route: a PNG or JPEG (base64 in a JSON body) and up to 500 boxes in thousandths of the picture; the boxes are rounded outwards to whole pixels and painted pure black, and the picture comes back rebuilt from pixels only, so nothing under a box and no metadata or transparency survives. The worker has no rules: which words to hide is for `clearcut-core`. The body is JSON, not a raw PNG as the ADR table says (500 boxes do not fit in a query string or a header); recorded in the ADR notes.
+- Runs in the child like the other calls; the parent measures the answer without decoding it. Pictures up to 16 MiB; any other file type is refused.
+- 1013 tests in the worker (109 new). Mutation check of about 80 breakages: every survivor was a missing test and is caught now, apart from equivalent cases; two checks that repeated a check one level down were removed.
+**Next**: step 6, `text_quality` in `clearcut-core` (the verdict from the facts the worker reports: replacement and private-use characters, vowelless words, keyword hits, risky fonts, the OCR agreement), then step 7 (the Rust client, `HttpWorker`/`FakeWorker` and `WorkerMasker`). Also queued, with Kone's go-ahead: the small docs PR answering the TimeLex request list.
+
 ## 2026-10-24 (part 26) — P2-05 step 4: `POST /v1/ocr` and the OCR agreement
 **Done** (PR #51, `/v1/render`, merged first with CI green; tests first, no key)
 - `ocr.py` and the route: a page is drawn at 300 dpi and read by Tesseract in English and Afrikaans together; the answer is the text answer for one page with `source: ocr`, a confidence on every word and, with `agreement=true`, the share (per mille) of the PDF text layer's distinct words that OCR also read. OCR is off unless `CLEARCUT_WORKER_TESSERACT` is set; then the worker checks the program and both languages at start and will not start without them.
