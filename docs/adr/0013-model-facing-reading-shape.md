@@ -1,6 +1,6 @@
 # ADR-0013: The model-facing reading shape
 
-Status: **Proposed** · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-23, with all six recommended answers below) · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
 Task P2-13b. Builds on [ADR-0012](0012-anthropic-adapter.md) (the adapter and its schema profile), [ADR-0004](0004-ingestion-and-narration-pipeline.md) (per-page extraction), [ADR-0002](0002-money-representation.md) (money), and core's `extraction` module (`Extraction`, `validate`). Facts: [research 06](../research/06-anthropic-api.md) §6. Design only; the build order follows the sections.
 
 ## Why this exists
@@ -81,3 +81,11 @@ Boundary: this converts **one page into an `Extraction`**, which is complete for
 4. **A value that cannot be converted is left out and reported as a problem, never repaired,** and any problem sends the page to review: agreed?
 5. **Unit prices with more than two decimals are a review problem in v1:** agreed, or do your suppliers commonly print them?
 6. **Add P2-13c** (check amounts against the page's own text layer) to the roadmap: agreed?
+
+## Decisions (Kone's answers to the six questions)
+1. **One page per reading, every field required, "not shown" as empty text** (0 optional / 0 union properties).
+2. **No page, locator or confidence from the model;** Rust attaches them.
+3. **Text for amounts, quantities and dates, parsed by one strict parser moved into `clearcut-core`.**
+4. **A value that cannot be converted is left out and reported as a problem, never repaired;** any problem sends the page to review.
+5. **Unit prices with more than two decimals are a review problem in v1.**
+6. **P2-13c is added to the roadmap.**
