@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 24) — P2-05 step 2: `POST /v1/text`
+**Done** (PR #48, the child process harness, and #49, the deadline fixes, merged first with CI green; tests first, no key)
+- `pagetext.py` and `/v1/text`: pages `from` to `to` (at most 50 per call), each with cleaned text, its size as seen (crop box and rotation), the fonts it can draw with (kind, encoding, ToUnicode, embedded; forms followed, bounded) and, if asked, words with UTF-8 byte offsets and boxes in thousandths of the page, rounded outwards. pypdfium2 5.14.0 reads text and boxes, pypdf the structure and fonts; if they disagree about the page count the document is unreadable. A page with too much text or too many words is refused, never cut.
+- Boxes are PDFium's loose boxes (the whole line height) so the later image masker covers descenders; a test pins this. The answer comes back from the child as JSON and `decode_text_answer` checks it field by field before anything is believed.
+- Licence: pypdfium2 states "BSD-3-Clause, Apache-2.0, dependency licenses"; one entry in `licence-exceptions.toml` records what the wheel's licence folder contains (read on Windows and Linux wheels) and `NOTICE` carries the FreeType credit.
+- Test PDFs are built at test time (`tests/pdfs.py`); nothing binary is committed. 460 tests in the worker (204 new), also run on Linux in Python 3.12 and 3.14 containers.
+- Mutation check: 81 breakages of `pagetext.py` and 66 of the decoder. 19 and 21 got through the first time (each a missing test: a named base encoding, the caps on fonts and forms, the deadline between pages, a character the engine cannot measure, a tab in text, a negative box position, a boolean page number, and more); all are caught now except a few equivalent ones, and one dead check was removed.
+**Next**: step 3, `/v1/render` and image documents (Pillow), with the 150 dpi PNG policy and the long-edge cap.
+
 ## 2026-10-24 (part 23) — the worker's deadline now covers the whole answer
 **Done** (PR #48, the child process harness, merged first with CI green)
 - A second automated security review found that `poll` only waits for the first byte: a child that sends the start of a message and stalls would block the parent in `recv_bytes` for ever. A watchdog timer now kills the child at timeout plus grace, so the read ends (`TooSlow`). A Linux test reproduces it (120 s hang without the watchdog; stopped at the deadline with it). A third review finding: killing only the child leaves a helper process holding the pipe open, so the read now happens in a time-limited helper thread and the child leads its own process group, which the parent kills as a whole (two more Linux tests, both shown to fail without the code). A fourth finding (a pipe closed from another thread while its reader was still in it, so a stale read could land on a reused descriptor) is fixed by making the reader thread own and close its pipe; a Linux test with an escaped helper checks who closes what and fails if the parent closes it again. 256 worker tests (9 need Linux and pass in a container).

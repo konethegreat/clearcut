@@ -27,6 +27,11 @@ ignore = []
 # Tests may assert freely and build throwaway secrets.
 "tests/*" = ["S101", "S105", "S106"]
 
+[[tool.mypy.overrides]]
+# PDFium's Python binding ships no type information.
+module = "pypdfium2"
+ignore_missing_imports = true
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

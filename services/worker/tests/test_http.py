@@ -33,7 +33,11 @@ UNAUTHORIZED = {"error": "authentication failed"}
 def test_health_is_public_and_says_what_the_worker_can_do(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": __version__, "capabilities": ["inspect"]}
+    assert response.json() == {
+        "status": "ok",
+        "version": __version__,
+        "capabilities": ["inspect", "text"],
+    }
 
 
 def test_health_needs_no_key_and_ignores_a_wrong_one(client: TestClient) -> None:
@@ -109,7 +113,7 @@ def test_the_api_description_is_not_served_to_the_network(client: TestClient) ->
 
 def test_the_api_description_can_still_be_generated_for_the_contract_test() -> None:
     spec = create_app(settings()).openapi()
-    assert set(spec["paths"]) == {"/health", "/v1/inspect"}
+    assert set(spec["paths"]) == {"/health", "/v1/inspect", "/v1/text"}
 
 
 # ---------- inspect ----------

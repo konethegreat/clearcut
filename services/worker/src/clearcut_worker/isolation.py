@@ -36,9 +36,10 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Protocol, TypeGuard
+from typing import Any, Protocol, TypeGuard
 
 from .inspect import (
     Encrypted,
@@ -51,6 +52,17 @@ from .inspect import (
     inspect_pdf,
 )
 from .limits import ChildLimits, apply_limits, scrub_environment
+from .pagetext import (
+    MAX_PAGE_TEXT_BYTES,
+    MAX_PAGES_PER_CALL,
+    MAX_WORDS_PER_PAGE,
+    FontFact,
+    PageContent,
+    PageOutOfRange,
+    PageTooLarge,
+    Word,
+    extract_pages,
+)
 
 log = logging.getLogger("clearcut_worker")
 
@@ -319,3 +331,275 @@ def _decode(raw: bytes, max_pages: int) -> Inspection:
 def _count(value: object) -> TypeGuard[int]:
     """A real, non-negative whole number (``True`` is not one)."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+# ------------------------------------------------------------------ reading text ----
+
+# The most the parent will read back from a text-reading child.
+DEFAULT_TEXT_ANSWER_BYTES = 32 * 1024 * 1024
+
+_FONT_KINDS = frozenset({"type1", "truetype", "type0", "type3", "other"})
+_FONT_ENCODINGS = frozenset(
+    {"none", "winansi", "macroman", "standard", "identity", "custom", "other"}
+)
+_MAX_PAGE_POINTS = 100_000.0
+_MAX_FONTS = 64
+
+_TEXT_REFUSALS: dict[str, type[InspectError]] = {
+    "NotAPdf": NotAPdf,
+    "Encrypted": Encrypted,
+    "Unreadable": Unreadable,
+    "TooSlow": TooSlow,
+    "PageTooLarge": PageTooLarge,
+}
+
+
+def _page_to_json(page: PageContent) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "page": page.page,
+        "source": page.source,
+        "text": page.text,
+        "width_pt": page.width_pt,
+        "height_pt": page.height_pt,
+        "fonts": [
+            {
+                "kind": f.kind,
+                "has_to_unicode": f.has_to_unicode,
+                "encoding": f.encoding,
+                "embedded": f.embedded,
+            }
+            for f in page.fonts
+        ],
+    }
+    if page.words is not None:
+        entry["words"] = [
+            {"start": w.start, "end": w.end, "x": w.x, "y": w.y, "w": w.w, "h": w.h}
+            for w in page.words
+        ]
+    return entry
+
+
+def _text_child(
+    conn: AnswerChannel,
+    data: bytes,
+    first: int,
+    last: int | None,
+    words: bool,
+    max_pages: int,
+    timeout_seconds: float,
+    max_page_text_bytes: int,
+) -> None:
+    """What runs in the child: read the pages and send back one JSON answer."""
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        answer: list[object]
+        try:
+            pages = extract_pages(
+                data,
+                first,
+                last,
+                words=words,
+                max_pages=max_pages,
+                deadline=deadline,
+                max_page_text_bytes=max_page_text_bytes,
+            )
+            answer = ["ok", [_page_to_json(p) for p in pages]]
+        except TooManyPages:
+            answer = ["error", "TooManyPages"]
+        except PageOutOfRange as error:
+            answer = ["error", "PageOutOfRange", error.pages]
+        except InspectError as error:
+            answer = ["error", type(error).__name__]
+        except BaseException:
+            answer = ["error", "Unreadable"]
+        conn.send_bytes(json.dumps(answer, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+    finally:
+        conn.close()
+
+
+def text_isolated(
+    data: bytes,
+    first: int,
+    last: int | None,
+    *,
+    words: bool,
+    max_pages: int,
+    timeout_seconds: float,
+    grace_seconds: float = 2.0,
+    target: ChildTarget = _text_child,
+    limits: ChildLimits | None = DEFAULT_LIMITS,
+    max_answer_bytes: int = DEFAULT_TEXT_ANSWER_BYTES,
+    max_page_text_bytes: int = MAX_PAGE_TEXT_BYTES,
+) -> list[PageContent]:
+    """Reads the text of pages ``first`` to ``last`` in a child process.
+
+    The child's answer is checked field by field (see ``decode_text_answer``)
+    before anything in it is believed.
+    """
+    raw = run_in_child(
+        target,
+        (data, first, last, words, max_pages, timeout_seconds, max_page_text_bytes),
+        timeout_seconds=timeout_seconds,
+        max_answer_bytes=max_answer_bytes,
+        grace_seconds=grace_seconds,
+        limits=limits,
+    )
+    return decode_text_answer(
+        raw, first, last, words, max_pages=max_pages, max_page_text_bytes=max_page_text_bytes
+    )
+
+
+def _reject_constant(_: str) -> object:
+    raise ValueError("not a JSON number")
+
+
+def _whole(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _points(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise Unreadable
+    number = float(value)
+    if not 0 < number <= _MAX_PAGE_POINTS:
+        raise Unreadable
+    return number
+
+
+def decode_text_answer(
+    raw: bytes,
+    first: int,
+    last: int | None,
+    words: bool,
+    *,
+    max_pages: int,
+    max_page_text_bytes: int = MAX_PAGE_TEXT_BYTES,
+    max_words_per_page: int = MAX_WORDS_PER_PAGE,
+) -> list[PageContent]:
+    """The child's answer, checked field by field. Anything unexpected is "unreadable"."""
+    try:
+        answer = json.loads(raw, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        raise Unreadable from None
+    if not isinstance(answer, list) or not answer:
+        raise Unreadable
+    if answer[0] == "error":
+        raise _decode_error(answer, max_pages)
+    if answer[0] != "ok" or len(answer) != 2 or not isinstance(answer[1], list):
+        raise Unreadable
+    entries: list[Any] = answer[1]
+    if last is None:
+        if not 1 <= len(entries) <= MAX_PAGES_PER_CALL:
+            raise Unreadable
+        expected = list(range(first, first + len(entries)))
+    else:
+        expected = list(range(first, last + 1))
+    if len(entries) != len(expected):
+        raise Unreadable
+    return [
+        _decode_page(entry, number, words, max_page_text_bytes, max_words_per_page)
+        for entry, number in zip(entries, expected, strict=True)
+    ]
+
+
+def _decode_error(answer: list[Any], max_pages: int) -> InspectError:
+    name = answer[1] if len(answer) > 1 else None
+    if len(answer) == 2 and name == "TooManyPages":
+        return TooManyPages(max_pages)
+    if len(answer) == 2 and isinstance(name, str) and name in _TEXT_REFUSALS:
+        return _TEXT_REFUSALS[name]()
+    if len(answer) == 3 and name == "PageOutOfRange" and _whole(answer[2]) and answer[2] >= 0:
+        return PageOutOfRange(answer[2])
+    return Unreadable()
+
+
+def _decode_page(
+    entry: Any, number: int, words: bool, max_text: int, max_words: int
+) -> PageContent:
+    keys = {"page", "source", "text", "width_pt", "height_pt", "fonts"}
+    if words:
+        keys.add("words")
+    if not isinstance(entry, dict) or set(entry) != keys:
+        raise Unreadable
+    if not _whole(entry["page"]) or entry["page"] != number:
+        raise Unreadable
+    text = entry["text"]
+    if not isinstance(text, str) or len(text.encode("utf-8", "surrogatepass")) > max_text:
+        raise Unreadable
+    # Carriage returns are control characters too, so they are refused here as well.
+    if any(unicodedata.category(c) == "Cc" and c not in "\n\t" for c in text):
+        raise Unreadable
+    source = entry["source"]
+    if source == "text_layer":
+        if not text.strip():
+            raise Unreadable
+    elif source == "none":
+        if text or entry["fonts"] != []:
+            raise Unreadable
+    else:
+        raise Unreadable
+    width, height = _points(entry["width_pt"]), _points(entry["height_pt"])
+    fonts = _decode_fonts(entry["fonts"])
+    located = _decode_words(entry["words"], text, max_words) if words else None
+    return PageContent(
+        page=number,
+        source=source,
+        text=text,
+        width_pt=width,
+        height_pt=height,
+        fonts=fonts,
+        words=located,
+    )
+
+
+def _decode_fonts(value: Any) -> tuple[FontFact, ...]:
+    if not isinstance(value, list) or len(value) > _MAX_FONTS:
+        raise Unreadable
+    fonts = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {
+            "kind",
+            "has_to_unicode",
+            "encoding",
+            "embedded",
+        }:
+            raise Unreadable
+        if (
+            item["kind"] not in _FONT_KINDS
+            or item["encoding"] not in _FONT_ENCODINGS
+            or not isinstance(item["has_to_unicode"], bool)
+            or not isinstance(item["embedded"], bool)
+        ):
+            raise Unreadable
+        fonts.append(
+            FontFact(item["kind"], item["has_to_unicode"], item["encoding"], item["embedded"])
+        )
+    return tuple(fonts)
+
+
+def _decode_words(value: Any, text: str, max_words: int) -> tuple[Word, ...]:
+    if not isinstance(value, list) or len(value) > max_words:
+        raise Unreadable
+    encoded = text.encode("utf-8")
+    found: list[Word] = []
+    previous_end = 0
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"start", "end", "x", "y", "w", "h"}:
+            raise Unreadable
+        numbers = [item[k] for k in ("start", "end", "x", "y", "w", "h")]
+        if not all(_whole(n) for n in numbers):
+            raise Unreadable
+        start, end, x, y, w, h = numbers
+        if not (previous_end <= start < end <= len(encoded)):
+            raise Unreadable
+        try:
+            piece = encoded[start:end].decode("utf-8")
+        except UnicodeDecodeError:
+            raise Unreadable from None
+        if any(c.isspace() for c in piece):
+            raise Unreadable
+        if not (x >= 0 and y >= 0 and w >= 1 and h >= 1 and x + w <= 1000 and y + h <= 1000):
+            raise Unreadable
+        found.append(Word(start, end, x, y, w, h))
+        previous_end = end
+    return tuple(found)

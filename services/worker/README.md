@@ -5,8 +5,9 @@ The Python half of document processing ([ADR-0009](../../docs/adr/0009-worker-an
 
 | It does | It never does |
 |---|---|
-| Counts pages, finds out which pages have a text layer (now) | Call a language model or hold `ANTHROPIC_API_KEY` |
-| OCR and page images (P2-05, later) | Open a network connection of its own |
+| Counts pages, finds out which pages have a text layer | Call a language model or hold `ANTHROPIC_API_KEY` |
+| Reads each page's text, word boxes and font facts (now) | Open a network connection of its own |
+| OCR and page images (P2-05, later) | Judge whether a page's text can be trusted: it reports facts, `clearcut-core` decides |
 | Refuses what it cannot read, in a named way | Touch the database or the object store |
 | | Decide what an invoice means: validation and every business rule live in `clearcut-core` |
 
@@ -23,6 +24,25 @@ All errors are JSON with one key: `{"error": "..."}`. Everything except `/health
 |---|---|
 | `GET /health` | `200 {"status","version","capabilities"}` (no key needed) |
 | `POST /v1/inspect` | Body: the file's bytes. `200 {"media_type":"application/pdf","pages","pages_with_text","has_text_layer"}` |
+| `POST /v1/text?from=1&to=50&words=false` | Body: the file's bytes. `200 {"pages":[{"page","source","text","width_pt","height_pt","fonts":[{"kind","has_to_unicode","encoding","embedded"}],"words":[{"start","end","x","y","w","h"}]}]}` |
+
+`/v1/text` reads pages `from` to `to` (1-based, at most 50 in one call; leaving `to` out reads to the end of the
+document but never more than 50 pages). `source` is `text_layer`, or `none` when the page has no text (then `text` is
+empty and `fonts` is `[]`). `text` is cleaned: line breaks become `\n`, control characters and noncharacters are dropped.
+`width_pt` and `height_pt` are the page as a reader sees it (crop box, turned by the page's rotation). `fonts` lists each
+distinct font the page can draw with, including those inside forms: `kind` (`type1`, `truetype`, `type0`, `type3`,
+`other`), `encoding` (`none`, `winansi`, `macroman`, `standard`, `identity`, `custom`, `other`), whether it has a
+`ToUnicode` map and whether its font file is embedded. These are **facts for the text-quality verdict, which is decided
+in `clearcut-core`, not here**. `words` appears only with `words=true`: `start`/`end` are **UTF-8 byte offsets** into `text`,
+and `x`, `y`, `w`, `h` a box in thousandths of the page from its top left, rounded outwards (so a box never covers less
+than the glyphs) and made from the whole line height, so a block painted over it hides descenders too.
+The worker checks that two PDF readers (pypdf and PDFium) agree on the page count and refuses the document as
+unreadable when they do not.
+
+`/v1/text` refuses like `/v1/inspect`, and also: `400 {"error":"invalid request"}` for a bad range or flag
+(`from` < 1, `to` < `from`, more than 50 pages, anything not a number or a boolean), `422` with
+`{"error":"the page range is outside the document","pages":N}` when the range runs past the end, and `422` when one
+page holds more than 1 MiB of text or 20 000 words (refused, never cut short).
 
 `/v1/inspect` refuses with: `400` empty body, `401` bad credentials (checked **before** the body is read),
 `413` over the size cap (enforced as bytes arrive, whatever length is claimed), `415` not a PDF (judged by the
@@ -40,7 +60,7 @@ grace), so a hostile file cannot keep the worker busy or crash it. The child:
 - runs under **limits** set before it touches the file (Linux; Windows has none, so there the container is the limit):
   memory, processor time, open files, the size of any file it writes, and no core dumps. A limit that cannot be set
   stops the child before it opens the document;
-- reports back **bytes** with a size cap (a few hundred bytes for an inspection, megabytes for a page later) that
+- reports back **bytes** with a size cap (a few hundred bytes for an inspection, up to 32 MiB for the text of a batch of pages, and megabytes for page images later) that
   are checked by the parent and never unpickled.
 
 The container (P1-07) adds the rest: non-root user, read-only file system, no network, no credentials.
