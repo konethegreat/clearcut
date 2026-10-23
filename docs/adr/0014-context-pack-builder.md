@@ -1,6 +1,6 @@
 # ADR-0014: The context-pack builder
 
-Status: **Proposed** · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-23, with all six recommended answers below) · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
 Task P2-16b (with the redaction hook of P2-19 and the prompt-injection rules of ADR-0004). Builds on [ADR-0005](0005-model-strategy-escalation.md) §4 (resource completeness), [ADR-0012](0012-anthropic-adapter.md) (what the adapter sends and how caching is laid out), [ADR-0013](0013-model-facing-reading-shape.md) (the shape the model returns) and [research 06](../research/06-anthropic-api.md) §4 (prompt caching). Design only; nothing is built until this is approved.
 
 ## What it is
@@ -92,3 +92,11 @@ Prefix byte-identical across pages, documents and tenants; golden prefix file; n
 4. **Redaction:** the kinds above, label-driven for bank accounts and phones, never touching VAT numbers, invoice numbers, amounts or dates; image masking through a worker-side `ImageMasker` later; policy `best_effort` by default and `strict` available: agreed, or should `strict` be the default?
 5. **Injection:** nonce-delimited data, no tools, closed output, flag-and-record but never block: agreed?
 6. **Add `amounts_include_vat` (reading-v2)** as step 3, detect and route to review for now: agreed?
+
+## Decisions (Kone's answers to the six questions)
+1. **A new `clearcut-pack` crate** for the builder and prompts; `redact` and the instruction scan in `clearcut-core`.
+2. **No tools in v1.**
+3. **One cached rules block with synthetic worked examples, an optional tenant block, everything per page after the last breakpoint;** neighbour pages and supplier history deferred.
+4. **Redaction as proposed;** policy `best_effort` by default, `strict` available.
+5. **Injection: nonce-delimited data, no tools, closed output, flag and record but never block.**
+6. **`amounts_include_vat` is added (reading-v2),** detected and sent to review for now.
