@@ -25,7 +25,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Header, Request, Response
+from fastapi import Depends, FastAPI, Header, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -43,13 +43,18 @@ from .inspect import (
     TooSlow,
     Unreadable,
 )
-from .isolation import inspect_isolated
+from .isolation import inspect_isolated, text_isolated
 from .logs import safe_log_text
+from .pagetext import MAX_PAGES_PER_CALL, PageContent, PageOutOfRange, PageTooLarge
 
 log = logging.getLogger("clearcut_worker")
 
 # Looks inside a document: (bytes, page cap, seconds) -> what is in it.
 Inspector = Callable[[bytes, int, float], Inspection]
+
+# Reads the text of pages: (bytes, first page, last page or None), then the keywords
+# words=, max_pages= and timeout_seconds=.
+TextReader = Callable[..., list[PageContent]]
 
 # The most of an unknown path that is written to a log line.
 _LOGGED_PATH_CHARS = 200
@@ -66,6 +71,36 @@ class InspectResponse(BaseModel):
     pages: int
     pages_with_text: int
     has_text_layer: bool
+
+
+class FontOut(BaseModel):
+    kind: Literal["type1", "truetype", "type0", "type3", "other"]
+    has_to_unicode: bool
+    encoding: Literal["none", "winansi", "macroman", "standard", "identity", "custom", "other"]
+    embedded: bool
+
+
+class WordOut(BaseModel):
+    start: int
+    end: int
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+class PageOut(BaseModel):
+    page: int
+    source: Literal["text_layer", "none"]
+    text: str
+    width_pt: float
+    height_pt: float
+    fonts: list[FontOut]
+    words: list[WordOut] | None = None
+
+
+class TextResponse(BaseModel):
+    pages: list[PageOut]
 
 
 class WorkerError(Exception):
@@ -96,7 +131,12 @@ def _bearer_token(header: str | None) -> str | None:
     return token if scheme.lower() == "bearer" else None
 
 
-def create_app(settings: Settings, *, inspector: Inspector = inspect_isolated) -> FastAPI:
+def create_app(
+    settings: Settings,
+    *,
+    inspector: Inspector = inspect_isolated,
+    text_reader: TextReader = text_isolated,
+) -> FastAPI:
     app = FastAPI(
         title="ClearCut document worker",
         version=__version__,
@@ -162,7 +202,7 @@ def create_app(settings: Settings, *, inspector: Inspector = inspect_isolated) -
 
     @app.get("/health")
     async def health() -> Health:
-        return Health(status="ok", version=__version__, capabilities=["inspect"])
+        return Health(status="ok", version=__version__, capabilities=["inspect", "text"])
 
     @app.post("/v1/inspect", dependencies=[Depends(require_token)])
     async def inspect(request: Request) -> InspectResponse:
@@ -181,7 +221,60 @@ def create_app(settings: Settings, *, inspector: Inspector = inspect_isolated) -
             has_text_layer=result.has_text_layer,
         )
 
+    @app.post(
+        "/v1/text",
+        dependencies=[Depends(require_token)],
+        response_model_exclude_none=True,
+    )
+    async def text(
+        request: Request,
+        first: Annotated[int, Query(alias="from", ge=1)] = 1,
+        to: Annotated[int | None, Query(ge=1)] = None,
+        words: bool = False,
+    ) -> TextResponse:
+        if to is not None and (to < first or to - first + 1 > MAX_PAGES_PER_CALL):
+            raise WorkerError(400, {"error": "invalid request"})
+        data = await _read_body(request, settings.max_request_bytes)
+        request.state.body_bytes = len(data)
+        try:
+            pages = await run_in_threadpool(
+                text_reader,
+                data,
+                first,
+                to,
+                words=words,
+                max_pages=settings.max_pages,
+                timeout_seconds=settings.timeout_seconds,
+            )
+        except InspectError as error:
+            raise _refusal(error, settings) from None
+        return TextResponse(pages=[_page_out(p) for p in pages])
+
     return app
+
+
+def _page_out(page: PageContent) -> PageOut:
+    return PageOut(
+        page=page.page,
+        source=page.source,  # type: ignore[arg-type]
+        text=page.text,
+        width_pt=page.width_pt,
+        height_pt=page.height_pt,
+        fonts=[
+            FontOut(
+                kind=f.kind,  # type: ignore[arg-type]
+                has_to_unicode=f.has_to_unicode,
+                encoding=f.encoding,  # type: ignore[arg-type]
+                embedded=f.embedded,
+            )
+            for f in page.fonts
+        ],
+        words=(
+            None
+            if page.words is None
+            else [WordOut(start=w.start, end=w.end, x=w.x, y=w.y, w=w.w, h=w.h) for w in page.words]
+        ),
+    )
 
 
 async def _read_body(request: Request, limit: int) -> bytes:
@@ -213,4 +306,10 @@ def _refusal(error: InspectError, settings: Settings) -> WorkerError:
         return WorkerError(422, {"error": "too many pages", "max_pages": settings.max_pages})
     if isinstance(error, TooSlow):
         return WorkerError(504, {"error": "the document took too long to inspect"})
+    if isinstance(error, PageOutOfRange):
+        return WorkerError(
+            422, {"error": "the page range is outside the document", "pages": error.pages}
+        )
+    if isinstance(error, PageTooLarge):
+        return WorkerError(422, {"error": "a page holds more text than the worker will report"})
     return WorkerError(500, {"error": "internal error"})

@@ -5,4 +5,5 @@
 fastapi==0.159.1
 pydantic==2.14.1
 pypdf==6.21.2
+pypdfium2==5.14.0
 uvicorn==0.54.0

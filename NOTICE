@@ -3,3 +3,12 @@ Copyright 2026 Kone Tshivhinda
 
 Written by Kone Tshivhinda & Claude.
 Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party software in the document worker (services/worker)
+-------------------------------------------------------------
+The worker reads PDFs with PDFium through pypdfium2 (BSD-3-Clause or Apache-2.0). The pypdfium2 package carries the
+licence texts of the libraries inside PDFium (in its dist-info/licenses folder); keep them with any copy of the
+worker you distribute.
+
+Portions of this software are copyright (c) The FreeType Project (www.freetype.org). All rights reserved.
+

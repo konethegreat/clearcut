@@ -2,9 +2,20 @@
 # Packages the worker ships whose licence the checker cannot read by its rules
 # (ADR-0016). Each entry needs the package, the exact wording it states about
 # itself, and a reason. The entry stops working if the wording changes, and is
-# reported if the package is no longer shipped. Empty for now.
+# reported if the package is no longer shipped. One entry so far.
 #
 # [[exception]]
 # package = "example"
 # licence = "the exact wording the package states"
 # reason = "why it is acceptable, and when it was read"
+
+[[exception]]
+package = "pypdfium2"
+licence = "BSD-3-Clause, Apache-2.0, dependency licenses"
+reason = """pypdfium2's own code is BSD-3-Clause or Apache-2.0 and PDFium is BSD-3-Clause. The wheel carries \
+the licence texts of what PDFium bundles; read on 24 Oct 2026 from the 5.14.0 wheels for Windows and Linux \
+(dist-info/licenses): abseil, fast_float, simdutf and llvm-libc (Apache-2.0), libjpeg-turbo (IJG, BSD-3-Clause, \
+zlib), libopenjpeg and lcms (BSD-2-Clause, MIT), libpng and zlib (permissive), icu (Unicode-3.0), Anti-Grain \
+Geometry 2.3 (a permissive notice) and FreeType under the FreeType Project Licence (BSD-style, with a credit \
+clause that NOTICE meets; FreeType is also offered under GPL-2.0, which is not used). A CC-BY-4.0 text ships \
+with it too, for the project's documentation and not for the binary. Re-read these when the version changes."""

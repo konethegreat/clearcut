@@ -183,3 +183,49 @@ def leave_an_escaped_helper_holding_the_pipe(conn: AnswerChannel, seconds: float
         time.sleep(seconds)
         os._exit(0)
     os._exit(0)
+
+
+# ---- stand-ins for the text-reading child: (conn, data, first, last, words, max_pages, timeout)
+
+
+def text_hang(
+    conn: AnswerChannel,
+    data: bytes,
+    first: int,
+    last: int | None,
+    words: bool,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A parser stuck for ever on a hostile file."""
+    time.sleep(120)
+
+
+def text_crash(
+    conn: AnswerChannel,
+    data: bytes,
+    first: int,
+    last: int | None,
+    words: bool,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A parser that dies hard."""
+    os._exit(3)
+
+
+def text_echo(
+    conn: AnswerChannel,
+    data: bytes,
+    first: int,
+    last: int | None,
+    words: bool,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A child whose answer is exactly the bytes it was given as the 'document'."""
+    conn.send_bytes(data)
+    conn.close()
