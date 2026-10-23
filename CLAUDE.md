@@ -36,7 +36,7 @@ cargo run -p clearcut-eval -- check crates/clearcut-eval/sample   # gold-set che
 cargo run -p clearcut-eval -- score crates/clearcut-eval/sample crates/clearcut-eval/sample-results   # test split; add --split dev|all, --gate, --json
 ANTHROPIC_API_KEY=... cargo test -p clearcut-anthropic --test live -- --ignored --nocapture   # free check of your own key (see docs/BYOK.md)
 cargo run -p clearcut-eval -- guard .   # no real documents or gold-set labels in the repository (CI runs this; see docs/gold-set/)
-# Python worker (from services/worker; see its README): pytest -q && ruff check . && ruff format --check . && mypy
+# Python worker (from services/worker; see its README): pytest -q && ruff check . && ruff format --check . && mypy && python tools/licences.py
 ```
 Kone develops on **Windows** (`C:\Users\Kone\ClearCut`). Rust and Docker may need installing (rustup; Docker Desktop for Postgres/MinIO). Kone is **new to Rust**: explain non-obvious Rust choices briefly, keep `clearcut-core` simple and I/O-free, prefer clarity over cleverness.
 

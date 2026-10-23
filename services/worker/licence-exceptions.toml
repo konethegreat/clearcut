@@ -1,0 +1,10 @@
+# Written by Kone Tshivhinda & Claude
+# Packages the worker ships whose licence the checker cannot read by its rules
+# (ADR-0016). Each entry needs the package, the exact wording it states about
+# itself, and a reason. The entry stops working if the wording changes, and is
+# reported if the package is no longer shipped. Empty for now.
+#
+# [[exception]]
+# package = "example"
+# licence = "the exact wording the package states"
+# reason = "why it is acceptable, and when it was read"

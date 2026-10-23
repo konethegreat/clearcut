@@ -9,7 +9,7 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "Kone Tshivhinda" }]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "tools"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 filterwarnings = ["error"]
@@ -17,7 +17,7 @@ filterwarnings = ["error"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "tools"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "PT", "RUF"]
@@ -30,5 +30,5 @@ ignore = []
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "src"
-files = ["src", "tests"]
+mypy_path = "src:tools"
+files = ["src", "tests", "tools"]

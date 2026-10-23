@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 21) — P2-05 step 1a: the worker's licence check
+**Done** (ADR-0016 accepted first, PR #46; then tests first, no key)
+- `services/worker/tools/licences.py` and `licence-exceptions.toml`: reads the licence each installed package states, follows only what `requirements.txt` ships (extras and other platforms left out), and refuses anything outside a short permissive allowlist (GPL, LGPL, AGPL, MPL, unknown and unreadable are refused; `A OR B` needs one good side, `A AND B` both). An exception needs the exact wording and a reason, stops working if the wording changes, and is reported if the package is no longer shipped. A CI step runs it.
+- 69 tests for it in the worker (213 in all), and a mutation check of the tool: 20 breakages, the first run missed three (leftover tokens, a licence field with a line break, name normalisation), tests were added and all are caught.
+**Next**: step 1b, the isolation changes (bigger answers, resource limits and a scrubbed environment in the child, a per-request temporary directory), then `/v1/text`.
+
 ## 2026-10-23 (part 20) — ADR-0016: page text, page images and text quality (P2-05), proposed
 **Done** (docs only; PR #45, ADR-0015 the try-it deployment, merged first with CI green; first release is the local path only)
 - Read the worker (`inspect`, isolation, config) and the licences of the candidate libraries on PyPI. **Corrected ADR-0009: PyMuPDF is AGPL-3.0 (or commercial) and is replaced by pypdfium2 (BSD-3 / Apache-2.0); no GPL, LGPL-linked or AGPL code in the worker image, enforced by a CI licence allowlist.**

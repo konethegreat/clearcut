@@ -47,6 +47,15 @@ The API description is not served over HTTP. For the contract test it is generat
 | `CLEARCUT_WORKER_TIMEOUT_SECONDS` | 30 | Give up on a document after this long |
 | `CLEARCUT_WORKER_HOST` / `_PORT` | `127.0.0.1` / `8090` | Where to listen. Loopback unless told otherwise. |
 
+## Licences
+
+ClearCut is Apache-2.0, so the worker may hold **permissively licensed code only** (MIT, BSD, Apache-2.0, ISC, PSF, HPND and a few
+similar). A GPL, LGPL or AGPL package, or one whose licence cannot be read, fails CI. `python tools/licences.py` reads what each
+installed package says about itself, follows the packages in `requirements.txt` (not the test tools), and refuses the rest.
+A package that states its licence in words the rules cannot read needs an entry in `licence-exceptions.toml` with the exact
+wording and a reason; the entry stops working if the wording changes and is reported once the package is no longer shipped
+([ADR-0016](../../docs/adr/0016-page-text-images-and-text-quality.md)).
+
 ## Run and check it (from `services/worker`)
 
 ```bash

@@ -72,6 +72,8 @@ jobs:
       - run: ruff format --check .
       - run: mypy
       - run: pytest -q
+      - name: Licences (permissive only, ADR-0016)
+        run: python tools/licences.py
   contract:
     # The Rust client against the real Python worker (ADR-0009): proves the two
     # sides still understand each other. The token is made fresh for each run and
