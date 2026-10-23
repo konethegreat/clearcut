@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 22) — P2-05 step 1b: the worker child process, boxed in
+**Done** (the licence-check PR #47 merged first, CI green; then tests first, no key)
+- `limits.py`: address space, processor time, open files, written-file size and no core dumps for the child, never raised above what the system allows, an error when one that should be set cannot be; `scrub_environment` keeps only an allowlist, so a compromised parser cannot read the bearer token.
+- `run_in_child` in `isolation.py`: the one harness for every child (scrubbed environment, private scratch directory deleted afterwards even on a kill, limits applied before the document is touched, an answer of any size up to a cap the caller sets, nothing unpickled); `inspect_isolated` now uses it and behaves as before.
+- Found by the automated security review of the PR and fixed: scrubbing `os.environ` inside the child is not enough, because the child keeps the environment block it was started with (`/proc/self/environ` on Linux). The child is now created while the worker's own environment is scrubbed (under a lock, restored straight afterwards); a Linux test fails without it. Test values that looked like keys (a GitGuardian finding) were replaced by plain placeholders.
+- Deviation from ADR-0016 section 5, recorded in its implementation notes: the answer still travels over the pipe rather than a file (no file name for a child to point elsewhere).
+- 248 tests in the worker (3 need Linux and were run in Python 3.12 and 3.14 containers: a child that tries to take 2 GiB under a 512 MiB limit is stopped; a loop under a 1 s processor limit is stopped); mutation check of 26 breakages, all caught except equivalent cases.
+**Next**: step 2, `/v1/text` with word boxes and font facts (pypdfium2 and pypdf), the first PR that adds a native-code dependency; its licence entry, pinned versions and the page-count agreement check come with it.
+
 ## 2026-10-24 (part 21) — P2-05 step 1a: the worker's licence check
 **Done** (ADR-0016 accepted first, PR #46; then tests first, no key)
 - `services/worker/tools/licences.py` and `licence-exceptions.toml`: reads the licence each installed package states, follows only what `requirements.txt` ships (extras and other platforms left out), and refuses anything outside a short permissive allowlist (GPL, LGPL, AGPL, MPL, unknown and unreadable are refused; `A OR B` needs one good side, `A AND B` both). An exception needs the exact wording and a reason, stops working if the wording changes, and is reported if the package is no longer shipped. A CI step runs it.
