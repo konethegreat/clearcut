@@ -32,6 +32,7 @@ import math
 import multiprocessing
 import os
 import signal
+import struct
 import sys
 import tempfile
 import threading
@@ -41,7 +42,9 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Protocol, TypeGuard
 
+from .images import MAX_IMAGE_BYTES, EncodedImage, ImageTooLarge, sniff
 from .inspect import (
+    MEDIA_TYPES,
     Encrypted,
     InspectError,
     Inspection,
@@ -63,6 +66,7 @@ from .pagetext import (
     Word,
     extract_pages,
 )
+from .render import PageTooBig, render_page
 
 log = logging.getLogger("clearcut_worker")
 
@@ -74,6 +78,7 @@ _REFUSALS: dict[str, type[InspectError]] = {
     "Encrypted": Encrypted,
     "Unreadable": Unreadable,
     "TooSlow": TooSlow,
+    "ImageTooLarge": ImageTooLarge,
 }
 
 
@@ -305,10 +310,12 @@ def inspect_isolated(
         grace_seconds=grace_seconds,
         limits=limits,
     )
-    return _decode(raw, max_pages)
+    # The kind of document is the parent's own reading of the bytes it sent, never
+    # something the child says.
+    return _decode(raw, max_pages, MEDIA_TYPES.get(sniff(data) or "", "application/pdf"))
 
 
-def _decode(raw: bytes, max_pages: int) -> Inspection:
+def _decode(raw: bytes, max_pages: int, media_type: str = "application/pdf") -> Inspection:
     """The child's answer, checked field by field. Anything unexpected is "unreadable"."""
     try:
         answer = json.loads(raw)
@@ -317,7 +324,7 @@ def _decode(raw: bytes, max_pages: int) -> Inspection:
     if isinstance(answer, list) and len(answer) == 3 and answer[0] == "ok":
         pages, with_text = answer[1], answer[2]
         if _count(pages) and _count(with_text) and with_text <= pages:
-            return Inspection(pages=pages, pages_with_text=with_text)
+            return Inspection(pages=pages, pages_with_text=with_text, media_type=media_type)
     if isinstance(answer, list) and len(answer) == 2 and answer[0] == "error":
         name = answer[1]
         if name == "TooManyPages":
@@ -351,6 +358,7 @@ _TEXT_REFUSALS: dict[str, type[InspectError]] = {
     "Unreadable": Unreadable,
     "TooSlow": TooSlow,
     "PageTooLarge": PageTooLarge,
+    "ImageTooLarge": ImageTooLarge,
 }
 
 
@@ -603,3 +611,202 @@ def _decode_words(value: Any, text: str, max_words: int) -> tuple[Word, ...]:
         found.append(Word(start, end, x, y, w, h))
         previous_end = end
     return tuple(found)
+
+
+# ------------------------------------------------------------------ drawing pages ----
+
+# The most the parent will read back from a rendering child: the biggest picture it
+# accepts, and a few bytes of header.
+DEFAULT_RENDER_ANSWER_BYTES = MAX_IMAGE_BYTES + 1024
+
+_IMAGE_FRAME = b"CCIMG1"
+_ERROR_FRAME = b"CCERR1"
+_IMAGE_HEADER_BYTES = len(_IMAGE_FRAME) + 1 + 8
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_PNG_END = b"\x00\x00\x00\x00IEND\xaeB`\x82"
+_JPEG_START = b"\xff\xd8\xff"
+_JPEG_END = b"\xff\xd9"
+
+_RENDER_REFUSALS: dict[str, type[InspectError]] = {
+    "NotAPdf": NotAPdf,
+    "Encrypted": Encrypted,
+    "Unreadable": Unreadable,
+    "TooSlow": TooSlow,
+    "PageTooBig": PageTooBig,
+    "ImageTooLarge": ImageTooLarge,
+}
+
+
+def _render_child(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    dpi: float,
+    fmt: str,
+    max_edge: int,
+    max_pages: int,
+    timeout_seconds: float,
+    max_bytes: int,
+) -> None:
+    """What runs in the child: draw the page and send back one framed answer.
+
+    The picture travels as raw bytes after a short header, not as JSON, so the parent
+    never has to parse it.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        answer: bytes
+        try:
+            image = render_page(
+                data,
+                page,
+                dpi=dpi,
+                fmt=fmt,
+                max_edge=max_edge,
+                max_bytes=max_bytes,
+                max_pages=max_pages,
+                deadline=deadline,
+            )
+            kind = b"P" if image.media_type == "image/png" else b"J"
+            answer = _IMAGE_FRAME + kind + struct.pack(">II", image.width, image.height)
+            answer += image.data
+        except TooManyPages:
+            answer = _ERROR_FRAME + b"TooManyPages"
+        except PageOutOfRange as error:
+            answer = _ERROR_FRAME + b"PageOutOfRange:" + str(error.pages).encode("ascii")
+        except InspectError as error:
+            answer = _ERROR_FRAME + type(error).__name__.encode("ascii")
+        except BaseException:
+            answer = _ERROR_FRAME + b"Unreadable"
+        conn.send_bytes(answer)
+    finally:
+        conn.close()
+
+
+def render_isolated(
+    data: bytes,
+    page: int,
+    *,
+    dpi: float,
+    fmt: str,
+    max_edge: int,
+    max_pages: int,
+    timeout_seconds: float,
+    grace_seconds: float = 2.0,
+    target: ChildTarget = _render_child,
+    limits: ChildLimits | None = DEFAULT_LIMITS,
+    max_answer_bytes: int = DEFAULT_RENDER_ANSWER_BYTES,
+    max_bytes: int = MAX_IMAGE_BYTES,
+) -> EncodedImage:
+    """Draws page ``page`` in a child process and returns the picture.
+
+    The child's answer is checked (``decode_render_answer``) before anything in it is
+    believed; the picture itself is never decoded by the parent.
+    """
+    raw = run_in_child(
+        target,
+        (data, page, dpi, fmt, max_edge, max_pages, timeout_seconds, max_bytes),
+        timeout_seconds=timeout_seconds,
+        max_answer_bytes=max_answer_bytes,
+        grace_seconds=grace_seconds,
+        limits=limits,
+    )
+    return decode_render_answer(
+        raw, fmt=fmt, max_edge=max_edge, max_bytes=max_bytes, max_pages=max_pages
+    )
+
+
+def decode_render_answer(
+    raw: bytes, *, fmt: str, max_edge: int, max_bytes: int, max_pages: int
+) -> EncodedImage:
+    """The child's answer, checked. Anything unexpected is "unreadable".
+
+    The picture bytes are only measured: the right opening bytes, the right closing
+    bytes, a size inside the limit, and (for a PNG) the width and height its own header
+    states. Pillow never sees them in the parent.
+    """
+    if raw.startswith(_ERROR_FRAME):
+        raise _decode_render_error(raw[len(_ERROR_FRAME) :], max_pages)
+    if not raw.startswith(_IMAGE_FRAME) or len(raw) <= _IMAGE_HEADER_BYTES:
+        raise Unreadable
+    kind = raw[len(_IMAGE_FRAME) : len(_IMAGE_FRAME) + 1]
+    width, height = struct.unpack(">II", raw[len(_IMAGE_FRAME) + 1 : _IMAGE_HEADER_BYTES])
+    image = raw[_IMAGE_HEADER_BYTES:]
+    if not (1 <= width <= max_edge and 1 <= height <= max_edge):
+        raise Unreadable
+    if len(image) > max_bytes:
+        raise Unreadable
+    if kind == b"P" and fmt == "png":
+        if not (
+            image.startswith(_PNG_SIGNATURE)
+            and image.endswith(_PNG_END)
+            and image[12:16] == b"IHDR"
+            and struct.unpack(">II", image[16:24]) == (width, height)
+        ):
+            raise Unreadable
+        return EncodedImage(image, "image/png", width, height)
+    if kind == b"J":
+        if not (
+            image.startswith(_JPEG_START)
+            and image.endswith(_JPEG_END)
+            and _jpeg_size(image) == (width, height)
+        ):
+            raise Unreadable
+        return EncodedImage(image, "image/jpeg", width, height)
+    raise Unreadable
+
+
+# The JPEG markers that start a frame header (the ones that state the picture's size).
+_JPEG_FRAME_MARKERS = frozenset({0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD})
+_JPEG_FRAME_MARKERS |= frozenset({0xCE, 0xCF})
+_MAX_JPEG_SEGMENTS = 1000
+
+
+def _jpeg_size(image: bytes) -> tuple[int, int] | None:
+    """The width and height in a JPEG's frame header, found by walking its segments.
+
+    Only the segment lengths are followed, never the picture data: the walk stops at the
+    frame header, at the start of the scan, or after a fixed number of segments.
+    """
+    position = 2  # after the start-of-image marker
+    for _ in range(_MAX_JPEG_SEGMENTS):
+        if position + 4 > len(image) or image[position] != 0xFF:
+            return None
+        marker = image[position + 1]
+        if marker == 0xFF:  # a fill byte before a marker
+            position += 1
+            continue
+        if marker == 0x01 or 0xD0 <= marker <= 0xD8:  # markers with no length
+            position += 2
+            continue
+        if marker in (0xD9, 0xDA):  # the end, or the scan before any frame header
+            return None
+        length = (image[position + 2] << 8) | image[position + 3]
+        if length < 2:
+            return None
+        if marker in _JPEG_FRAME_MARKERS:
+            if length < 8 or position + 9 > len(image):
+                return None
+            height = (image[position + 5] << 8) | image[position + 6]
+            width = (image[position + 7] << 8) | image[position + 8]
+            return width, height
+        position += 2 + length
+    return None
+
+
+def _decode_render_error(rest: bytes, max_pages: int) -> InspectError:
+    try:
+        name = rest.decode("ascii")
+    except UnicodeDecodeError:
+        return Unreadable()
+    if name == "TooManyPages":
+        return TooManyPages(max_pages)
+    refusal = _RENDER_REFUSALS.get(name)
+    if refusal is not None:
+        return refusal()
+    prefix = "PageOutOfRange:"
+    if name.startswith(prefix):
+        digits = name[len(prefix) :]
+        if digits.isascii() and digits.isdigit() and len(digits) <= 9:
+            return PageOutOfRange(int(digits))
+    return Unreadable()

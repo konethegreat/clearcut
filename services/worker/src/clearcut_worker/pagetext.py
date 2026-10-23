@@ -32,7 +32,7 @@ from typing import Any, Protocol
 
 from pypdf import PdfReader
 
-from .inspect import (
+from .errors import (
     Encrypted,
     InspectError,
     NotAPdf,
@@ -40,6 +40,7 @@ from .inspect import (
     TooSlow,
     Unreadable,
 )
+from .images import open_image, sniff
 
 log = logging.getLogger("clearcut_worker")
 
@@ -401,16 +402,61 @@ class PdfiumDocument(Protocol):
     def close(self) -> None: ...
 
 
-def _open_pdfium(data: bytes) -> PdfiumDocument:
+def open_pdfium(data: bytes) -> PdfiumDocument:
     import pypdfium2
 
     document: PdfiumDocument = pypdfium2.PdfDocument(data)
     return document
 
 
-def _check_time(deadline: float) -> None:
+def check_time(deadline: float) -> None:
     if time.monotonic() >= deadline:
         raise TooSlow
+
+
+def read_structure(data: bytes, *, max_pages: int, deadline: float) -> tuple[PdfReader, int]:
+    """Opens a PDF with pypdf and counts its pages (the parser that decides if it is safe).
+
+    Raises the named refusals: not a PDF, too slow, encrypted, unreadable, too many pages.
+    """
+    if not data.startswith(_PDF_MAGIC):
+        raise NotAPdf
+    check_time(deadline)
+    try:
+        reader = PdfReader(io.BytesIO(data), strict=False)
+        if reader.is_encrypted:
+            raise Encrypted
+        count = len(reader.pages)
+    except Encrypted:
+        raise
+    except Exception:
+        raise Unreadable from None
+    if count > max_pages:
+        raise TooManyPages(max_pages)
+    return reader, count
+
+
+def open_engine(
+    data: bytes, count: int, pdfium_open: Callable[[bytes], PdfiumDocument]
+) -> PdfiumDocument:
+    """Opens the same PDF with PDFium; the two parsers must agree on the page count.
+
+    A file that two readers see differently is not one to extract anything from. The
+    caller closes the document it gets back.
+    """
+    try:
+        document = pdfium_open(data)
+    except Exception:
+        raise Unreadable from None
+    try:
+        agree = len(document) == count
+    except Exception:
+        agree = False
+    if not agree:
+        log.debug("the two PDF parsers disagree about the page count")
+        document.close()
+        raise Unreadable
+    return document
 
 
 def extract_pages(
@@ -423,7 +469,7 @@ def extract_pages(
     deadline: float,
     max_page_text_bytes: int = MAX_PAGE_TEXT_BYTES,
     max_words_per_page: int = MAX_WORDS_PER_PAGE,
-    pdfium_open: Callable[[bytes], PdfiumDocument] = _open_pdfium,
+    pdfium_open: Callable[[bytes], PdfiumDocument] = open_pdfium,
 ) -> list[PageContent]:
     """The text, fonts and (if asked) word boxes of pages ``first`` to ``last`` (1-based).
 
@@ -434,36 +480,18 @@ def extract_pages(
     """
     if first < 1 or (last is not None and last < first):
         raise ValueError("the page range must start at 1 or later and not end before it starts")
-    if not data.startswith(_PDF_MAGIC):
-        raise NotAPdf
-    _check_time(deadline)
-
-    try:
-        reader = PdfReader(io.BytesIO(data), strict=False)
-        if reader.is_encrypted:
-            raise Encrypted
-        count = len(reader.pages)
-    except Encrypted:
-        raise
-    except Exception:
-        raise Unreadable from None
-    if count > max_pages:
-        raise TooManyPages(max_pages)
+    if sniff(data) in ("png", "jpeg"):
+        return [_picture_page(data, first, last, words=words, deadline=deadline)]
+    reader, count = read_structure(data, max_pages=max_pages, deadline=deadline)
     if first > count or (last is not None and last > count):
         raise PageOutOfRange(count)
     end = min(count, first + MAX_PAGES_PER_CALL - 1) if last is None else last
 
-    try:
-        document = pdfium_open(data)
-    except Exception:
-        raise Unreadable from None
+    document = open_engine(data, count, pdfium_open)
     pages: list[PageContent] = []
     try:
-        if len(document) != count:
-            log.debug("the two PDF parsers disagree about the page count")
-            raise Unreadable
         for number in range(first, end + 1):
-            _check_time(deadline)
+            check_time(deadline)
             try:
                 pages.append(
                     _read_page(
@@ -483,6 +511,29 @@ def extract_pages(
     finally:
         document.close()
     return pages
+
+
+def _picture_page(
+    data: bytes, first: int, last: int | None, *, words: bool, deadline: float
+) -> PageContent:
+    """A picture is a one-page document: no text layer, no fonts, measured in pixels.
+
+    (The "points" of a picture are its pixels, after it has been turned upright; the
+    boxes of a text page are in thousandths of the page, so the unit never matters.)
+    """
+    check_time(deadline)
+    if first != 1 or (last is not None and last != 1):
+        raise PageOutOfRange(1)
+    width, height = open_image(data).size
+    return PageContent(
+        page=1,
+        source="none",
+        text="",
+        width_pt=float(width),
+        height_pt=float(height),
+        fonts=(),
+        words=() if words else None,
+    )
 
 
 def _read_page(

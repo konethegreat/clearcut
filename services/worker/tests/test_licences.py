@@ -43,6 +43,7 @@ from licences import (
         "Python Software Foundation License",
         "HPND",
         "Historical Permission Notice and Disclaimer (HPND)",
+        "MIT-CMU",  # what Pillow states; the old HPND text under another name
         "Unlicense",
         "CC0-1.0",
         "0BSD",
