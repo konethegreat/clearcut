@@ -261,3 +261,31 @@ def test_several_children_starting_at_once_leave_the_environment_as_it_was(
         thread.join()
     assert failures == []
     assert os.environ["CLEARCUT_WORKER_TOKEN"] == "placeholder-token-value"
+
+
+# ---------- the deadline covers the whole answer ----------
+
+
+@LINUX_ONLY
+def test_a_child_that_sends_half_an_answer_and_stalls_is_still_killed_at_the_deadline() -> None:
+    # Waiting for the first byte is not enough: a child that has been taken over can
+    # start a message and never finish it, which would block the parent for ever.
+    started = time.monotonic()
+    with pytest.raises(TooSlow):
+        run(children.send_half_a_message_then_stall, timeout_seconds=0.5, grace_seconds=0.5)
+    assert time.monotonic() - started < 15
+    assert no_children_left()
+
+
+def test_a_child_that_finishes_just_inside_the_deadline_is_not_killed_by_the_watchdog() -> None:
+    answer = run(children.answer_late, 0.5, timeout_seconds=1.0, grace_seconds=6.0)
+    assert answer == b"late"
+
+
+def test_the_watchdog_does_not_outlive_the_call() -> None:
+    import threading
+
+    before = threading.active_count()
+    run(children.big_answer, 5)
+    time.sleep(0.2)
+    assert threading.active_count() <= before

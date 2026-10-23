@@ -137,3 +137,11 @@ def report_initial_environment(conn: AnswerChannel, *values: str) -> None:
     initial = Path("/proc/self/environ").read_bytes().decode("utf-8", errors="replace")
     conn.send_bytes(json.dumps({value: value in initial for value in values}).encode())
     conn.close()
+
+
+def send_half_a_message_then_stall(conn: AnswerChannel) -> None:
+    """Sends the start of an answer that promises 1000 bytes, then goes quiet (POSIX only)."""
+    import struct
+
+    os.write(conn.fileno(), struct.pack("!i", 1000) + b"abc")  # type: ignore[attr-defined]
+    time.sleep(120)

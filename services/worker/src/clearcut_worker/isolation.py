@@ -203,14 +203,28 @@ def run_in_child(
         # Close the parent's copy of the child's end, so that a child that dies is
         # seen as end-of-file instead of silence.
         sender.close()
+        # Waiting for the first byte is not a deadline for the whole answer: a child
+        # that has been taken over can start a message and never finish it, which would
+        # leave the parent blocked in ``recv_bytes`` for ever. So a watchdog kills the
+        # child at the deadline; the pipe then ends and the read fails.
+        expired = threading.Event()
+
+        def stop_the_child() -> None:
+            expired.set()
+            process.kill()
+
+        watchdog = threading.Timer(timeout_seconds + grace_seconds, stop_the_child)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             if not receiver.poll(timeout_seconds + grace_seconds):
                 raise TooSlow
             try:
                 return receiver.recv_bytes(max_answer_bytes)
             except (EOFError, OSError):
-                raise Unreadable from None
+                raise (TooSlow if expired.is_set() else Unreadable) from None
         finally:
+            watchdog.cancel()
             receiver.close()
             if process.is_alive():
                 process.kill()

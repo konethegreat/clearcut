@@ -2,6 +2,11 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 23) — the worker's deadline now covers the whole answer
+**Done** (PR #48, the child process harness, merged first with CI green)
+- A second automated security review found that `poll` only waits for the first byte: a child that sends the start of a message and stalls would block the parent in `recv_bytes` for ever. A watchdog timer now kills the child at timeout plus grace, so the read ends (`TooSlow`). A Linux test reproduces it (120 s hang without the watchdog; stopped at the deadline with it); 251 worker tests (5 need Linux and pass in a container).
+**Next**: step 2 of ADR-0016, `/v1/text`.
+
 ## 2026-10-24 (part 22) — P2-05 step 1b: the worker child process, boxed in
 **Done** (the licence-check PR #47 merged first, CI green; then tests first, no key)
 - `limits.py`: address space, processor time, open files, written-file size and no core dumps for the child, never raised above what the system allows, an error when one that should be set cannot be; `scrub_environment` keeps only an allowlist, so a compromised parser cannot read the bearer token.
