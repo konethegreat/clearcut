@@ -278,3 +278,52 @@ def render_echo(
 ) -> None:
     """A child whose answer is exactly the bytes it was given as the document."""
     conn.send_bytes(data)
+
+
+# ---- stand-ins for the OCR child:
+#      (conn, data, page, command, tessdata_dir, agreement, max_pages, timeout, max_text)
+
+
+def ocr_hang(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    command: tuple[str, ...],
+    tessdata_dir: str | None,
+    agreement: bool,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """An OCR child stuck for ever on a hostile file."""
+    time.sleep(120)
+
+
+def ocr_crash(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    command: tuple[str, ...],
+    tessdata_dir: str | None,
+    agreement: bool,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """An OCR child that dies hard."""
+    os._exit(3)
+
+
+def ocr_echo(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    command: tuple[str, ...],
+    tessdata_dir: str | None,
+    agreement: bool,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A child whose answer is exactly the bytes it was given as the document."""
+    conn.send_bytes(data)

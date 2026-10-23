@@ -118,3 +118,15 @@ def pixel(data: bytes, x: int, y: int) -> tuple[int, int, int]:
         value = image.convert("RGB").getpixel((x, y))
     assert isinstance(value, tuple)
     return value[0], value[1], value[2]
+
+
+def text_picture(*lines: str, size: int = 56) -> bytes:
+    """A white picture with the lines written on it in black (an invented scan of an invoice)."""
+    from PIL import ImageDraw, ImageFont
+
+    font = ImageFont.load_default(size=size)
+    image = Image.new("RGB", (1400, 40 + int(size * 1.8) * len(lines)), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    for number, line in enumerate(lines):
+        draw.text((40, 20 + int(size * 1.8) * number), line, fill=(0, 0, 0), font=font)
+    return png_of(image)

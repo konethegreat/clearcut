@@ -13,6 +13,7 @@ import uvicorn
 from .app import create_app
 from .config import ConfigError, Settings
 from .logs import configure_logging
+from .ocr import OcrEngine, find_engine
 
 _PORT = re.compile(r"^[0-9]{1,5}$")
 
@@ -34,8 +35,20 @@ def main(environ: Mapping[str, str] | None = None) -> None:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(2) from None
     configure_logging()
+    engine: OcrEngine | None = None
+    if settings.tesseract is not None:
+        # Named on purpose, so a program that cannot be used is a mistake to fix now,
+        # not a surprise at the first scanned page.
+        engine = find_engine(settings.tesseract, settings.tessdata_dir)
+        if engine is None:
+            print(
+                "error: CLEARCUT_WORKER_TESSERACT names a program that cannot be used: it must "
+                "start, and have both English and Afrikaans language data",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
     uvicorn.run(
-        create_app(settings),
+        create_app(settings, ocr_engine=engine),
         # Loopback unless told otherwise: the worker is for the Rust service only.
         host=env.get("CLEARCUT_WORKER_HOST", "127.0.0.1"),
         port=port,

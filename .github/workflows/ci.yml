@@ -68,6 +68,13 @@ jobs:
           cache: pip
           cache-dependency-path: services/worker/constraints.txt
       - run: pip install -r requirements-dev.txt -c constraints.txt
+      - name: Tesseract with English and Afrikaans (the OCR tests use the real program)
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-afr
+          tesseract --version
+          tesseract --list-langs
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy

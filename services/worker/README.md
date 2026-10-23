@@ -8,7 +8,7 @@ The Python half of document processing ([ADR-0009](../../docs/adr/0009-worker-an
 | Counts pages, finds out which pages have a text layer | Call a language model or hold `ANTHROPIC_API_KEY` |
 | Reads each page's text, word boxes and font facts (now) | Open a network connection of its own |
 | Draws page images and re-encodes PNG and JPEG documents (now), always as plain pixels with no metadata | Judge whether a page's text can be trusted: it reports facts, `clearcut-core` decides |
-| OCR (P2-05, later) | |
+| OCR with Tesseract in English and Afrikaans, and the agreement between OCR and the text layer (when Tesseract is installed and named) | |
 | Refuses what it cannot read, in a named way | Touch the database or the object store |
 | | Decide what an invoice means: validation and every business rule live in `clearcut-core` |
 
@@ -25,8 +25,20 @@ All errors are JSON with one key: `{"error": "..."}`. Everything except `/health
 |---|---|
 | `GET /health` | `200 {"status","version","capabilities"}` (no key needed) |
 | `POST /v1/inspect` | Body: the file's bytes. `200 {"media_type":"application/pdf","pages","pages_with_text","has_text_layer"}` |
+| `POST /v1/ocr?page=1&agreement=false` | Body: the file's bytes. `200` the text answer with one page, `source` `ocr`, a `confidence` (0 to 1000) on every word, and `agreement` if asked. `503` when OCR is not set up |
 | `POST /v1/render?page=1&dpi=150&format=png&max_edge=2000` | Body: the file's bytes. `200` the image (`image/png` or `image/jpeg`), size in `X-Image-Width` and `X-Image-Height` |
 | `POST /v1/text?from=1&to=50&words=false` | Body: the file's bytes. `200 {"pages":[{"page","source","text","width_pt","height_pt","fonts":[{"kind","has_to_unicode","encoding","embedded"}],"words":[{"start","end","x","y","w","h"}]}]}` |
+
+`/v1/ocr` reads one page (or a PNG/JPEG document) with Tesseract, in English and Afrikaans together. The page is drawn at 300 dpi
+for it. The answer has the shape of the `/v1/text` answer: one page with `source: "ocr"`, `fonts: []`, the text (words joined by a
+space, lines by a line feed), and every word with its UTF-8 byte offsets, its box in thousandths of the page and its `confidence`.
+With `agreement=true` it also gives `agreement`: of the distinct words of two letters or digits or more in the PDF's own text
+layer, how many thousandths OCR also read (left out when the page has no text layer). A text layer that lies, such as a scrambled
+font or digits swapped for other digits, shares few of its words with what a reader sees; **what a low number means is decided by
+`clearcut-core`, not here**. It refuses like `/v1/text`, and `503` when OCR is not set up. OCR is off unless
+`CLEARCUT_WORKER_TESSERACT` names the program; the worker then checks at start that it runs and has both languages and **will not
+start otherwise**. Tesseract runs with a fixed argument list, no shell, in the child's scratch directory, with nothing secret in its
+environment and under the request's deadline.
 
 `/v1/render` draws one page (or a picture document) as an image. Query: `page` (default 1), `dpi` (100 to 300, default
 150; meaningless for a picture), `format` (`png` default, or `jpeg`), `max_edge` (the longest side in pixels, 500 to 2 576,
@@ -93,6 +105,8 @@ The API description is not served over HTTP. For the contract test it is generat
 | `CLEARCUT_WORKER_MAX_PAGES` | 500 | Most pages in a document |
 | `CLEARCUT_WORKER_TIMEOUT_SECONDS` | 30 | Give up on a document after this long |
 | `CLEARCUT_WORKER_HOST` / `_PORT` | `127.0.0.1` / `8090` | Where to listen. Loopback unless told otherwise. |
+| `CLEARCUT_WORKER_TESSERACT` | unset (OCR off) | The Tesseract program (a name on the path, or a full path). Set it to turn OCR on; the worker will not start if it cannot be used or lacks English or Afrikaans. |
+| `CLEARCUT_WORKER_TESSDATA` | unset | Where Tesseract's language data is, if not where it looks (only with the setting above). |
 
 ## Licences
 
