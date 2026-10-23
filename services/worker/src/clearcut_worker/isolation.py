@@ -55,6 +55,7 @@ from .inspect import (
     inspect_pdf,
 )
 from .limits import ChildLimits, apply_limits, scrub_environment
+from .ocr import OcrEngine, ocr_page
 from .pagetext import (
     MAX_PAGE_TEXT_BYTES,
     MAX_PAGES_PER_CALL,
@@ -510,12 +511,16 @@ def decode_text_answer(
     ]
 
 
-def _decode_error(answer: list[Any], max_pages: int) -> InspectError:
+def _decode_error(
+    answer: list[Any],
+    max_pages: int,
+    refusals: dict[str, type[InspectError]] = _TEXT_REFUSALS,
+) -> InspectError:
     name = answer[1] if len(answer) > 1 else None
     if len(answer) == 2 and name == "TooManyPages":
         return TooManyPages(max_pages)
-    if len(answer) == 2 and isinstance(name, str) and name in _TEXT_REFUSALS:
-        return _TEXT_REFUSALS[name]()
+    if len(answer) == 2 and isinstance(name, str) and name in refusals:
+        return refusals[name]()
     if len(answer) == 3 and name == "PageOutOfRange" and _whole(answer[2]) and answer[2] >= 0:
         return PageOutOfRange(answer[2])
     return Unreadable()
@@ -585,19 +590,27 @@ def _decode_fonts(value: Any) -> tuple[FontFact, ...]:
     return tuple(fonts)
 
 
-def _decode_words(value: Any, text: str, max_words: int) -> tuple[Word, ...]:
+def _decode_words(
+    value: Any, text: str, max_words: int, *, confidence: bool = False
+) -> tuple[Word, ...]:
     if not isinstance(value, list) or len(value) > max_words:
         raise Unreadable
+    keys = {"start", "end", "x", "y", "w", "h"} | ({"confidence"} if confidence else set())
     encoded = text.encode("utf-8")
     found: list[Word] = []
     previous_end = 0
     for item in value:
-        if not isinstance(item, dict) or set(item) != {"start", "end", "x", "y", "w", "h"}:
+        if not isinstance(item, dict) or set(item) != keys:
             raise Unreadable
         numbers = [item[k] for k in ("start", "end", "x", "y", "w", "h")]
         if not all(_whole(n) for n in numbers):
             raise Unreadable
         start, end, x, y, w, h = numbers
+        sure: int | None = None
+        if confidence:
+            sure = item["confidence"]
+            if not _whole(sure) or not 0 <= sure <= 1000:
+                raise Unreadable
         if not (previous_end <= start < end <= len(encoded)):
             raise Unreadable
         try:
@@ -608,7 +621,7 @@ def _decode_words(value: Any, text: str, max_words: int) -> tuple[Word, ...]:
             raise Unreadable
         if not (x >= 0 and y >= 0 and w >= 1 and h >= 1 and x + w <= 1000 and y + h <= 1000):
             raise Unreadable
-        found.append(Word(start, end, x, y, w, h))
+        found.append(Word(start, end, x, y, w, h, sure))
         previous_end = end
     return tuple(found)
 
@@ -810,3 +823,175 @@ def _decode_render_error(rest: bytes, max_pages: int) -> InspectError:
         if digits.isascii() and digits.isdigit() and len(digits) <= 9:
             return PageOutOfRange(int(digits))
     return Unreadable()
+
+
+# ---------------------------------------------------------------------------- OCR ----
+
+_OCR_REFUSALS: dict[str, type[InspectError]] = {**_TEXT_REFUSALS, "PageTooBig": PageTooBig}
+
+
+def _ocr_to_json(page: PageContent, with_agreement: bool) -> dict[str, object]:
+    entry = _page_to_json(page)
+    entry["words"] = [
+        {
+            "start": w.start,
+            "end": w.end,
+            "x": w.x,
+            "y": w.y,
+            "w": w.w,
+            "h": w.h,
+            "confidence": w.confidence,
+        }
+        for w in page.words or ()
+    ]
+    if with_agreement:
+        entry["agreement"] = page.agreement
+    return entry
+
+
+def _ocr_child(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    command: tuple[str, ...],
+    tessdata_dir: str | None,
+    agreement: bool,
+    max_pages: int,
+    timeout_seconds: float,
+    max_page_text_bytes: int,
+) -> None:
+    """What runs in the child: render the page, run Tesseract on it and send back one answer.
+
+    The program runs in the child's private scratch directory, which is its working
+    directory by now and is deleted afterwards.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        answer: list[object]
+        try:
+            result = ocr_page(
+                data,
+                page,
+                engine=OcrEngine(tuple(command), tessdata_dir),
+                agreement=agreement,
+                max_pages=max_pages,
+                deadline=deadline,
+                workdir=Path.cwd(),
+                max_page_text_bytes=max_page_text_bytes,
+            )
+            answer = ["ok", [_ocr_to_json(result, agreement)]]
+        except TooManyPages:
+            answer = ["error", "TooManyPages"]
+        except PageOutOfRange as error:
+            answer = ["error", "PageOutOfRange", error.pages]
+        except InspectError as error:
+            answer = ["error", type(error).__name__]
+        except BaseException:
+            answer = ["error", "Unreadable"]
+        conn.send_bytes(json.dumps(answer, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+    finally:
+        conn.close()
+
+
+def ocr_isolated(
+    data: bytes,
+    page: int,
+    *,
+    engine: OcrEngine,
+    agreement: bool,
+    max_pages: int,
+    timeout_seconds: float,
+    grace_seconds: float = 2.0,
+    target: ChildTarget = _ocr_child,
+    limits: ChildLimits | None = DEFAULT_LIMITS,
+    max_answer_bytes: int = DEFAULT_TEXT_ANSWER_BYTES,
+    max_page_text_bytes: int = MAX_PAGE_TEXT_BYTES,
+) -> PageContent:
+    """Reads page ``page`` by OCR in a child process; the answer is checked field by field."""
+    raw = run_in_child(
+        target,
+        (
+            data,
+            page,
+            engine.command,
+            engine.tessdata_dir,
+            agreement,
+            max_pages,
+            timeout_seconds,
+            max_page_text_bytes,
+        ),
+        timeout_seconds=timeout_seconds,
+        max_answer_bytes=max_answer_bytes,
+        grace_seconds=grace_seconds,
+        limits=limits,
+    )
+    return decode_ocr_answer(
+        raw, page, agreement, max_pages=max_pages, max_page_text_bytes=max_page_text_bytes
+    )
+
+
+def decode_ocr_answer(
+    raw: bytes,
+    page: int,
+    agreement: bool,
+    *,
+    max_pages: int,
+    max_page_text_bytes: int = MAX_PAGE_TEXT_BYTES,
+    max_words_per_page: int = MAX_WORDS_PER_PAGE,
+) -> PageContent:
+    """The child's answer, checked field by field. Anything unexpected is "unreadable"."""
+    try:
+        answer = json.loads(raw, parse_constant=_reject_constant)
+    except (ValueError, RecursionError):
+        raise Unreadable from None
+    if not isinstance(answer, list) or not answer:
+        raise Unreadable
+    if answer[0] == "error":
+        raise _decode_error(answer, max_pages, _OCR_REFUSALS)
+    if (
+        answer[0] != "ok"
+        or len(answer) != 2
+        or not isinstance(answer[1], list)
+        or len(answer[1]) != 1
+    ):
+        raise Unreadable
+    return _decode_ocr_page(answer[1][0], page, agreement, max_page_text_bytes, max_words_per_page)
+
+
+def _decode_ocr_page(
+    entry: Any, number: int, with_agreement: bool, max_text: int, max_words: int
+) -> PageContent:
+    keys = {"page", "source", "text", "width_pt", "height_pt", "fonts", "words"}
+    if with_agreement:
+        keys.add("agreement")
+    if not isinstance(entry, dict) or set(entry) != keys:
+        raise Unreadable
+    if not _whole(entry["page"]) or entry["page"] != number or entry["source"] != "ocr":
+        raise Unreadable
+    text = entry["text"]
+    if not isinstance(text, str) or len(text.encode("utf-8", "surrogatepass")) > max_text:
+        raise Unreadable
+    if any(unicodedata.category(c) == "Cc" and c not in "\n\t" for c in text):
+        raise Unreadable
+    if entry["fonts"] != []:
+        raise Unreadable
+    width, height = _points(entry["width_pt"]), _points(entry["height_pt"])
+    words = _decode_words(entry["words"], text, max_words, confidence=True)
+    # The text is made of the words, so there is text exactly when there are words.
+    if bool(text) != bool(words):
+        raise Unreadable
+    shared: int | None = None
+    if with_agreement:
+        shared = entry["agreement"]
+        if shared is not None and (not _whole(shared) or not 0 <= shared <= 1000):
+            raise Unreadable
+    return PageContent(
+        page=number,
+        source="ocr",
+        text=text,
+        width_pt=width,
+        height_pt=height,
+        fonts=(),
+        words=words,
+        agreement=shared,
+    )

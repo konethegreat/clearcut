@@ -44,8 +44,9 @@ from .inspect import (
     TooSlow,
     Unreadable,
 )
-from .isolation import inspect_isolated, render_isolated, text_isolated
+from .isolation import inspect_isolated, ocr_isolated, render_isolated, text_isolated
 from .logs import safe_log_text
+from .ocr import OcrEngine
 from .pagetext import MAX_PAGES_PER_CALL, PageContent, PageOutOfRange, PageTooLarge
 from .render import DEFAULT_DPI, MAX_DPI, MIN_DPI, PageTooBig
 
@@ -60,6 +61,9 @@ TextReader = Callable[..., list[PageContent]]
 
 # Draws a page: (bytes, page, dpi=, fmt=, max_edge=, max_pages=, timeout_seconds=) -> the picture.
 Renderer = Callable[..., EncodedImage]
+
+# Reads a page by OCR: (bytes, page, engine=, agreement=, max_pages=, timeout_seconds=) -> the page.
+OcrReader = Callable[..., PageContent]
 
 # The most of an unknown path that is written to a log line.
 _LOGGED_PATH_CHARS = 200
@@ -92,16 +96,18 @@ class WordOut(BaseModel):
     y: int
     w: int
     h: int
+    confidence: int | None = None
 
 
 class PageOut(BaseModel):
     page: int
-    source: Literal["text_layer", "none"]
+    source: Literal["text_layer", "none", "ocr"]
     text: str
     width_pt: float
     height_pt: float
     fonts: list[FontOut]
     words: list[WordOut] | None = None
+    agreement: int | None = None
 
 
 class TextResponse(BaseModel):
@@ -142,6 +148,8 @@ def create_app(
     inspector: Inspector = inspect_isolated,
     text_reader: TextReader = text_isolated,
     renderer: Renderer = render_isolated,
+    ocr_engine: OcrEngine | None = None,
+    ocr_reader: OcrReader = ocr_isolated,
 ) -> FastAPI:
     app = FastAPI(
         title="ClearCut document worker",
@@ -206,9 +214,11 @@ def create_app(
         log.error("unexpected %s", type(error).__name__)
         return JSONResponse({"error": "internal error"}, status_code=500)
 
+    capabilities = ["inspect", "text", "render"] + (["ocr"] if ocr_engine is not None else [])
+
     @app.get("/health")
     async def health() -> Health:
-        return Health(status="ok", version=__version__, capabilities=["inspect", "text", "render"])
+        return Health(status="ok", version=__version__, capabilities=capabilities)
 
     @app.post("/v1/inspect", dependencies=[Depends(require_token)])
     async def inspect(request: Request) -> InspectResponse:
@@ -255,6 +265,30 @@ def create_app(
         except InspectError as error:
             raise _refusal(error, settings) from None
         return TextResponse(pages=[_page_out(p) for p in pages])
+
+    @app.post("/v1/ocr", dependencies=[Depends(require_token)], response_model_exclude_none=True)
+    async def ocr(
+        request: Request,
+        page: Annotated[int, Query(ge=1)] = 1,
+        agreement: bool = False,
+    ) -> TextResponse:
+        if ocr_engine is None:
+            raise WorkerError(503, {"error": "OCR is not available"})
+        data = await _read_body(request, settings.max_request_bytes)
+        request.state.body_bytes = len(data)
+        try:
+            result = await run_in_threadpool(
+                ocr_reader,
+                data,
+                page,
+                engine=ocr_engine,
+                agreement=agreement,
+                max_pages=settings.max_pages,
+                timeout_seconds=settings.timeout_seconds,
+            )
+        except InspectError as error:
+            raise _refusal(error, settings) from None
+        return TextResponse(pages=[_page_out(result)])
 
     @app.post("/v1/render", dependencies=[Depends(require_token)])
     async def render(
@@ -312,8 +346,14 @@ def _page_out(page: PageContent) -> PageOut:
         words=(
             None
             if page.words is None
-            else [WordOut(start=w.start, end=w.end, x=w.x, y=w.y, w=w.w, h=w.h) for w in page.words]
+            else [
+                WordOut(
+                    start=w.start, end=w.end, x=w.x, y=w.y, w=w.w, h=w.h, confidence=w.confidence
+                )
+                for w in page.words
+            ]
         ),
+        agreement=page.agreement,
     )
 
 

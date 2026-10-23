@@ -87,6 +87,8 @@ class Word:
     y: int
     w: int
     h: int
+    # How sure OCR was of the word, in thousandths. A text layer has no such thing.
+    confidence: int | None = None
 
 
 @dataclass(frozen=True)
@@ -106,12 +108,14 @@ class PageContent:
     height_pt: float
     fonts: tuple[FontFact, ...]
     words: tuple[Word, ...] | None
+    # Only for an OCR page when asked: per mille of the text layer's words OCR also read.
+    agreement: int | None = None
 
 
 # ------------------------------------------------------- text and word offsets ----
 
 
-def _is_noncharacter(character: str) -> bool:
+def is_noncharacter(character: str) -> bool:
     code = ord(character)
     return (code & 0xFFFE) == 0xFFFE or 0xFDD0 <= code <= 0xFDEF
 
@@ -164,7 +168,7 @@ def assemble_words(raw: str, box_at: Callable[[int], Box | None]) -> tuple[str, 
             character = "\n"
         elif (
             unicodedata.category(character) == "Cc" and character not in "\n\t"
-        ) or _is_noncharacter(character):
+        ) or is_noncharacter(character):
             utf16 += units
             index += 1
             continue
@@ -195,6 +199,19 @@ def assemble_words(raw: str, box_at: Callable[[int], Box | None]) -> tuple[str, 
 
 
 # -------------------------------------------------------------------- geometry ----
+
+
+def permille_span(low: float, high: float, size: float) -> tuple[int, int]:
+    """``(start, length)`` in thousandths of ``size`` for the stretch ``low`` to ``high``.
+
+    Rounded outwards (so it never covers less than what is measured), kept inside
+    0 to 1000, and at least one thousandth long.
+    """
+    start = math.floor(low * 1000 / size + 1e-9)
+    end = math.ceil(high * 1000 / size - 1e-9)
+    start = max(0, min(start, 999))
+    end = max(start + 1, min(end, 1000))
+    return start, end - start
 
 
 @dataclass(frozen=True)
@@ -262,11 +279,7 @@ class PageGeometry:
 
     @staticmethod
     def _span(low: float, high: float, size: float) -> tuple[int, int]:
-        start = math.floor(low * 1000 / size + 1e-9)
-        end = math.ceil(high * 1000 / size - 1e-9)
-        start = max(0, min(start, 999))
-        end = max(start + 1, min(end, 1000))
-        return start, end - start
+        return permille_span(low, high, size)
 
 
 # ----------------------------------------------------------------------- fonts ----

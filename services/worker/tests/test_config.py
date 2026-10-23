@@ -83,3 +83,54 @@ def test_the_worker_refuses_to_start_without_a_token(capsys: pytest.CaptureFixtu
     assert caught.value.code == 2
     err = capsys.readouterr().err
     assert "CLEARCUT_WORKER_TOKEN" in err
+
+
+# ---------- OCR is opt-in ----------
+
+
+def test_ocr_is_off_unless_the_program_is_named() -> None:
+    s = Settings.from_env(GOOD)
+    assert (s.tesseract, s.tessdata_dir) == (None, None)
+
+
+def test_the_program_and_its_data_can_be_named() -> None:
+    s = Settings.from_env(
+        {
+            **GOOD,
+            "CLEARCUT_WORKER_TESSERACT": "/usr/bin/tesseract",
+            "CLEARCUT_WORKER_TESSDATA": "/usr/share/tessdata",
+        }
+    )
+    assert (s.tesseract, s.tessdata_dir) == ("/usr/bin/tesseract", "/usr/share/tessdata")
+    assert Settings.from_env({**GOOD, "CLEARCUT_WORKER_TESSERACT": "tesseract"}).tesseract == (
+        "tesseract"
+    )
+
+
+@pytest.mark.parametrize("name", ["CLEARCUT_WORKER_TESSERACT", "CLEARCUT_WORKER_TESSDATA"])
+@pytest.mark.parametrize("value", ["", " ", " /x", "/x ", "a\nb", "a\x00b", "a\tb", "x" * 5000])
+def test_a_program_or_data_path_that_cannot_be_right_is_refused_and_named(
+    name: str, value: str
+) -> None:
+    env = {**GOOD, "CLEARCUT_WORKER_TESSERACT": "tesseract", name: value}
+    with pytest.raises(ConfigError, match=name):
+        Settings.from_env(env)
+
+
+def test_data_without_a_program_is_a_mistake_and_says_so() -> None:
+    with pytest.raises(ConfigError, match="CLEARCUT_WORKER_TESSDATA"):
+        Settings.from_env({**GOOD, "CLEARCUT_WORKER_TESSDATA": "/data"})
+
+
+def test_a_path_may_be_exactly_4096_characters_and_not_one_more() -> None:
+    long_enough = "/" + "x" * 4095
+    assert Settings.from_env({**GOOD, "CLEARCUT_WORKER_TESSERACT": long_enough}).tesseract == (
+        long_enough
+    )
+    with pytest.raises(ConfigError, match="CLEARCUT_WORKER_TESSERACT"):
+        Settings.from_env({**GOOD, "CLEARCUT_WORKER_TESSERACT": long_enough + "x"})
+
+
+def test_a_delete_character_in_a_path_is_refused_like_any_control_character() -> None:
+    with pytest.raises(ConfigError, match="CLEARCUT_WORKER_TESSERACT"):
+        Settings.from_env({**GOOD, "CLEARCUT_WORKER_TESSERACT": "/usr/bin/tess\x7fseract"})

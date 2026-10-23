@@ -114,7 +114,13 @@ def test_the_api_description_is_not_served_to_the_network(client: TestClient) ->
 
 def test_the_api_description_can_still_be_generated_for_the_contract_test() -> None:
     spec = create_app(settings()).openapi()
-    assert set(spec["paths"]) == {"/health", "/v1/inspect", "/v1/text", "/v1/render"}
+    assert set(spec["paths"]) == {
+        "/health",
+        "/v1/inspect",
+        "/v1/text",
+        "/v1/render",
+        "/v1/ocr",
+    }
 
 
 # ---------- inspect ----------

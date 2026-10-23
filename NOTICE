@@ -12,6 +12,9 @@ worker you distribute.
 
 Portions of this software are copyright (c) The FreeType Project (www.freetype.org). All rights reserved.
 
+When OCR is turned on the worker runs Tesseract (Apache-2.0) with the English and Afrikaans language data (Apache-2.0) and
+Leptonica (BSD-2-Clause), which are installed in the container image and not through pip. Keep their licence texts with the image.
+
 The worker also uses Pillow (MIT-CMU), which carries libjpeg-turbo, libpng, zlib-ng, FreeType, lcms2,
 libtiff, libwebp, libavif, openjpeg, brotli, harfbuzz and xz inside its wheels; their licence texts are in
 the wheel's dist-info/licenses folder. Keep them with any copy of the worker you distribute.

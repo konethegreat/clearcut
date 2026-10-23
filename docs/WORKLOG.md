@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 26) — P2-05 step 4: `POST /v1/ocr` and the OCR agreement
+**Done** (PR #51, `/v1/render`, merged first with CI green; tests first, no key)
+- `ocr.py` and the route: a page is drawn at 300 dpi and read by Tesseract in English and Afrikaans together; the answer is the text answer for one page with `source: ocr`, a confidence on every word and, with `agreement=true`, the share (per mille) of the PDF text layer's distinct words that OCR also read. OCR is off unless `CLEARCUT_WORKER_TESSERACT` is set; then the worker checks the program and both languages at start and will not start without them.
+- Tesseract runs with a fixed argument list, no shell, in the child's scratch directory, with a scrubbed environment and the request's deadline; its TSV is parsed strictly and every word cleaned.
+- With the real program (Tesseract 5.5.0 in a Debian container, about a second a page): an honest page agrees 1000; a page whose invisible text layer says 999.00 where the picture says 100.00 agrees 800; an Afrikaans scan is read exactly. The unit tests run on any machine against a stand-in program; five tests use the real one and are skipped where it is absent. CI installs it.
+- 904 tests in the worker (216 new; 14 skipped on Windows: 9 need Linux, 5 need Tesseract). Mutation check of about 135 breakages: every survivor was a missing test and is caught now, apart from a few equivalent cases.
+**Next**: step 5, `/v1/mask` (paint-only, so the image masker becomes real), then step 6 (`text_quality` in `clearcut-core`) and step 7 (the Rust client). Also queued, with Kone's go-ahead: the small docs PR answering the TimeLex request list in `docs/integration/timelex.md`.
+
 ## 2026-10-24 (part 25) — P2-05 step 3: `POST /v1/render` and picture documents
 **Done** (PR #50, `/v1/text`, merged first with CI green; tests first, no key)
 - `images.py`, `render.py` and the route: a PDF page (PDFium, forms not drawn) or a PNG/JPEG document comes back as a PNG, or a JPEG when the PNG is over 5 MiB, with the long side capped at 2 000 px unless `max_edge` is raised. The image is rebuilt from pixels, so EXIF, GPS, colour profiles and text chunks never leave (tests look for invented markers in the bytes). Sizes are checked before drawing or decoding: a header claiming 30 000 by 30 000 pixels is refused without being decoded.
