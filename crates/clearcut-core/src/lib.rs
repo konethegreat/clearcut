@@ -20,6 +20,7 @@ pub mod reading;
 pub mod redact;
 pub mod status;
 pub mod tax;
+pub mod text_quality;
 pub mod untrusted;
 
 pub use error::{Error, Result};
