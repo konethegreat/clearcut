@@ -85,6 +85,10 @@ const PHRASES: &[(&str, SuspicionKind)] = &[
     ("<page_text", SuspicionKind::SpoofsStructure),
     ("</system", SuspicionKind::SpoofsStructure),
     ("<system", SuspicionKind::SpoofsStructure),
+    ("</previous_attempt", SuspicionKind::SpoofsStructure),
+    ("<previous_attempt", SuspicionKind::SpoofsStructure),
+    ("</document_context", SuspicionKind::SpoofsStructure),
+    ("<document_context", SuspicionKind::SpoofsStructure),
     ("<|", SuspicionKind::SpoofsStructure),
     ("[inst]", SuspicionKind::SpoofsStructure),
 ];

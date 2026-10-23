@@ -60,7 +60,7 @@ fn the_rules_tell_the_model_what_is_data_and_what_to_return() {
         "Return only that JSON",
         "<page_text id=",
         "[REDACTED",
-        "<previous_attempt>",
+        "<previous_attempt id=",
         "amounts_include_vat",
         "day/month/year",
         "15%",

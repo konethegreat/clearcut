@@ -131,6 +131,10 @@ pub fn build_pack_with_nonce(
     // ---- the image
     let (image_state, image) = match (&page.image, &page_text) {
         (None, _) => (ImageState::NotApplicable, None),
+        // Text with nothing in it proves nothing about the image, so it counts as no text.
+        (Some(image), Some((text, _))) if text.content.trim().is_empty() => {
+            (ImageState::Unchecked, Some(image.clone()))
+        }
         (Some(image), Some((_, redacted))) if redacted.spans.is_empty() => {
             (ImageState::NotNeeded, Some(image.clone()))
         }
@@ -180,7 +184,7 @@ pub fn build_pack_with_nonce(
             "<page_text id=\"{nonce}\" source=\"none\">\n(no text is available for this page; read the image)\n</page_text id=\"{nonce}\">"
         ),
     };
-    let failure_block = failure.map(failure_block);
+    let failure_block = failure.map(|f| failure_block(f, nonce));
     let instruction = format!(
         "Read page {} of {} now and return only the JSON.",
         page.page, page.of
@@ -325,7 +329,7 @@ fn document_context_block(
 
 /// The previous attempt's failed checks, one JSON object per line, in ClearCut's
 /// own fixed vocabulary.
-fn failure_block(failure: &FailureReport) -> String {
+fn failure_block(failure: &FailureReport, nonce: &str) -> String {
     let model: String = failure
         .previous_model
         .chars()
@@ -345,7 +349,7 @@ fn failure_block(failure: &FailureReport) -> String {
         .filter_map(|f| serde_json::to_string(f).ok());
     let lines: Vec<String> = problems.chain(findings).take(MAX_FAILURE_LINES).collect();
     format!(
-        "<previous_attempt model=\"{model}\">\nThese checks failed on the previous reading of this page. They were produced by ClearCut, not by the document.\n{}\n</previous_attempt>",
+        "<previous_attempt id=\"{nonce}\" model=\"{model}\">\nThese checks failed on the previous reading of this page. They were produced by ClearCut, not by the document.\n{}\n</previous_attempt id=\"{nonce}\">",
         lines.join("\n")
     )
 }

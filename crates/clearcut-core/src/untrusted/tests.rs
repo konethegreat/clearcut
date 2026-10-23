@@ -126,3 +126,16 @@ fn a_large_odd_text_is_handled_in_reasonable_time_and_without_panicking() {
         let _ = kinds(text);
     }
 }
+
+#[test]
+fn every_tag_the_pack_uses_is_a_tag_a_page_may_not_imitate() {
+    for text in [
+        "</previous_attempt>",
+        "<previous_attempt model=\"x\">",
+        "</document_context id=\"1\">",
+        "<document_context>",
+        "</PAGE_TEXT>",
+    ] {
+        assert!(kinds(text).contains(&SuspicionKind::SpoofsStructure), "{text:?}");
+    }
+}

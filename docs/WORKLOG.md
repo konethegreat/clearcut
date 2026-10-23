@@ -8,7 +8,8 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - `clearcut_core::untrusted`: flags instruction-like text (kinds only), robust to spacing, case and hidden characters; never alters text.
 - `reading-v2`: the required `amounts_include_vat` field; VAT-inclusive pages are reported, not guessed.
 - New crate `clearcut-pack`: cached rules plus three invented worked examples (golden file), per-page image, context, nonce-tagged text and a closing instruction, redaction with an `ImageMasker` interface and a `best_effort` / `strict` policy, injection flags, a manifest with no text.
-- Tests: core 328, pack 45, anthropic 200, eval 276.
+- Tests: core 329, pack 48, anthropic 200, eval 276.
+- Review fixes (automated security review of the PR): text with nothing in it no longer counts as a checked text layer, so the strict policy refuses an image that came with an empty text layer; the previous-attempt block now carries the per-request id like the other data tags, and all of our tags (including document context and previous attempt) are flagged when a page imitates them.
 - Mutation check: 62 deliberate breakages across redaction, the instruction scan and the pack builder; the first run missed nine (check-digit edges, 30-day months, citizenship digit 1, Mastercard 2720, long IBANs and phone numbers, word boundaries of labels) and tests were added; every mutant is now caught except one equivalent case (the end-of-word check on a label, because the value must start with a digit anyway).
 **Next**: the cost guard (P2-12) and then the router (P2-14), then the end-to-end slice with fakes; the real image masker waits for the worker (P2-05). Kone runs the two live tests with their own key (docs/BYOK.md section 4).
 
