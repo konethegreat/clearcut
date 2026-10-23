@@ -1,5 +1,5 @@
 // Written by Kone Tshivhinda & Claude
-//! Reading amounts from label files exactly.
+//! Reading amounts exactly, from gold-set labels and from what a model read.
 //!
 //! People write `1500.00`, not `150000`, so labels hold decimal **text**. This
 //! module turns that text into integer minor units (cents) or thousandths
@@ -11,7 +11,7 @@
 //! Errors say what kind of mistake it was, never what the text was, because the
 //! text came from a real document.
 
-use clearcut_core::{Currency, Money};
+use crate::{Currency, Money};
 
 /// What was wrong with a piece of decimal text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

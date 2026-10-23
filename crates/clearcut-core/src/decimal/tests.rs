@@ -1,6 +1,6 @@
 // Written by Kone Tshivhinda & Claude
 use super::*;
-use clearcut_core::{Currency, Money};
+use crate::{Currency, Money};
 
 fn money(text: &str) -> Result<i64, DecimalError> {
     parse_scaled(text, 2)
