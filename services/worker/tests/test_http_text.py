@@ -39,7 +39,7 @@ def client() -> TestClient:
 
 
 def test_health_now_lists_text_among_the_things_the_worker_can_do(client: TestClient) -> None:
-    assert client.get("/health").json()["capabilities"] == ["inspect", "text", "render"]
+    assert client.get("/health").json()["capabilities"] == ["inspect", "text", "render", "mask"]
 
 
 # ---------- authentication ----------
