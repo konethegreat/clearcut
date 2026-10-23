@@ -1,6 +1,6 @@
 # ADR-0015: The try-it deployment
 
-Status: **Proposed** · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-23, with all seven recommended answers; the first release is the local path only) · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
 Task P1-09 (with P1-07). Builds on [ADR-0011](0011-bring-your-own-anthropic-key.md) (the key; this adds a third way to hold it), [ADR-0007](0007-auth-and-row-level-security.md) (tenants and row-level security), [ADR-0009](0009-worker-and-provider-boundary.md) (the worker never sees a key and has no internet), [ADR-0014](0014-context-pack-builder.md) (redaction policy). Free-tier facts were read on 23 Oct 2026 from the providers' pages and third-party summaries; several have changed recently, so **each is to be re-checked on the provider's own site before relying on it**. Design only; nothing is built until this is approved, and the trial is only useful once the end-to-end slice (upload to events) exists, so the build order puts this after it.
 
 ## What it is
@@ -88,3 +88,12 @@ Needs: the Rust server (small), the Python worker (a few hundred megabytes, more
 5. **Redaction policy `best_effort`** for the trial until the image masker exists: agreed?
 6. **Per-address limit and an `Origin` check** on the key endpoint so it cannot be used to test stolen keys: agreed?
 7. **Who runs the hosted trial** (you, as the responsible party), or should the first release be the local path only? (Not blocking approval of the design.)
+
+## Decisions (Kone's answers to the seven questions)
+1. **One codebase, two modes** (`local` and `trial`); the local compose path is the recommended way to try it.
+2. **Mode C keeps the key in server memory only;** the browser keeps just an opaque cookie.
+3. **Hosted trial on an Oracle Always Free VM** with Caddy and a Cloudflare Tunnel, Cloud Run with one instance as fallback.
+4. **Ephemeral rules:** delete on Remove, after 30 idle minutes or 4 hours, samples first, a consent tick-box, R20 per session.
+5. **Redaction policy `best_effort`** for the trial until the image masker exists.
+6. **Per-address limit and an `Origin` check** on the key endpoint.
+7. **The first release is the local path only.** The hosted trial waits until Kone decides who runs it (the POPIA responsible party, privacy notice, Information Officer); the design stays accepted so it can follow without a new decision.
