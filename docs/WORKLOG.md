@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-23 (part 20) — ADR-0016: page text, page images and text quality (P2-05), proposed
+**Done** (docs only; PR #45, ADR-0015 the try-it deployment, merged first with CI green; first release is the local path only)
+- Read the worker (`inspect`, isolation, config) and the licences of the candidate libraries on PyPI. **Corrected ADR-0009: PyMuPDF is AGPL-3.0 (or commercial) and is replaced by pypdfium2 (BSD-3 / Apache-2.0); no GPL, LGPL-linked or AGPL code in the worker image, enforced by a CI licence allowlist.**
+- ADR-0016 (Proposed): stateless `/v1/text` (batches, word boxes in per-mille and UTF-8 byte offsets, font facts), `/v1/ocr` (Tesseract `eng` and `afr` run directly), `/v1/render` (150 dpi PNG, JPEG fallback under 5 MiB, metadata always dropped), `/v1/mask` (paint-only, so the image masker becomes real), PNG and JPEG documents; the isolation changes for bigger answers; **the worker reports facts and `clearcut-core` decides a text-quality verdict** (`Good`, `NeedsCheck`, `Unusable`) with provisional thresholds; an OCR agreement check on page 1 and on every `NeedsCheck` page; an unusable text layer is replaced by OCR text. Stated plainly: detection reports evidence, not certainty (digit-only scrambles need the image read and the P2-13c cross-check).
+**Next**: Kone's answers to the seven questions at the end of the ADR; then build in small PRs, tests first. Real obfuscated PDF samples from Kone are wanted for the P2-20 spike but do not block this.
+
 ## 2026-10-23 (part 19) — ADR-0015: the try-it deployment (P1-09), proposed
 **Done** (docs only; PR #44, the context-pack builder, merged first with CI green after two review fixes)
 - Read the free-tier terms of Oracle Cloud, Google Cloud Run, Render, Koyeb, Hugging Face Spaces, Fly.io, Neon and Cloudflare R2 (several changed recently; flagged to re-check on each provider's own site).
