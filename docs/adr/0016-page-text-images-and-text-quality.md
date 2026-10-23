@@ -1,6 +1,6 @@
 # ADR-0016: Page text, page images and text quality
 
-Status: **Proposed** · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-23, with all seven recommended answers below) · Date: 2026-10-23 · Deciders: Kone Tshivhinda, Claude
 Task P2-05, with the **detection half of P2-20** (glyph-scrambled PDFs) and the worker half of the image masker promised in [ADR-0014](0014-context-pack-builder.md). Builds on [ADR-0009](0009-worker-and-provider-boundary.md) (what the worker is and is not), [ADR-0014](0014-context-pack-builder.md) (what a pack needs per page), [ADR-0013](0013-model-facing-reading-shape.md), and [research 06](../research/06-anthropic-api.md) §7 (images). Licences were read on PyPI and the projects' pages on 23 Oct 2026. Design only; nothing is built until this is approved. P2-20 asks for a spike on real samples before its design is fixed: this ADR fixes only how a bad text layer is **noticed**, with thresholds marked provisional until real samples exist.
 
 ## What it is
@@ -109,3 +109,12 @@ The existing child-process design (spawned fresh interpreter, hard time limit wi
 5. **Word boxes in per-mille, UTF-8 byte offsets, and a paint-only `/v1/mask`** so the image masker becomes real: agreed?
 6. **OCR agreement check on page 1 of every PDF and on every `NeedsCheck` page:** agreed?
 7. **Fixtures generated at test time** (reportlab and fontTools as test-only dependencies) and Tesseract installed in CI: agreed? (Real obfuscated samples from you are wanted for the P2-20 spike but do not block this.)
+
+## Decisions (Kone's answers to the seven questions)
+1. **pypdfium2 replaces PyMuPDF** (with pypdf and Pillow); **Tesseract** (`eng` and `afr`) is called directly; **permissive licences only**, checked in CI.
+2. **Stateless endpoints**, text in batches of up to 50 pages.
+3. **The worker reports facts; `clearcut-core` decides the text-quality verdict,** thresholds provisional until real obfuscated samples exist.
+4. **Image policy:** 150 dpi, PNG, JPEG fallback under 5 MiB, long edge at most 2 000 px, metadata always dropped, PNG and JPEG accepted as documents.
+5. **Word boxes in per-mille, UTF-8 byte offsets, and a paint-only `/v1/mask`.**
+6. **OCR agreement check** on page 1 of every PDF and on every `NeedsCheck` page.
+7. **Fixtures generated at test time** (reportlab and fontTools, test-only) and Tesseract installed in CI.
