@@ -170,3 +170,16 @@ def report_session(conn: AnswerChannel) -> None:
     leads = os.getsid(0) == os.getpid() and os.getpgrp() == os.getpid()
     conn.send_bytes(b"leader" if leads else b"member")
     conn.close()
+
+
+def leave_an_escaped_helper_holding_the_pipe(conn: AnswerChannel, seconds: float) -> None:
+    """Starts a helper in a session of its own (so a group signal cannot reach it) that holds
+    the answer pipe for a while, then exits without answering (POSIX only)."""
+    if sys.platform == "win32":
+        raise RuntimeError("POSIX only")
+    pid = os.fork()
+    if pid == 0:
+        os.setsid()
+        time.sleep(seconds)
+        os._exit(0)
+    os._exit(0)

@@ -236,10 +236,17 @@ def run_in_child(
         outcome: dict[str, bytes] = {}
 
         def read_answer() -> None:
-            with contextlib.suppress(EOFError, OSError):
-                outcome["bytes"] = receiver.recv_bytes(max_answer_bytes)
+            # The reader owns its end of the pipe and closes it itself, when it is done.
+            # Closing it from another thread while this one is still inside a read could
+            # leave the read working on a descriptor number that by then belongs to some
+            # other request's pipe.
+            try:
+                with contextlib.suppress(EOFError, OSError):
+                    outcome["bytes"] = receiver.recv_bytes(max_answer_bytes)
+            finally:
+                receiver.close()
 
-        reader = threading.Thread(target=read_answer, daemon=True)
+        reader = threading.Thread(target=read_answer, name="clearcut-answer-reader", daemon=True)
         reader.start()
         try:
             reader.join(timeout_seconds + grace_seconds)
@@ -250,8 +257,10 @@ def run_in_child(
             return outcome["bytes"]
         finally:
             _kill_tree(process)
-            receiver.close()
-            process.join(5)
+            # A helper that inherited the child's end of the exit signal keeps ``join``
+            # waiting until it ends too, so this wait is short; an unreaped child is
+            # collected the next time a process is started.
+            process.join(2)
             if reader.is_alive():
                 reader.join(1)
             if reader.is_alive():
