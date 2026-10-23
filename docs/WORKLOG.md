@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 28) — P2-05 step 6: `text_quality` in `clearcut-core`
+**Done** (PR #53, `/v1/mask`, merged first with CI green; tests first, no key)
+- `clearcut_core::text_quality`: measures of a page's text (bad, private-use and control characters; shares of letters, digits and punctuation; Latin words of three letters or more, those without a vowel and those with a capital inside; the longest unbroken run; 19 English and Afrikaans invoice keywords) and a verdict from the evidence the worker reports: `Unusable` for no text, 5% or more replacement or private-use characters, or an OCR agreement under 500; with an agreement, 850 or more is `Good` and between is `NeedsCheck`; without one, a risky font (Type 3, or a custom or identity encoding with no Unicode map) together with weak text (no keyword, or over three in ten words without a vowel) is `NeedsCheck`, else `Good`. Reasons are a fixed vocabulary and the answer never holds any of the text. Thresholds are provisional constants.
+- Tests show what it does not catch, on purpose: a scrambled alphabet from ordinary-looking fonts and digits swapped for other digits pass the text measures; only the OCR agreement settles those.
+- 378 tests in core (49 new). Mutation check of about 85 breakages by hand (cargo-mutants is not installed and was not added): the first pass left 25 boundary cases, now covered by tests of every range edge and accented vowel; two dead checks were simplified.
+**Next**: step 7, the Rust side of the worker boundary: `DocumentProcessor` gains `page_texts`, `ocr_page`, `render_page` and `mask_image` (and picture kinds), `HttpWorker` and `FakeWorker` follow with the same error mapping, and `WorkerMasker` implements ADR-0014's `ImageMasker`. Also queued, with Kone's go-ahead: the small docs PR answering the TimeLex request list.
+
 ## 2026-10-24 (part 27) — P2-05 step 5: `POST /v1/mask`
 **Done** (PR #52, `/v1/ocr`, merged first with CI green; tests first, no key)
 - `mask.py` and the route: a PNG or JPEG (base64 in a JSON body) and up to 500 boxes in thousandths of the picture; the boxes are rounded outwards to whole pixels and painted pure black, and the picture comes back rebuilt from pixels only, so nothing under a box and no metadata or transparency survives. The worker has no rules: which words to hide is for `clearcut-core`. The body is JSON, not a raw PNG as the ADR table says (500 boxes do not fit in a query string or a header); recorded in the ADR notes.
