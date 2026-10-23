@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-23 (part 16) — P2-13b: the model-facing reading shape, built
+**Done** (ADR-0013 accepted first, PR #41; then tests first, no key, no live call)
+- The strict decimal reader moved from `clearcut-eval` into `clearcut-core::decimal` with its tests; eval re-exports it.
+- `clearcut_core::reading`: `PageReading` (flat, every field required, text values), its JSON Schema (written in place, plain enums, 0 optional and 0 union properties against the API's 24 and 16), and `into_extraction`, which parses exactly, attaches page and confidence from the caller, and leaves out and reports (never repairs) anything unreadable.
+- Schema tests in `clearcut-anthropic` (accepted by the adapter profile, nothing removed, golden file) and a round trip of all 15 synthetic gold-set cases, including the two multi-page ones, through the text shape and back.
+- Tests: core 292, eval 276, anthropic 200.
+- Mutation check: 36 deliberate breakages of the conversion code (caps, date rules, currency, tax mapping, group rules, page and confidence); the first run missed four (single-character date errors and a VAT number alone), tests were added, and every mutant is now caught.
+**Next**: the context-pack builder and prompt that use this schema (P2-16b), merging pages (P2-07), P2-13c (check amounts against the page's own text), P2-24 (rate-limit-aware client), P2-12 (cost guardrails), P2-14 (router); Kone runs the two live tests with their own key (docs/BYOK.md section 4).
+
 ## 2026-10-23 (part 15) — ADR-0013: the model-facing reading shape (P2-13b), proposed
 **Done** (docs only; PR #40, the adapter, merged first with CI green)
 - Measured the risk flagged in ADR-0012: the real adapter profile run over the `schemars` schema for core's `Extraction` is **refused with 30 union-typed properties (limit 16)**. The measurement scaffolding was temporary and was removed.

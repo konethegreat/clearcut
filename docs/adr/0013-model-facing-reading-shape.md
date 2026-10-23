@@ -89,3 +89,18 @@ Boundary: this converts **one page into an `Extraction`**, which is complete for
 4. **A value that cannot be converted is left out and reported as a problem, never repaired;** any problem sends the page to review.
 5. **Unit prices with more than two decimals are a review problem in v1.**
 6. **P2-13c is added to the roadmap.**
+
+## Implementation notes (P2-13b)
+Built tests-first. What differs from, or is decided beyond, the text above:
+
+1. **Where things live.** `clearcut_core::decimal` (moved from `clearcut-eval`, which re-exports it, with its 15 tests), `clearcut_core::reading` (the shape, `ConversionContext`, `ReadingProblem`, `into_extraction`, and `reading_schema()` behind the `schemars` feature). The schema checks and the golden file live in `clearcut-anthropic/tests` (they need the adapter's profile); the gold-set round trip lives in `clearcut-eval/tests` (it needs the sample labels).
+2. **The schema is generated with sub-schemas written in place** (no `$ref`, no `$defs`), and the enums carry their explanation on the type, not on each variant, so each enum is a plain `enum` and not a `oneOf`. With variant comments the generator emitted a union per enum; the profile counted them, so this is what keeps unions at exactly 0. The generated schema is committed as `tests/reading-v1.schema.json` and compared on every run; `UPDATE_GOLDEN=1` rewrites it after a deliberate change (and `READING_SHAPE_VERSION` must change with it).
+3. **A currency that differs from the one already known for the document is an error** (`ConversionError::CurrencyMismatch`), not a problem entry. Section 2 said "a problem, not an override"; with amounts parsed in one currency, carrying on after a mismatch would label amounts with the wrong currency, so the page is refused whole and goes to review.
+4. **Group rules.** Totals are all three or none (`InvoiceTotals` cannot hold a part), a due date needs its date (terms alone are `incomplete`), a credit note needs both its invoice number and its amount, a party needs a name. Each is reported as `incomplete` and the group is left out. An over-long or control-character value inside a group leaves out that value (or the whole line, or the whole party if it is the name) and says which.
+5. **Line quantity.** The schema tells the model to write `1` when a line shows only an amount, and to repeat the amount as the unit price. Rust never defaults: an empty quantity is `missing_required`.
+6. **Dates** must be exactly `YYYY-MM-DD` in ASCII digits, a real calendar date, and in the years 1990 to 2100 (a typo such as `0026` is far likelier than an invoice from the year 26).
+7. **Text** is trimmed; control characters other than a new line are refused; lengths are counted in characters (invoice number 100, name 200, address 500, VAT number 50, description 500, terms 500); at most 200 lines per page are kept and the surplus is reported.
+8. **The gold-set round trip** writes each of the 15 synthetic cases (two of them multi-page) out as the text a model would return, page by page, through JSON, converts, merges, and requires exactly the label's extraction. It passes.
+9. **Mutation check:** 36 deliberate breakages of the conversion code (caps, date rules, currency, tax mapping, group rules, page and confidence); the first run missed four (single-character date errors and a VAT number alone), tests were added, and every mutant is now caught.
+
+**Not done here, by design:** a prompt or context pack that uses this schema (P2-16b), merging pages of one document in production (P2-07; the round-trip test contains a test-only merge), the text-layer cross-check (P2-13c), and sending anything to Anthropic.

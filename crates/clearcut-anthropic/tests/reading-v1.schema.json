@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Everything printed on one page of a document, as text. Empty text or an\nempty list means \"not shown on this page\". Never guess a value that is not\nprinted, and copy numbers exactly.",
+  "properties": {
+    "credit_note": {
+      "additionalProperties": false,
+      "description": "The credited invoice, if this is a credit note.",
+      "properties": {
+        "amount": {
+          "description": "The credited amount, written like a unit price.",
+          "type": "string"
+        },
+        "original_invoice_number": {
+          "description": "The number of the invoice being credited, as printed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "original_invoice_number",
+        "amount"
+      ],
+      "type": "object"
+    },
+    "currency": {
+      "description": "The currency of the amounts on this page.",
+      "enum": [
+        "ZAR",
+        "USD",
+        "EUR",
+        "GBP",
+        "not_shown"
+      ],
+      "type": "string"
+    },
+    "due": {
+      "additionalProperties": false,
+      "description": "The due date and terms, if printed on this page.",
+      "properties": {
+        "date": {
+          "description": "The due date as YYYY-MM-DD (South African dates are day/month/year).\nEmpty if no due date is printed.",
+          "type": "string"
+        },
+        "terms": {
+          "description": "The payment terms as printed, such as \"30 days\". Empty if none.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "date",
+        "terms"
+      ],
+      "type": "object"
+    },
+    "invoice_date": {
+      "description": "The invoice date as YYYY-MM-DD (South African dates are day/month/year).\nEmpty if not on this page.",
+      "type": "string"
+    },
+    "invoice_number": {
+      "description": "The invoice or credit note number as printed. Empty if not on this page.",
+      "type": "string"
+    },
+    "lines": {
+      "description": "The line items on this page, in order. Empty if none.",
+      "items": {
+        "additionalProperties": false,
+        "description": "One line item as printed.",
+        "properties": {
+          "description": {
+            "description": "The description as printed.",
+            "type": "string"
+          },
+          "line_total": {
+            "description": "The line amount excluding VAT, written the same way.",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "The quantity: digits and at most one dot, at most 3 decimals, such as 2 or 1.5.\nIf the line shows only an amount and no quantity, write 1.",
+            "type": "string"
+          },
+          "tax": {
+            "description": "How the page shows this line is taxed.",
+            "enum": [
+              "standard",
+              "zero_rated",
+              "exempt",
+              "out_of_scope",
+              "not_shown"
+            ],
+            "type": "string"
+          },
+          "unit_price": {
+            "description": "The price of one unit excluding VAT: digits and at most one dot, at most 2\ndecimals, no thousands separators, no currency symbol, a leading minus for\na negative amount, such as 1500.00. If only a line amount is printed,\nrepeat it here.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "quantity",
+          "unit_price",
+          "line_total",
+          "tax"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "recipient": {
+      "additionalProperties": false,
+      "description": "Who the document is addressed to.",
+      "properties": {
+        "address": {
+          "description": "The address as printed. Empty if none.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name as printed. Empty if no party is shown.",
+          "type": "string"
+        },
+        "vat_number": {
+          "description": "The VAT registration number as printed. Empty if none.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "address",
+        "vat_number"
+      ],
+      "type": "object"
+    },
+    "supplier": {
+      "additionalProperties": false,
+      "description": "Who issued the document.",
+      "properties": {
+        "address": {
+          "description": "The address as printed. Empty if none.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name as printed. Empty if no party is shown.",
+          "type": "string"
+        },
+        "vat_number": {
+          "description": "The VAT registration number as printed. Empty if none.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "address",
+        "vat_number"
+      ],
+      "type": "object"
+    },
+    "totals": {
+      "additionalProperties": false,
+      "description": "The totals, if printed on this page.",
+      "properties": {
+        "gross": {
+          "description": "The total including VAT, written like a unit price. Empty if not printed.",
+          "type": "string"
+        },
+        "net": {
+          "description": "The total excluding VAT, written like a unit price. Empty if not printed.",
+          "type": "string"
+        },
+        "vat": {
+          "description": "The VAT amount, written like a unit price. Empty if not printed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "net",
+        "vat",
+        "gross"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "currency",
+    "invoice_number",
+    "invoice_date",
+    "supplier",
+    "recipient",
+    "lines",
+    "totals",
+    "due",
+    "credit_note"
+  ],
+  "title": "PageReading",
+  "type": "object"
+}
