@@ -289,3 +289,40 @@ def test_the_watchdog_does_not_outlive_the_call() -> None:
     run(children.big_answer, 5)
     time.sleep(0.2)
     assert threading.active_count() <= before
+
+
+@LINUX_ONLY
+def test_the_child_leads_its_own_process_group_so_its_helpers_can_be_stopped_with_it() -> None:
+    assert run(children.report_session) == b"leader"
+
+
+@LINUX_ONLY
+def test_a_helper_process_holding_the_pipe_open_cannot_keep_the_parent_waiting(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    pid_file = tmp_path / "grandchild.pid"
+    started = time.monotonic()
+    with pytest.raises(TooSlow):
+        run(
+            children.leave_a_grandchild_holding_the_pipe,
+            str(pid_file),
+            timeout_seconds=0.5,
+            grace_seconds=0.5,
+        )
+    assert time.monotonic() - started < 15, "the parent must not wait for the pipe to close"
+    grandchild = int(pid_file.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 10
+    gone = False
+    while time.monotonic() < deadline and not gone:
+        try:
+            os.kill(grandchild, 0)
+            # A zombie still answers signal 0; it is gone for our purposes if it is not running.
+            state = Path(f"/proc/{grandchild}/stat").read_text(encoding="utf-8").split(") ")[1][0]
+            gone = state == "Z"
+        except (ProcessLookupError, FileNotFoundError):
+            gone = True
+        if not gone:
+            time.sleep(0.1)
+    assert gone, "the helper process was left running"

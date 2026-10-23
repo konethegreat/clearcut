@@ -27,9 +27,11 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+import logging
 import math
 import multiprocessing
 import os
+import signal
 import sys
 import tempfile
 import threading
@@ -49,6 +51,8 @@ from .inspect import (
     inspect_pdf,
 )
 from .limits import ChildLimits, apply_limits, scrub_environment
+
+log = logging.getLogger("clearcut_worker")
 
 # The child's whole answer is smaller than this. Anything longer is refused.
 _MAX_ANSWER_BYTES = 256
@@ -150,6 +154,10 @@ def _child_entry(
     file is printed anywhere.
     """
     try:
+        # Lead a session and a process group of its own, so that the parent can stop
+        # the child and everything it starts in one signal (there is no such thing on Windows).
+        if sys.platform != "win32":
+            os.setsid()
         # Relative entries on the module path would stop resolving after the move.
         sys.path[:] = [os.path.abspath(entry) for entry in sys.path]
         scrub_environment(os.environ)
@@ -161,6 +169,23 @@ def _child_entry(
         target(conn, *args)
     except BaseException:
         os._exit(1)
+
+
+def _kill_tree(process: multiprocessing.process.BaseProcess) -> None:
+    """Stops the child and, where there are process groups, everything it started.
+
+    A child that has been taken over can start helper processes that keep the
+    answer pipe open; killing only the child would leave the parent waiting on a
+    pipe that never closes. The child leads its own process group, so one signal
+    reaches them all. This runs before the child is reaped, so its process id
+    cannot have been given to anyone else.
+    """
+    pid = process.pid
+    if sys.platform != "win32" and pid is not None:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            if os.getpgid(pid) == pid:
+                os.killpg(pid, signal.SIGKILL)
+    process.kill()
 
 
 def run_in_child(
@@ -203,32 +228,36 @@ def run_in_child(
         # Close the parent's copy of the child's end, so that a child that dies is
         # seen as end-of-file instead of silence.
         sender.close()
-        # Waiting for the first byte is not a deadline for the whole answer: a child
-        # that has been taken over can start a message and never finish it, which would
-        # leave the parent blocked in ``recv_bytes`` for ever. So a watchdog kills the
-        # child at the deadline; the pipe then ends and the read fails.
-        expired = threading.Event()
+        # The deadline covers the whole answer, not just its first byte: a child that has
+        # been taken over can start a message and never finish it, or leave a helper
+        # process holding the pipe open after it has been killed. So the read happens in
+        # a helper thread that the parent waits for with a time limit; whatever happens
+        # to the pipe, the parent is never stuck in it.
+        outcome: dict[str, bytes] = {}
 
-        def stop_the_child() -> None:
-            expired.set()
-            process.kill()
+        def read_answer() -> None:
+            with contextlib.suppress(EOFError, OSError):
+                outcome["bytes"] = receiver.recv_bytes(max_answer_bytes)
 
-        watchdog = threading.Timer(timeout_seconds + grace_seconds, stop_the_child)
-        watchdog.daemon = True
-        watchdog.start()
+        reader = threading.Thread(target=read_answer, daemon=True)
+        reader.start()
         try:
-            if not receiver.poll(timeout_seconds + grace_seconds):
+            reader.join(timeout_seconds + grace_seconds)
+            if reader.is_alive():
                 raise TooSlow
-            try:
-                return receiver.recv_bytes(max_answer_bytes)
-            except (EOFError, OSError):
-                raise (TooSlow if expired.is_set() else Unreadable) from None
+            if "bytes" not in outcome:
+                raise Unreadable
+            return outcome["bytes"]
         finally:
-            watchdog.cancel()
+            _kill_tree(process)
             receiver.close()
-            if process.is_alive():
-                process.kill()
             process.join(5)
+            if reader.is_alive():
+                reader.join(1)
+            if reader.is_alive():
+                # Only a helper that left the process group still holds the pipe; the
+                # container's limits (no network, a process limit) are what contain it.
+                log.warning("an answer reader is still blocked after the child was stopped")
 
 
 def inspect_isolated(
