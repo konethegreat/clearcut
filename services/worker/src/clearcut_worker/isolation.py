@@ -24,10 +24,18 @@ the parent's state. Memory limits for the child belong to the container
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import json
+import math
 import multiprocessing
+import os
+import sys
+import tempfile
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Protocol, TypeGuard
 
 from .inspect import (
@@ -40,6 +48,7 @@ from .inspect import (
     Unreadable,
     inspect_pdf,
 )
+from .limits import ChildLimits, apply_limits, scrub_environment
 
 # The child's whole answer is smaller than this. Anything longer is refused.
 _MAX_ANSWER_BYTES = 256
@@ -66,7 +75,11 @@ class AnswerChannel(Protocol):
     def close(self) -> None: ...
 
 
-ChildTarget = Callable[[AnswerChannel, bytes, int, float], None]
+# What runs in the child: it is given its end of the pipe, then the arguments.
+ChildTarget = Callable[..., None]
+
+# The limits a child runs under unless told otherwise.
+DEFAULT_LIMITS = ChildLimits()
 
 
 def _child_main(conn: AnswerChannel, data: bytes, max_pages: int, timeout_seconds: float) -> None:
@@ -88,6 +101,122 @@ def _child_main(conn: AnswerChannel, data: bytes, max_pages: int, timeout_second
         conn.close()
 
 
+# Only one child is being started at a time while the environment is swapped.
+_START_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def clean_environment_for_start() -> Iterator[None]:
+    """Makes the worker's own environment the scrubbed one while a child is started.
+
+    A child inherits the environment of the moment it is started, and a program
+    keeps that starting block (on Linux it can be read from ``/proc/self/environ``)
+    whatever it later removes from ``os.environ``. So scrubbing inside the child
+    is not enough: the secrets must not be in the environment when the child is
+    created. For the instant that takes, the worker's variables other than the
+    allowlist are set aside, and they are put back afterwards, also if starting
+    fails. The lock makes concurrent starts take turns.
+    """
+    with _START_LOCK:
+        saved = dict(os.environ)
+        removed = scrub_environment(os.environ)
+        try:
+            yield
+        finally:
+            for name in removed:
+                os.environ[name] = saved[name]
+
+
+def effective_limits(
+    limits: ChildLimits, *, timeout_seconds: float, grace_seconds: float
+) -> ChildLimits:
+    """The limits to give a child: never more processor time than the parent will wait for."""
+    ceiling = math.ceil(timeout_seconds + grace_seconds) + 1
+    return dataclasses.replace(limits, cpu_seconds=min(limits.cpu_seconds, ceiling))
+
+
+def _child_entry(
+    target: ChildTarget,
+    conn: AnswerChannel,
+    args: tuple[object, ...],
+    limits: ChildLimits | None,
+    limiter: Callable[[ChildLimits], object],
+    workdir: str,
+) -> None:
+    """What every child runs first: shed secrets, move into its own directory, set its limits.
+
+    Anything that goes wrong here ends the child with no answer and **no
+    message**: the parent reports an unreadable document, and nothing about the
+    file is printed anywhere.
+    """
+    try:
+        # Relative entries on the module path would stop resolving after the move.
+        sys.path[:] = [os.path.abspath(entry) for entry in sys.path]
+        scrub_environment(os.environ)
+        os.chdir(workdir)
+        for name in ("TMPDIR", "TEMP", "TMP"):
+            os.environ[name] = workdir
+        if limits is not None:
+            limiter(limits)
+        target(conn, *args)
+    except BaseException:
+        os._exit(1)
+
+
+def run_in_child(
+    target: ChildTarget,
+    args: tuple[object, ...],
+    *,
+    timeout_seconds: float,
+    max_answer_bytes: int,
+    grace_seconds: float = 2.0,
+    limits: ChildLimits | None = None,
+    limiter: Callable[[ChildLimits], object] = apply_limits,
+    workdir_parent: Path | None = None,
+) -> bytes:
+    """Runs ``target(conn, *args)`` in a child process; returns the bytes it sends back.
+
+    The child starts with a scrubbed environment, in a private scratch directory
+    that is deleted afterwards (even if the child is killed), under ``limits``
+    when given. The parent waits ``timeout_seconds`` plus a short grace period,
+    then kills it (``TooSlow``). A child that dies, answers more than
+    ``max_answer_bytes``, or fails to set its limits gives ``Unreadable``.
+    Nothing is unpickled: the answer is bytes, and the caller checks it.
+    """
+    child_limits = (
+        None
+        if limits is None
+        else effective_limits(limits, timeout_seconds=timeout_seconds, grace_seconds=grace_seconds)
+    )
+    context = multiprocessing.get_context("spawn")
+    with tempfile.TemporaryDirectory(
+        prefix="clearcut-worker-", dir=workdir_parent, ignore_cleanup_errors=True
+    ) as workdir:
+        receiver, sender = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_child_entry,
+            args=(target, sender, args, child_limits, limiter, workdir),
+            daemon=True,
+        )
+        with clean_environment_for_start():
+            process.start()
+        # Close the parent's copy of the child's end, so that a child that dies is
+        # seen as end-of-file instead of silence.
+        sender.close()
+        try:
+            if not receiver.poll(timeout_seconds + grace_seconds):
+                raise TooSlow
+            try:
+                return receiver.recv_bytes(max_answer_bytes)
+            except (EOFError, OSError):
+                raise Unreadable from None
+        finally:
+            receiver.close()
+            if process.is_alive():
+                process.kill()
+            process.join(5)
+
+
 def inspect_isolated(
     data: bytes,
     max_pages: int,
@@ -95,6 +224,7 @@ def inspect_isolated(
     *,
     grace_seconds: float = 2.0,
     target: ChildTarget = _child_main,
+    limits: ChildLimits | None = DEFAULT_LIMITS,
 ) -> Inspection:
     """Inspects ``data`` in a child process, killing it if it overruns.
 
@@ -103,28 +233,15 @@ def inspect_isolated(
     and answer, then kills it. ``target`` exists so tests can stand in a
     misbehaving child.
     """
-    context = multiprocessing.get_context("spawn")
-    receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(
-        target=target, args=(sender, data, max_pages, timeout_seconds), daemon=True
+    raw = run_in_child(
+        target,
+        (data, max_pages, timeout_seconds),
+        timeout_seconds=timeout_seconds,
+        max_answer_bytes=_MAX_ANSWER_BYTES,
+        grace_seconds=grace_seconds,
+        limits=limits,
     )
-    process.start()
-    # Close the parent's copy of the child's end, so that a child that dies is
-    # seen as end-of-file instead of silence.
-    sender.close()
-    try:
-        if not receiver.poll(timeout_seconds + grace_seconds):
-            raise TooSlow
-        try:
-            raw = receiver.recv_bytes(_MAX_ANSWER_BYTES)
-        except (EOFError, OSError):
-            raise Unreadable from None
-        return _decode(raw, max_pages)
-    finally:
-        receiver.close()
-        if process.is_alive():
-            process.kill()
-        process.join(5)
+    return _decode(raw, max_pages)
 
 
 def _decode(raw: bytes, max_pages: int) -> Inspection:

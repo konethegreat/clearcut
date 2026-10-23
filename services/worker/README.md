@@ -30,9 +30,20 @@ bytes, never by the caller's `Content-Type`), `422` encrypted, damaged, or over 
 The worker never repeats anything from the file in an error or a log line, and a caller cannot forge a log line
 (control characters in a path are escaped).
 
-**Every inspection runs in a child process** that the worker kills if it overruns the timeout (plus a 2 second
-grace), so a hostile file cannot keep the worker busy or crash it. The child reports back in a few bytes of JSON
-that are checked field by field and never unpickled. Memory limits belong to the container.
+**Every document is handled in a child process** that the worker kills if it overruns the timeout (plus a 2 second
+grace), so a hostile file cannot keep the worker busy or crash it. The child:
+
+- is **started with a scrubbed environment** (only a short allowlist survives; the worker's other variables are set aside
+  for the instant the child is created), so it cannot read the bearer token or any other secret, not even from the block
+  of environment it started with, and neither can a program it starts;
+- works in its own **scratch directory**, deleted afterwards even if the child was killed;
+- runs under **limits** set before it touches the file (Linux; Windows has none, so there the container is the limit):
+  memory, processor time, open files, the size of any file it writes, and no core dumps. A limit that cannot be set
+  stops the child before it opens the document;
+- reports back **bytes** with a size cap (a few hundred bytes for an inspection, megabytes for a page later) that
+  are checked by the parent and never unpickled.
+
+The container (P1-07) adds the rest: non-root user, read-only file system, no network, no credentials.
 
 The API description is not served over HTTP. For the contract test it is generated in code:
 `create_app(settings).openapi()`.
