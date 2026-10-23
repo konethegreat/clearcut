@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-23 (part 15) — ADR-0013: the model-facing reading shape (P2-13b), proposed
+**Done** (docs only; PR #40, the adapter, merged first with CI green)
+- Measured the risk flagged in ADR-0012: the real adapter profile run over the `schemars` schema for core's `Extraction` is **refused with 30 union-typed properties (limit 16)**. The measurement scaffolding was temporary and was removed.
+- ADR-0013 (Proposed): a flat per-page `PageReading` with every field required (0 optional, 0 union), amounts, quantities and dates as strict text, nothing from the model for page, locator, confidence, document or extractor; a pure conversion in `clearcut-core` that parses exactly, leaves out (never repairs) what it cannot read and reports a fixed-vocabulary problem; the decimal parser moves from `clearcut-eval` into core so labels and model output are read by the same code. Follow-up proposed: P2-13c, check amounts against the page's own text layer.
+**Next**: Kone's answers to the six questions at the end of the ADR; then build tests first (schema passes the profile, golden snapshot, the 15 synthetic cases round-trip).
+
 ## 2026-10-22 (part 14) — P2-13: the Anthropic adapter, built (not yet run against the real API)
 **Done** (ADR-0012 accepted first, PR #39; then built tests-first with no key and no live call)
 - `clearcut-provider`: `CacheTtl`, `Usage.cache_write_1h_tokens` (a part of the writes, never counted twice), `KeyProblem` and `ProviderError::KeyProblem` / `ModelUnavailable`, the `Thinking::Off` doc.
