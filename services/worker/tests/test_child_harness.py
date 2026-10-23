@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 import time
@@ -261,3 +262,148 @@ def test_several_children_starting_at_once_leave_the_environment_as_it_was(
         thread.join()
     assert failures == []
     assert os.environ["CLEARCUT_WORKER_TOKEN"] == "placeholder-token-value"
+
+
+# ---------- the deadline covers the whole answer ----------
+
+
+@LINUX_ONLY
+def test_a_child_that_sends_half_an_answer_and_stalls_is_still_killed_at_the_deadline() -> None:
+    # Waiting for the first byte is not enough: a child that has been taken over can
+    # start a message and never finish it, which would block the parent for ever.
+    started = time.monotonic()
+    with pytest.raises(TooSlow):
+        run(children.send_half_a_message_then_stall, timeout_seconds=0.5, grace_seconds=0.5)
+    assert time.monotonic() - started < 15
+    assert no_children_left()
+
+
+def test_a_child_that_finishes_just_inside_the_deadline_is_not_killed_by_the_watchdog() -> None:
+    answer = run(children.answer_late, 0.5, timeout_seconds=1.0, grace_seconds=6.0)
+    assert answer == b"late"
+
+
+def test_the_watchdog_does_not_outlive_the_call() -> None:
+    import threading
+
+    before = threading.active_count()
+    run(children.big_answer, 5)
+    time.sleep(0.2)
+    assert threading.active_count() <= before
+
+
+@LINUX_ONLY
+def test_the_child_leads_its_own_process_group_so_its_helpers_can_be_stopped_with_it() -> None:
+    assert run(children.report_session) == b"leader"
+
+
+@LINUX_ONLY
+def test_a_helper_process_holding_the_pipe_open_cannot_keep_the_parent_waiting(
+    tmp_path: Path,
+) -> None:
+    import os
+
+    pid_file = tmp_path / "grandchild.pid"
+    started = time.monotonic()
+    with pytest.raises(TooSlow):
+        run(
+            children.leave_a_grandchild_holding_the_pipe,
+            str(pid_file),
+            timeout_seconds=0.5,
+            grace_seconds=0.5,
+        )
+    assert time.monotonic() - started < 15, "the parent must not wait for the pipe to close"
+    grandchild = int(pid_file.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 10
+    gone = False
+    while time.monotonic() < deadline and not gone:
+        try:
+            os.kill(grandchild, 0)
+            # A zombie still answers signal 0; it is gone for our purposes if it is not running.
+            state = Path(f"/proc/{grandchild}/stat").read_text(encoding="utf-8").split(") ")[1][0]
+            gone = state == "Z"
+        except (ProcessLookupError, FileNotFoundError):
+            gone = True
+        if not gone:
+            time.sleep(0.1)
+    assert gone, "the helper process was left running"
+
+
+# ---------- no pipe is closed under a reader's feet ----------
+
+
+def open_descriptors() -> int:
+    return len(list(Path("/proc/self/fd").iterdir()))
+
+
+@LINUX_ONLY
+def test_ordinary_calls_leave_no_pipe_open_behind_them() -> None:
+    run(children.big_answer, 5)  # the first call may open a few things for good
+    before = open_descriptors()
+    for _ in range(10):
+        run(children.big_answer, 5)
+    time.sleep(0.2)
+    assert open_descriptors() <= before
+
+
+@LINUX_ONLY
+def test_a_pipe_a_reader_is_still_using_is_never_closed_by_anyone_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The helper escaped the process group, so it still holds the pipe after the child is
+    # stopped and the reader stays blocked. Closing the pipe from another thread then could
+    # leave the reader working on a descriptor number that by now belongs to another
+    # request. Only the reader may close its own pipe, and it does so once the helper lets go.
+    import threading
+    from multiprocessing.connection import Connection
+
+    closes: list[tuple[str, bool]] = []
+    original = Connection.close
+
+    def recording_close(self: Connection) -> None:
+        reader_alive = any(
+            t.name == "clearcut-answer-reader" and t.is_alive() for t in threading.enumerate()
+        )
+        closes.append((threading.current_thread().name, reader_alive))
+        original(self)
+
+    monkeypatch.setattr(Connection, "close", recording_close)
+    with pytest.raises(TooSlow):
+        run(
+            children.leave_an_escaped_helper_holding_the_pipe,
+            5.0,
+            timeout_seconds=0.5,
+            grace_seconds=0.5,
+        )
+    strangers = [c for c in closes if c[0] != "clearcut-answer-reader" and c[1]]
+    assert strangers == [], "a pipe was closed by another thread while its reader was in it"
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and not any(c[0] == "clearcut-answer-reader" for c in closes):
+        time.sleep(0.2)
+    assert any(c[0] == "clearcut-answer-reader" for c in closes), "the reader never closed its pipe"
+
+
+def test_no_thread_closes_a_pipe_while_its_reader_is_still_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    from multiprocessing.connection import Connection
+
+    violations: list[str] = []
+    original = Connection.close
+
+    def recording_close(self: Connection) -> None:
+        for t in threading.enumerate():
+            if (
+                t.name == "clearcut-answer-reader"
+                and t.is_alive()
+                and t is not threading.current_thread()
+            ):
+                violations.append(threading.current_thread().name)
+        original(self)
+
+    monkeypatch.setattr(Connection, "close", recording_close)
+    for target, args in ((children.big_answer, (10,)), (children.hang_after_writing, ())):
+        with contextlib.suppress(TooSlow, Unreadable):
+            run(target, *args, timeout_seconds=0.5, grace_seconds=0.5)
+    assert violations == []

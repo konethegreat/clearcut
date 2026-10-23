@@ -137,3 +137,49 @@ def report_initial_environment(conn: AnswerChannel, *values: str) -> None:
     initial = Path("/proc/self/environ").read_bytes().decode("utf-8", errors="replace")
     conn.send_bytes(json.dumps({value: value in initial for value in values}).encode())
     conn.close()
+
+
+def send_half_a_message_then_stall(conn: AnswerChannel) -> None:
+    """Sends the start of an answer that promises 1000 bytes, then goes quiet (POSIX only)."""
+    import struct
+
+    os.write(conn.fileno(), struct.pack("!i", 1000) + b"abc")  # type: ignore[attr-defined]
+    time.sleep(120)
+
+
+def leave_a_grandchild_holding_the_pipe(conn: AnswerChannel, pid_file: str) -> None:
+    """Forks a process that keeps the answer pipe open, then exits without answering (POSIX).
+
+    Killing only this process would leave the pipe open, so a parent that waits for
+    the pipe to close would wait for ever.
+    """
+    if sys.platform == "win32":
+        raise RuntimeError("POSIX only")
+    pid = os.fork()
+    if pid == 0:
+        time.sleep(120)
+        os._exit(0)
+    Path(pid_file).write_text(str(pid), encoding="utf-8")
+    os._exit(0)
+
+
+def report_session(conn: AnswerChannel) -> None:
+    """Answers whether this process leads its own session and process group (POSIX)."""
+    if sys.platform == "win32":
+        raise RuntimeError("POSIX only")
+    leads = os.getsid(0) == os.getpid() and os.getpgrp() == os.getpid()
+    conn.send_bytes(b"leader" if leads else b"member")
+    conn.close()
+
+
+def leave_an_escaped_helper_holding_the_pipe(conn: AnswerChannel, seconds: float) -> None:
+    """Starts a helper in a session of its own (so a group signal cannot reach it) that holds
+    the answer pipe for a while, then exits without answering (POSIX only)."""
+    if sys.platform == "win32":
+        raise RuntimeError("POSIX only")
+    pid = os.fork()
+    if pid == 0:
+        os.setsid()
+        time.sleep(seconds)
+        os._exit(0)
+    os._exit(0)
