@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from clearcut_worker.app import create_app
+from clearcut_worker.images import ImageTooLarge
 from clearcut_worker.inspect import (
     Encrypted,
     Inspection,
@@ -25,6 +26,7 @@ from clearcut_worker.isolation import _child_main, inspect_isolated
 
 from . import hang
 from .conftest import make_encrypted_pdf, make_pdf
+from .pictures import claims_to_be, jpeg, png
 
 
 def no_children_left(wait: float = 5.0) -> bool:
@@ -224,3 +226,18 @@ def test_an_answer_with_a_wrong_first_word_is_not_an_error_report() -> None:
         ask_child(b'["fail", "NotAPdf"]')
     with pytest.raises(Unreadable):
         ask_child(b'["ERROR", "NotAPdf"]')
+
+
+# ---------- a picture as the document ----------
+
+
+def test_a_picture_is_inspected_in_the_child_and_its_type_is_the_parents_own_reading() -> None:
+    result = inspect_isolated(png(), 50, 30.0)
+    assert result == Inspection(pages=1, pages_with_text=0, media_type="image/png")
+    assert inspect_isolated(jpeg(), 50, 30.0).media_type == "image/jpeg"
+    assert inspect_isolated(make_pdf(["a"]), 50, 30.0).media_type == "application/pdf"
+
+
+def test_a_picture_that_claims_to_be_huge_is_refused_through_the_child() -> None:
+    with pytest.raises(ImageTooLarge):
+        inspect_isolated(claims_to_be(30_000, 30_000), 50, 30.0)

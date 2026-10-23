@@ -28,6 +28,7 @@ from clearcut_worker.pagetext import (
 
 from .conftest import AUTH, make_encrypted_pdf, settings
 from .pdfs import one_page, pages_of_text, text_at
+from .pictures import jpeg, png
 
 TEXT = "/v1/text"
 
@@ -38,7 +39,7 @@ def client() -> TestClient:
 
 
 def test_health_now_lists_text_among_the_things_the_worker_can_do(client: TestClient) -> None:
-    assert client.get("/health").json()["capabilities"] == ["inspect", "text"]
+    assert client.get("/health").json()["capabilities"] == ["inspect", "text", "render"]
 
 
 # ---------- authentication ----------
@@ -270,3 +271,29 @@ def test_logs_carry_sizes_and_outcomes_but_never_text_or_the_token(
     assert "SECRET" not in caplog.text
     assert "tttttttt" not in caplog.text
     assert "/v1/text" in caplog.text
+
+
+# ---------- a picture as the document ----------
+
+
+def test_a_picture_is_one_page_with_no_text_measured_in_pixels(client: TestClient) -> None:
+    response = client.post(TEXT, content=png(300, 200), headers=AUTH, params={"words": "true"})
+    assert response.status_code == 200
+    [page] = response.json()["pages"]
+    assert page["page"] == 1
+    assert page["source"] == "none"
+    assert page["text"] == ""
+    assert (page["width_pt"], page["height_pt"]) == (300.0, 200.0)
+    assert page["fonts"] == []
+    assert page["words"] == []
+
+
+def test_a_photo_is_measured_upright(client: TestClient) -> None:
+    [page] = client.post(TEXT, content=jpeg(200, 100, orientation=6), headers=AUTH).json()["pages"]
+    assert (page["width_pt"], page["height_pt"]) == (100.0, 200.0)
+
+
+def test_asking_a_picture_for_a_second_page_says_it_has_one(client: TestClient) -> None:
+    response = client.post(TEXT, content=png(), headers=AUTH, params={"from": 2})
+    assert response.status_code == 422
+    assert response.json() == {"error": "the page range is outside the document", "pages": 1}

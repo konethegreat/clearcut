@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 25) — P2-05 step 3: `POST /v1/render` and picture documents
+**Done** (PR #50, `/v1/text`, merged first with CI green; tests first, no key)
+- `images.py`, `render.py` and the route: a PDF page (PDFium, forms not drawn) or a PNG/JPEG document comes back as a PNG, or a JPEG when the PNG is over 5 MiB, with the long side capped at 2 000 px unless `max_edge` is raised. The image is rebuilt from pixels, so EXIF, GPS, colour profiles and text chunks never leave (tests look for invented markers in the bytes). Sizes are checked before drawing or decoding: a header claiming 30 000 by 30 000 pixels is refused without being decoded.
+- PNG and JPEG are one-page documents in `/v1/inspect` and `/v1/text` too. Only those two decoders are enabled in Pillow.
+- The child answers with raw bytes after a short header; the parent checks sizes, opening and closing bytes and the width and height the picture states for itself (PNG header; JPEG frame header found by a bounded walk) without decoding it. The JPEG check came from the automated review.
+- Pillow 13.0.0 pinned; its `MIT-CMU` licence is on the allowlist; the wheel's bundled libraries were read and `NOTICE` updated. `max_edge` is an addition to ADR-0016's table (recorded in its notes).
+- 688 tests in the worker (228 new). Mutation check of about 125 breakages in three rounds: every survivor was a missing test and is caught now, apart from a few equivalent cases.
+**Next**: step 4, `/v1/ocr` with Tesseract (`eng`, `afr`) and the OCR agreement check. It needs Tesseract installed (CI installs it; local runs skip when it is absent). Also queued, with Kone's go-ahead: a small docs PR answering the TimeLex request list in `docs/integration/timelex.md`.
+
 ## 2026-10-24 (part 24) — P2-05 step 2: `POST /v1/text`
 **Done** (PR #48, the child process harness, and #49, the deadline fixes, merged first with CI green; tests first, no key)
 - `pagetext.py` and `/v1/text`: pages `from` to `to` (at most 50 per call), each with cleaned text, its size as seen (crop box and rotation), the fonts it can draw with (kind, encoding, ToUnicode, embedded; forms followed, bounded) and, if asked, words with UTF-8 byte offsets and boxes in thousandths of the page, rounded outwards. pypdfium2 5.14.0 reads text and boxes, pypdf the structure and fonts; if they disagree about the page count the document is unreadable. A page with too much text or too many words is refused, never cut.

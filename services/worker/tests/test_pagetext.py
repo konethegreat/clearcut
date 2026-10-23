@@ -12,6 +12,7 @@ import pytest
 from pypdf import PdfReader
 
 from clearcut_worker import pagetext
+from clearcut_worker.images import ImageTooLarge
 from clearcut_worker.inspect import Encrypted, NotAPdf, TooManyPages, TooSlow, Unreadable
 from clearcut_worker.pagetext import (
     Box,
@@ -26,6 +27,7 @@ from clearcut_worker.pagetext import (
 
 from .conftest import make_encrypted_pdf
 from .pdfs import HELVETICA, PageSpec, PdfBuilder, one_page, pages_of_text, text_at
+from .pictures import claims_to_be, jpeg, noise, png, png_of
 
 FAR = time.monotonic() + 3600
 
@@ -852,3 +854,50 @@ def test_the_number_of_forms_looked_at_is_capped(monkeypatch: pytest.MonkeyPatch
     assert len(facts(pdf)) == 2
     monkeypatch.setattr(pagetext, "_MAX_FORMS_VISITED", 1)
     assert len(facts(pdf)) == 1
+
+
+# ---------- a picture is a one-page document ----------
+
+
+def read_picture(data: bytes, first: int = 1, last: int | None = 1, *, words: bool = False) -> list:  # type: ignore[type-arg]
+    return extract_pages(data, first, last, words=words, max_pages=50, deadline=FAR)
+
+
+def test_a_picture_has_one_page_with_no_text_and_its_size_in_pixels() -> None:
+    [page] = read_picture(png(300, 200), words=True)
+    assert page.page == 1
+    assert page.source == "none"
+    assert page.text == ""
+    assert (page.width_pt, page.height_pt) == (300.0, 200.0)
+    assert page.fonts == ()
+    assert page.words == ()
+
+
+def test_a_picture_has_no_words_unless_asked_and_then_an_empty_list() -> None:
+    assert read_picture(png())[0].words is None
+    assert read_picture(png(), words=True)[0].words == ()
+
+
+def test_a_photo_is_measured_upright() -> None:
+    [page] = read_picture(jpeg(200, 100, orientation=6))
+    assert (page.width_pt, page.height_pt) == (100.0, 200.0)
+
+
+def test_only_page_one_of_a_picture_exists() -> None:
+    assert len(read_picture(png(), 1, None)) == 1
+    for first, last in [(2, 2), (2, None), (1, 2)]:
+        with pytest.raises(PageOutOfRange) as caught:
+            read_picture(png(), first, last)
+        assert caught.value.pages == 1
+
+
+def test_a_damaged_or_enormous_picture_is_refused() -> None:
+    with pytest.raises(Unreadable):
+        read_picture(png_of(noise(40, 40))[:3000])
+    with pytest.raises(ImageTooLarge):
+        read_picture(claims_to_be(30_000, 30_000))
+
+
+def test_a_picture_gets_the_deadline_check() -> None:
+    with pytest.raises(TooSlow):
+        extract_pages(png(), 1, 1, words=False, max_pages=50, deadline=time.monotonic() - 1)

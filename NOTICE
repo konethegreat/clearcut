@@ -12,3 +12,7 @@ worker you distribute.
 
 Portions of this software are copyright (c) The FreeType Project (www.freetype.org). All rights reserved.
 
+The worker also uses Pillow (MIT-CMU), which carries libjpeg-turbo, libpng, zlib-ng, FreeType, lcms2,
+libtiff, libwebp, libavif, openjpeg, brotli, harfbuzz and xz inside its wheels; their licence texts are in
+the wheel's dist-info/licenses folder. Keep them with any copy of the worker you distribute.
+

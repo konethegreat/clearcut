@@ -7,6 +7,7 @@ import time
 
 import pytest
 
+from clearcut_worker.images import ImageTooLarge
 from clearcut_worker.inspect import (
     Encrypted,
     Inspection,
@@ -18,6 +19,7 @@ from clearcut_worker.inspect import (
 )
 
 from .conftest import make_encrypted_pdf, make_pdf
+from .pictures import claims_to_be, jpeg, noise, png, png_of
 
 
 def far_deadline() -> float:
@@ -55,9 +57,12 @@ def test_exactly_the_page_cap_is_allowed_and_one_more_is_not() -> None:
 
 
 def test_something_that_is_not_a_pdf_is_refused_by_what_the_bytes_say() -> None:
-    for blob in [b"", b"hello", b"\x89PNG\r\n\x1a\n....", b"PK\x03\x04zip", b"<xml/>", b"%PD"]:
+    for blob in [b"", b"hello", b"GIF89a....", b"PK\x03\x04zip", b"<xml/>", b"%PD"]:
         with pytest.raises(NotAPdf):
             inspect_pdf(blob, 50, far_deadline())
+    # A PNG signature with nothing real behind it is a PNG, and an unreadable one.
+    with pytest.raises(Unreadable):
+        inspect_pdf(b"\x89PNG\r\n\x1a\n....", 50, far_deadline())
 
 
 def test_a_pdf_header_is_found_at_the_start_only() -> None:
@@ -126,3 +131,38 @@ def test_a_single_page_with_text_is_a_text_layer() -> None:
     assert Inspection(pages=1, pages_with_text=1).has_text_layer is True
     assert Inspection(pages=1, pages_with_text=0).has_text_layer is False
     assert Inspection(pages=9, pages_with_text=1).has_text_layer is True
+
+
+# ---------- a picture is a one-page document ----------
+
+
+def test_a_pdf_says_it_is_one() -> None:
+    assert inspect_pdf(make_pdf(["a"]), 50, far_deadline()).media_type == "application/pdf"
+
+
+def test_a_png_or_a_jpeg_is_a_one_page_document_with_no_text_layer() -> None:
+    assert inspect_pdf(png(), 50, far_deadline()) == Inspection(
+        pages=1, pages_with_text=0, media_type="image/png"
+    )
+    result = inspect_pdf(jpeg(), 50, far_deadline())
+    assert result == Inspection(pages=1, pages_with_text=0, media_type="image/jpeg")
+    assert result.has_text_layer is False
+
+
+def test_a_picture_is_really_decoded_so_a_damaged_one_is_unreadable() -> None:
+    with pytest.raises(Unreadable):
+        inspect_pdf(png_of(noise(40, 40))[:3000], 50, far_deadline())
+
+
+def test_a_picture_that_claims_to_be_huge_is_refused() -> None:
+    with pytest.raises(ImageTooLarge):
+        inspect_pdf(claims_to_be(30_000, 30_000), 50, far_deadline())
+
+
+def test_the_page_cap_does_not_stop_a_picture() -> None:
+    assert inspect_pdf(png(), 1, far_deadline()).pages == 1
+
+
+def test_a_picture_gets_the_deadline_check_too() -> None:
+    with pytest.raises(TooSlow):
+        inspect_pdf(png(), 50, time.monotonic() - 1)

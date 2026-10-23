@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from clearcut_worker.images import ImageTooLarge
 from clearcut_worker.inspect import Encrypted, NotAPdf, TooManyPages, TooSlow, Unreadable
 from clearcut_worker.isolation import (
     DEFAULT_TEXT_ANSWER_BYTES,
@@ -27,6 +28,7 @@ from clearcut_worker.pagetext import (
 from . import children
 from .conftest import make_encrypted_pdf
 from .pdfs import one_page, pages_of_text, text_at
+from .pictures import claims_to_be
 from .test_isolation import no_children_left
 
 FAR = time.monotonic() + 3600
@@ -455,3 +457,8 @@ def test_a_word_that_runs_past_the_end_of_the_text_is_unreadable_even_without_wh
     word = {"start": 6, "end": 99, "x": 0, "y": 0, "w": 1, "h": 1}
     with pytest.raises(Unreadable):
         decode(ok(page(words=[word])), words=True)
+
+
+def test_a_huge_picture_is_refused_through_the_text_child() -> None:
+    with pytest.raises(ImageTooLarge):
+        read(claims_to_be(30_000, 30_000))

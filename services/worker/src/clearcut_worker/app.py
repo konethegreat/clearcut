@@ -34,6 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
 from .config import Settings
+from .images import DEFAULT_MAX_EDGE, MAX_EDGE_LIMIT, EncodedImage, ImageTooLarge
 from .inspect import (
     Encrypted,
     InspectError,
@@ -43,9 +44,10 @@ from .inspect import (
     TooSlow,
     Unreadable,
 )
-from .isolation import inspect_isolated, text_isolated
+from .isolation import inspect_isolated, render_isolated, text_isolated
 from .logs import safe_log_text
 from .pagetext import MAX_PAGES_PER_CALL, PageContent, PageOutOfRange, PageTooLarge
+from .render import DEFAULT_DPI, MAX_DPI, MIN_DPI, PageTooBig
 
 log = logging.getLogger("clearcut_worker")
 
@@ -55,6 +57,9 @@ Inspector = Callable[[bytes, int, float], Inspection]
 # Reads the text of pages: (bytes, first page, last page or None), then the keywords
 # words=, max_pages= and timeout_seconds=.
 TextReader = Callable[..., list[PageContent]]
+
+# Draws a page: (bytes, page, dpi=, fmt=, max_edge=, max_pages=, timeout_seconds=) -> the picture.
+Renderer = Callable[..., EncodedImage]
 
 # The most of an unknown path that is written to a log line.
 _LOGGED_PATH_CHARS = 200
@@ -67,7 +72,7 @@ class Health(BaseModel):
 
 
 class InspectResponse(BaseModel):
-    media_type: Literal["application/pdf"]
+    media_type: Literal["application/pdf", "image/png", "image/jpeg"]
     pages: int
     pages_with_text: int
     has_text_layer: bool
@@ -136,6 +141,7 @@ def create_app(
     *,
     inspector: Inspector = inspect_isolated,
     text_reader: TextReader = text_isolated,
+    renderer: Renderer = render_isolated,
 ) -> FastAPI:
     app = FastAPI(
         title="ClearCut document worker",
@@ -202,7 +208,7 @@ def create_app(
 
     @app.get("/health")
     async def health() -> Health:
-        return Health(status="ok", version=__version__, capabilities=["inspect", "text"])
+        return Health(status="ok", version=__version__, capabilities=["inspect", "text", "render"])
 
     @app.post("/v1/inspect", dependencies=[Depends(require_token)])
     async def inspect(request: Request) -> InspectResponse:
@@ -215,7 +221,7 @@ def create_app(
         except InspectError as error:
             raise _refusal(error, settings) from None
         return InspectResponse(
-            media_type="application/pdf",
+            media_type=result.media_type,  # type: ignore[arg-type]
             pages=result.pages,
             pages_with_text=result.pages_with_text,
             has_text_layer=result.has_text_layer,
@@ -249,6 +255,40 @@ def create_app(
         except InspectError as error:
             raise _refusal(error, settings) from None
         return TextResponse(pages=[_page_out(p) for p in pages])
+
+    @app.post("/v1/render", dependencies=[Depends(require_token)])
+    async def render(
+        request: Request,
+        page: Annotated[int, Query(ge=1)] = 1,
+        dpi: Annotated[int, Query(ge=MIN_DPI, le=MAX_DPI)] = DEFAULT_DPI,
+        fmt: Annotated[Literal["png", "jpeg"], Query(alias="format")] = "png",
+        max_edge: Annotated[int, Query(ge=500, le=MAX_EDGE_LIMIT)] = DEFAULT_MAX_EDGE,
+    ) -> Response:
+        data = await _read_body(request, settings.max_request_bytes)
+        request.state.body_bytes = len(data)
+        try:
+            image = await run_in_threadpool(
+                renderer,
+                data,
+                page,
+                dpi=dpi,
+                fmt=fmt,
+                max_edge=max_edge,
+                max_pages=settings.max_pages,
+                timeout_seconds=settings.timeout_seconds,
+            )
+        except InspectError as error:
+            raise _refusal(error, settings) from None
+        return Response(
+            content=image.data,
+            media_type=image.media_type,
+            headers={
+                "X-Image-Width": str(image.width),
+                "X-Image-Height": str(image.height),
+                # A page of someone's invoice: nothing should keep a copy.
+                "Cache-Control": "no-store",
+            },
+        )
 
     return app
 
@@ -312,4 +352,8 @@ def _refusal(error: InspectError, settings: Settings) -> WorkerError:
         )
     if isinstance(error, PageTooLarge):
         return WorkerError(422, {"error": "a page holds more text than the worker will report"})
+    if isinstance(error, PageTooBig):
+        return WorkerError(422, {"error": "the page is too large to render"})
+    if isinstance(error, ImageTooLarge):
+        return WorkerError(422, {"error": "the image is too large"})
     return WorkerError(500, {"error": "internal error"})

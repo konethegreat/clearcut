@@ -47,6 +47,7 @@ _ALLOWED = frozenset(
         "psf-2.0",
         "python-2.0",
         "hpnd",
+        "mit-cmu",
         "unlicense",
         "cc0-1.0",
         "0bsd",

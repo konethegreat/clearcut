@@ -22,6 +22,7 @@ from clearcut_worker.inspect import (
 )
 
 from .conftest import AUTH, TOKEN, make_encrypted_pdf, make_pdf, settings
+from .pictures import claims_to_be, jpeg, png
 
 INSPECT = "/v1/inspect"
 UNAUTHORIZED = {"error": "authentication failed"}
@@ -36,7 +37,7 @@ def test_health_is_public_and_says_what_the_worker_can_do(client: TestClient) ->
     assert response.json() == {
         "status": "ok",
         "version": __version__,
-        "capabilities": ["inspect", "text"],
+        "capabilities": ["inspect", "text", "render"],
     }
 
 
@@ -113,7 +114,7 @@ def test_the_api_description_is_not_served_to_the_network(client: TestClient) ->
 
 def test_the_api_description_can_still_be_generated_for_the_contract_test() -> None:
     spec = create_app(settings()).openapi()
-    assert set(spec["paths"]) == {"/health", "/v1/inspect", "/v1/text"}
+    assert set(spec["paths"]) == {"/health", "/v1/inspect", "/v1/text", "/v1/render"}
 
 
 # ---------- inspect ----------
@@ -149,14 +150,19 @@ def test_the_type_comes_from_the_bytes_not_from_what_the_caller_claims(client: T
     assert response.json() == {"error": "unsupported file type"}
 
 
-def test_other_file_kinds_are_not_supported_yet(client: TestClient) -> None:
-    for blob in [
-        b"\x89PNG\r\n\x1a\n" + b"0" * 50,
-        b"\xff\xd8\xff\xe0" + b"0" * 50,
-        b"II*\x00" + b"0" * 50,
-    ]:
+def test_other_file_kinds_are_not_supported(client: TestClient) -> None:
+    for blob in [b"II*\x00" + b"0" * 50, b"GIF89a" + b"0" * 50, b"RIFF0000WEBP" + b"0" * 50]:
         response = client.post(INSPECT, content=blob, headers=AUTH)
         assert response.status_code == 415
+
+
+def test_a_png_or_jpeg_that_is_only_a_signature_is_unreadable_not_unsupported(
+    client: TestClient,
+) -> None:
+    for blob in [b"\x89PNG\r\n\x1a\n" + b"0" * 50, b"\xff\xd8\xff\xe0" + b"0" * 50]:
+        response = client.post(INSPECT, content=blob, headers=AUTH)
+        assert response.status_code == 422
+        assert response.json() == {"error": "the document could not be read"}
 
 
 def test_an_empty_body_is_a_400(client: TestClient) -> None:
@@ -355,3 +361,24 @@ def test_a_route_with_a_path_parameter_is_logged_by_its_template(
     assert len(lines) == 1
     assert lines[0].startswith("GET /test/{n} -> 200 (")
     assert "12345" not in lines[0]
+
+
+# ---------- a picture as the document ----------
+
+
+def test_a_png_or_a_jpeg_is_a_one_page_document(client: TestClient) -> None:
+    for body, media_type in [(png(30, 20), "image/png"), (jpeg(30, 20), "image/jpeg")]:
+        response = client.post(INSPECT, content=body, headers=AUTH)
+        assert response.status_code == 200
+        assert response.json() == {
+            "media_type": media_type,
+            "pages": 1,
+            "pages_with_text": 0,
+            "has_text_layer": False,
+        }
+
+
+def test_a_huge_picture_is_a_422(client: TestClient) -> None:
+    response = client.post(INSPECT, content=claims_to_be(30_000, 30_000), headers=AUTH)
+    assert response.status_code == 422
+    assert response.json() == {"error": "the image is too large"}

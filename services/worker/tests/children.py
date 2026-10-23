@@ -229,3 +229,52 @@ def text_echo(
     """A child whose answer is exactly the bytes it was given as the 'document'."""
     conn.send_bytes(data)
     conn.close()
+
+
+# ---- stand-ins for the rendering child:
+#      (conn, data, page, dpi, fmt, max_edge, max_pages, timeout, max_bytes)
+
+
+def render_hang(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    dpi: float,
+    fmt: str,
+    max_edge: int,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A renderer stuck for ever on a hostile file."""
+    time.sleep(120)
+
+
+def render_crash(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    dpi: float,
+    fmt: str,
+    max_edge: int,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A renderer that dies hard."""
+    os._exit(3)
+
+
+def render_echo(
+    conn: AnswerChannel,
+    data: bytes,
+    page: int,
+    dpi: float,
+    fmt: str,
+    max_edge: int,
+    max_pages: int,
+    t: float,
+    cap: int,
+) -> None:
+    """A child whose answer is exactly the bytes it was given as the document."""
+    conn.send_bytes(data)

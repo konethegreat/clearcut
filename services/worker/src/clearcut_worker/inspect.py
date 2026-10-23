@@ -16,35 +16,25 @@ from dataclasses import dataclass
 
 from pypdf import PdfReader
 
+from .errors import Encrypted, InspectError, NotAPdf, TooManyPages, TooSlow, Unreadable
+from .images import open_image, sniff
+
 log = logging.getLogger("clearcut_worker")
+
+__all__ = [
+    "Encrypted",
+    "InspectError",
+    "Inspection",
+    "NotAPdf",
+    "TooManyPages",
+    "TooSlow",
+    "Unreadable",
+    "inspect_pdf",
+]
 
 _PDF_MAGIC = b"%PDF-"
 
-
-class InspectError(Exception):
-    """Something stops the document from being inspected."""
-
-
-class NotAPdf(InspectError):
-    """The bytes do not start like a PDF."""
-
-
-class Unreadable(InspectError):
-    """The file claims to be a PDF but cannot be read (damaged, or not valid)."""
-
-
-class Encrypted(InspectError):
-    """The PDF is password-protected. We never try passwords."""
-
-
-class TooManyPages(InspectError):
-    def __init__(self, max_pages: int) -> None:
-        super().__init__("too many pages")
-        self.max_pages = max_pages
-
-
-class TooSlow(InspectError):
-    """The deadline passed before inspection finished."""
+MEDIA_TYPES = {"pdf": "application/pdf", "png": "image/png", "jpeg": "image/jpeg"}
 
 
 @dataclass(frozen=True)
@@ -52,6 +42,8 @@ class Inspection:
     pages: int
     # How many pages have any text at all in their text layer. A scan has 0.
     pages_with_text: int
+    # What kind of document it is, from its bytes (a picture is a one-page document).
+    media_type: str = "application/pdf"
 
     @property
     def has_text_layer(self) -> bool:
@@ -61,10 +53,18 @@ class Inspection:
 def inspect_pdf(data: bytes, max_pages: int, deadline: float) -> Inspection:
     """Counts the pages and the pages that carry text.
 
+    A PNG or a JPEG is a one-page document with no text layer; it is decoded for
+    real, so a damaged or enormous picture is refused here and not later.
+
     ``deadline`` is a ``time.monotonic()`` instant; the work is abandoned between
     pages once it has passed. (A single page that takes forever cannot be
     interrupted from here; the container's CPU and time limits cover that.)
     """
+    kind = sniff(data)
+    if kind in ("png", "jpeg"):
+        _check_time(deadline)
+        open_image(data)
+        return Inspection(pages=1, pages_with_text=0, media_type=MEDIA_TYPES[kind])
     if not data.startswith(_PDF_MAGIC):
         raise NotAPdf
     _check_time(deadline)

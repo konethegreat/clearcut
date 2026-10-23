@@ -7,7 +7,8 @@ The Python half of document processing ([ADR-0009](../../docs/adr/0009-worker-an
 |---|---|
 | Counts pages, finds out which pages have a text layer | Call a language model or hold `ANTHROPIC_API_KEY` |
 | Reads each page's text, word boxes and font facts (now) | Open a network connection of its own |
-| OCR and page images (P2-05, later) | Judge whether a page's text can be trusted: it reports facts, `clearcut-core` decides |
+| Draws page images and re-encodes PNG and JPEG documents (now), always as plain pixels with no metadata | Judge whether a page's text can be trusted: it reports facts, `clearcut-core` decides |
+| OCR (P2-05, later) | |
 | Refuses what it cannot read, in a named way | Touch the database or the object store |
 | | Decide what an invoice means: validation and every business rule live in `clearcut-core` |
 
@@ -24,7 +25,22 @@ All errors are JSON with one key: `{"error": "..."}`. Everything except `/health
 |---|---|
 | `GET /health` | `200 {"status","version","capabilities"}` (no key needed) |
 | `POST /v1/inspect` | Body: the file's bytes. `200 {"media_type":"application/pdf","pages","pages_with_text","has_text_layer"}` |
+| `POST /v1/render?page=1&dpi=150&format=png&max_edge=2000` | Body: the file's bytes. `200` the image (`image/png` or `image/jpeg`), size in `X-Image-Width` and `X-Image-Height` |
 | `POST /v1/text?from=1&to=50&words=false` | Body: the file's bytes. `200 {"pages":[{"page","source","text","width_pt","height_pt","fonts":[{"kind","has_to_unicode","encoding","embedded"}],"words":[{"start","end","x","y","w","h"}]}]}` |
+
+`/v1/render` draws one page (or a picture document) as an image. Query: `page` (default 1), `dpi` (100 to 300, default
+150; meaningless for a picture), `format` (`png` default, or `jpeg`), `max_edge` (the longest side in pixels, 500 to 2 576,
+default 2 000). The answer is the image bytes (`image/png` or `image/jpeg`) with `X-Image-Width`, `X-Image-Height` and
+`Cache-Control: no-store`. The image is always rebuilt from pixels, so EXIF, GPS, colour profiles and text chunks never
+leave; a photo is turned upright first and transparency becomes white. A PNG over 5 MiB is sent as a JPEG, and a picture
+that still does not fit is made smaller (and refused below a long edge of 100). Forms in a PDF are not drawn. It refuses
+like `/v1/text`, and also `422` `{"error":"the page is too large to render"}` (over 14 400 points on a side, or over 40
+million pixels at that dpi) and `422` `{"error":"the image is too large"}` (a picture over 40 million pixels, decided
+from its header before it is decoded).
+
+`/v1/inspect` and `/v1/text` also accept a PNG or a JPEG: it is a one-page document with no text layer
+(`media_type` `image/png` or `image/jpeg`), and `/v1/text` measures its one page in pixels. Only these two picture
+formats are read.
 
 `/v1/text` reads pages `from` to `to` (1-based, at most 50 in one call; leaving `to` out reads to the end of the
 document but never more than 50 pages). `source` is `text_layer`, or `none` when the page has no text (then `text` is
