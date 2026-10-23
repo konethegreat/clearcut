@@ -5,7 +5,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 ## 2026-10-24 (part 21) — P2-05 step 1a: the worker's licence check
 **Done** (ADR-0016 accepted first, PR #46; then tests first, no key)
 - `services/worker/tools/licences.py` and `licence-exceptions.toml`: reads the licence each installed package states, follows only what `requirements.txt` ships (extras and other platforms left out), and refuses anything outside a short permissive allowlist (GPL, LGPL, AGPL, MPL, unknown and unreadable are refused; `A OR B` needs one good side, `A AND B` both). An exception needs the exact wording and a reason, stops working if the wording changes, and is reported if the package is no longer shipped. A CI step runs it.
-- 69 tests for it in the worker (213 in all), and a mutation check of the tool: 20 breakages, the first run missed three (leftover tokens, a licence field with a line break, name normalisation), tests were added and all are caught.
+- 69 tests for it in the worker (215 in all), and a mutation check of the tool: 20 breakages, the first run missed three (leftover tokens, a licence field with a line break, name normalisation), tests were added and all are caught.
 **Next**: step 1b, the isolation changes (bigger answers, resource limits and a scrubbed environment in the child, a per-request temporary directory), then `/v1/text`.
 
 ## 2026-10-23 (part 20) — ADR-0016: page text, page images and text quality (P2-05), proposed
