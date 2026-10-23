@@ -39,6 +39,7 @@ fn line(description: &str, quantity: &str, price: &str, total: &str, tax: ReadTa
 fn clean_reading() -> PageReading {
     PageReading {
         currency: ReadCurrency::Zar,
+        amounts_include_vat: ReadVatBasis::No,
         invoice_number: "INV-000001".into(),
         invoice_date: "2026-03-31".into(),
         supplier: party("Acme (Pty) Ltd", "4123456789"),
@@ -63,6 +64,7 @@ fn clean_reading() -> PageReading {
 fn empty_reading() -> PageReading {
     PageReading {
         currency: ReadCurrency::NotShown,
+        amounts_include_vat: ReadVatBasis::NotShown,
         invoice_number: String::new(),
         invoice_date: String::new(),
         supplier: ReadParty::default(),
@@ -140,7 +142,7 @@ fn a_reading_that_shows_nothing_converts_to_an_extraction_with_nothing() {
 
 #[test]
 fn the_version_is_recorded() {
-    assert_eq!(READING_SHAPE_VERSION, "reading-v1");
+    assert_eq!(READING_SHAPE_VERSION, "reading-v2");
 }
 
 // ---------- the JSON the model returns ----------
@@ -149,6 +151,7 @@ fn the_version_is_recorded() {
 fn the_json_a_model_returns_is_read() {
     let json = serde_json::json!({
         "currency": "ZAR",
+        "amounts_include_vat": "no",
         "invoice_number": "INV-1",
         "invoice_date": "2026-10-01",
         "supplier": { "name": "A", "address": "", "vat_number": "" },
@@ -985,6 +988,7 @@ fn the_fixed_words_for_problems_are_stable() {
     assert_eq!(word(ProblemKind::MissingRequired), "\"missing_required\"");
     assert_eq!(word(ProblemKind::TaxNotShown), "\"tax_not_shown\"");
     assert_eq!(word(ProblemKind::Incomplete), "\"incomplete\"");
+    assert_eq!(word(ProblemKind::AmountsIncludeVat), "\"amounts_include_vat\"");
 }
 
 #[test]
@@ -1025,5 +1029,90 @@ fn a_vat_number_alone_is_not_a_party() {
     assert_eq!(
         problems(&reading),
         vec![path("supplier", ProblemKind::Incomplete)]
+    );
+}
+
+// ---------- VAT-inclusive amounts (reading-v2) ----------
+
+#[test]
+fn the_vat_basis_names_are_the_documented_ones() {
+    for (name, expected) in [
+        ("yes", ReadVatBasis::Yes),
+        ("no", ReadVatBasis::No),
+        ("not_shown", ReadVatBasis::NotShown),
+    ] {
+        assert_eq!(
+            serde_json::from_str::<ReadVatBasis>(&format!("\"{name}\"")).unwrap(),
+            expected
+        );
+    }
+    assert!(serde_json::from_str::<ReadVatBasis>("\"Yes\"").is_err());
+    assert!(serde_json::from_str::<ReadVatBasis>("true").is_err());
+}
+
+#[test]
+fn the_vat_basis_is_required() {
+    let mut json = serde_json::to_value(clean_reading()).unwrap();
+    json.as_object_mut().unwrap().remove("amounts_include_vat");
+    assert!(serde_json::from_value::<PageReading>(json).is_err());
+}
+
+#[test]
+fn amounts_that_include_vat_are_never_guessed_at() {
+    let reading = PageReading {
+        amounts_include_vat: ReadVatBasis::Yes,
+        ..clean_reading()
+    };
+    let conversion = convert(&reading);
+    // The lines cannot be used as amounts excluding VAT, so none are kept...
+    assert!(conversion.extraction.lines.is_empty());
+    assert_eq!(
+        conversion
+            .problems
+            .iter()
+            .map(|p| (p.path.as_str(), p.kind))
+            .collect::<Vec<_>>(),
+        vec![("amounts_include_vat", ProblemKind::AmountsIncludeVat)]
+    );
+    // ...and nothing else is affected: the printed totals are labelled as they are.
+    assert!(conversion.extraction.stated_totals.is_some());
+    assert!(conversion.extraction.invoice_number.is_some());
+    assert!(conversion.extraction.due.is_some());
+}
+
+#[test]
+fn a_page_with_no_lines_has_nothing_to_reject_for_its_vat_basis() {
+    let reading = PageReading {
+        amounts_include_vat: ReadVatBasis::Yes,
+        lines: vec![],
+        ..clean_reading()
+    };
+    assert_eq!(convert(&reading).problems, vec![]);
+}
+
+#[test]
+fn amounts_that_exclude_vat_or_do_not_say_are_read_as_printed() {
+    for basis in [ReadVatBasis::No, ReadVatBasis::NotShown] {
+        let reading = PageReading {
+            amounts_include_vat: basis,
+            ..clean_reading()
+        };
+        let conversion = convert(&reading);
+        assert_eq!(conversion.problems, vec![]);
+        assert_eq!(conversion.extraction.lines.len(), 2);
+    }
+}
+
+#[test]
+fn the_vat_basis_problem_comes_before_the_line_problems_it_replaces() {
+    let mut reading = PageReading {
+        amounts_include_vat: ReadVatBasis::Yes,
+        ..clean_reading()
+    };
+    reading.lines[0].unit_price = "abc".into();
+    // The lines are not read at all, so their own problems are not reported twice.
+    assert_eq!(
+        problems(&reading),
+        vec![path("amounts_include_vat", ProblemKind::AmountsIncludeVat)]
     );
 }

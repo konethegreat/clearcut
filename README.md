@@ -65,6 +65,7 @@ crates/clearcut-store    Rust  Postgres storage, auth, the job queue
 crates/clearcut-jobs     Rust  job runner (claims jobs, heartbeats, retries)
 crates/clearcut-provider Rust  model-provider trait, checked requests, test fake
 crates/clearcut-docproc  Rust  document-worker client and test fake
+crates/clearcut-pack     Rust  context-pack builder: cached prompt, redaction, injection handling
 crates/clearcut-anthropic Rust  the user's own Anthropic key (protected), the HTTPS client, and the Anthropic adapter (schema profile, request, response, errors)
 crates/clearcut-eval     Rust  gold-set label format, checker, scorer with release gate, repository guard, sample set
 packages/sdk             TS    typed client

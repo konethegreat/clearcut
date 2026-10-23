@@ -17,8 +17,10 @@ pub mod jobs;
 pub mod money;
 pub mod narration;
 pub mod reading;
+pub mod redact;
 pub mod status;
 pub mod tax;
+pub mod untrusted;
 
 pub use error::{Error, Result};
 pub use invoice::{Invoice, InvoiceTotals, LineItem};

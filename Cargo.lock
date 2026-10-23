@@ -446,6 +446,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "clearcut-pack"
+version = "0.1.0"
+dependencies = [
+ "clearcut-anthropic",
+ "clearcut-core",
+ "clearcut-provider",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "clearcut-provider"
 version = "0.1.0"
 dependencies = [

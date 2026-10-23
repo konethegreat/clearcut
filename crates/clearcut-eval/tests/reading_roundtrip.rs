@@ -62,6 +62,7 @@ fn reading_of_page(e: &Extraction, page: u32) -> PageReading {
     };
     PageReading {
         currency,
+        amounts_include_vat: ReadVatBasis::No,
         invoice_number: e
             .invoice_number
             .as_ref()

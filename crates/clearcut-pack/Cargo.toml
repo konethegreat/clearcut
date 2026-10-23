@@ -1,0 +1,25 @@
+[package]
+name = "clearcut-pack"
+description = "ClearCut's context-pack builder: turns one page and what is known about its document into a model request, with a cache-friendly layout, redaction and prompt-injection handling."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clearcut-core = { path = "../clearcut-core" }
+clearcut-provider = { path = "../clearcut-provider" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11"
+thiserror = "2.0.21"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+clearcut-anthropic = { path = "../clearcut-anthropic" }
+clearcut-core = { path = "../clearcut-core", features = ["schemars"] }
