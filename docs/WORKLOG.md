@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-23 (part 17) — ADR-0014: the context-pack builder (P2-16b), proposed
+**Done** (docs only; PR #42, the reading shape, merged first with CI green)
+- ADR-0014 (Proposed): what is cached and what is per page (one rules block with synthetic worked examples, an optional tenant block, then image-before-text per page, document context and the previous tier's failure report in our own vocabulary); byte-identical cached prefix tested across pages, documents and tenants plus a golden prompt file; no tools in v1; a pure `redact` in core (SA ID, card, IBAN checks; labelled bank account, branch code and phone; e-mail) that never touches VAT numbers, invoice numbers, amounts or dates, with image masking through a worker-side `ImageMasker` later and a `best_effort` / `strict` policy; prompt-injection handling by nonce-delimited data, no tools, a closed output and flag-and-record; a per-call manifest with no text; new crate `clearcut-pack`.
+- Found while drafting: the reading shape asks for amounts "excluding VAT", so a VAT-inclusive document would make the model back the VAT out silently. Proposed a `reading-v2` with one required `amounts_include_vat` field, detected and sent to review for now.
+**Next**: Kone's answers to the six questions at the end of the ADR; then build tests first (redact, instruction scan, reading-v2, the pack crate).
+
 ## 2026-10-23 (part 16) — P2-13b: the model-facing reading shape, built
 **Done** (ADR-0013 accepted first, PR #41; then tests first, no key, no live call)
 - The strict decimal reader moved from `clearcut-eval` into `clearcut-core::decimal` with its tests; eval re-exports it.

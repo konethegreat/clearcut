@@ -44,7 +44,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P2-14 **Model router + escalation ladder** (Haiku 5.5 → Sonnet 5.5 → Opus 5.5 → Fable 5.1 → human review) driven by validation failures, disagreement, low confidence, truncation; escalation policy as config
 - ⬜ P2-15 Adaptive thinking + effort per tier; log tokens, tier, effort, cache hits, escalation reason per call
 - ⬜ P2-16 Prompt caching for the static prefix (instructions, schema, SA rules, examples); Batch API mode for bulk uploads
-- ⬜ P2-16b **Context-pack builder** ("resource completeness"): page image + text, neighbours, schema, SA rules, examples, supplier history, validator/calculator tools, previous-tier failure report; logged per call
+- 🔄 P2-16b **Context-pack builder** (design: [ADR-0014](adr/0014-context-pack-builder.md) proposed, awaiting review; includes the redaction hook of P2-19 and prompt-injection handling) ("resource completeness"): page image + text, neighbours, schema, SA rules, examples, supplier history, validator/calculator tools, previous-tier failure report; logged per call
 - ⬜ P2-17 Memory store (memory tool): written only from human-confirmed corrections; path validation, size caps, expiry, per-tenant
 - ⬜ P2-18 Terminal-state guarantee: every job ends `done` or `needs_review`; chaos tests (timeouts, truncation, provider outage)
 - ⬜ P2-19 POPIA: redaction of bank/ID numbers before sending, privacy notice and consent text, verify retention/ZDR terms with Anthropic, legal review
