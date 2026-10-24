@@ -1,5 +1,5 @@
 // Written by Kone Tshivhinda & Claude
-//! The HTTP client for the Python document worker (ADR-0009).
+//! The HTTP client for the Python document worker (ADR-0009, ADR-0016).
 //!
 //! What it will and will not do, each with a test:
 //!
@@ -9,28 +9,44 @@
 //!   TLS is added here, deliberately, not by accident.)
 //! - **Never follows a redirect and never uses a proxy from the environment**, so
 //!   the bearer token cannot be handed to anyone but the configured worker.
-//! - **Limits what it reads back.** A worker's answer is a few hundred bytes; up
-//!   to 64 KiB is read and no more, so a misbehaving worker cannot make this
-//!   service buffer megabytes.
+//! - **Limits what it reads back.** An error answer is a few hundred bytes and at most
+//!   64 KiB is read of one. A good answer has its own limit: 64 KiB for an inspection,
+//!   32 MiB for the text of pages, 6 MiB for a picture. A worker cannot make this
+//!   service buffer more than that.
+//! - **Believes nothing it has not checked.** Pages and pictures are rebuilt through
+//!   types that only hold possible values, and an answer that does not fit is a bad
+//!   response.
 //! - **Maps every outcome onto a [`ProcessError`]** without repeating anything
 //!   the server said: only fixed reasons and numeric limits.
 //! - **Never prints the token or the address.**
 
-use crate::{DocumentKind, DocumentProblem, DocumentProcessor, Inspection, ProcessError};
+mod wire;
+
+use crate::page::RenderedPage;
+use crate::request::{ImageFormat, MaskBox, PageRange, RenderOptions, MAX_BOXES};
+use crate::{DocumentKind, DocumentProblem, DocumentProcessor, Inspection, PageContent, ProcessError};
+use base64::Engine as _;
 use bytes::Bytes;
-use reqwest::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use clearcut_provider::ImageType;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::redirect::Policy;
 use reqwest::{Client, Url};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::fmt;
+use std::num::NonZeroU32;
 use std::time::Duration;
 
 /// How long a call may take before the client gives up. The worker gives up on a
 /// document after 30 s plus a 2 s grace, so the client waits longer than that.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(45);
-/// The most of an answer that is read. (The real ones are a few hundred bytes.)
+/// The most of an error answer, or of an inspection, that is read.
 pub const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+/// The most of the text of pages that is read (a page's text is at most a mebibyte and
+/// a call reads at most fifty pages; the real answers are far smaller).
+pub const MAX_TEXT_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+/// The most of a picture that is read (the worker keeps its pictures under 5 MiB).
+pub const MAX_IMAGE_RESPONSE_BYTES: usize = 6 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Why an [`HttpWorker`] could not be set up.
@@ -56,7 +72,7 @@ pub enum ConfigError {
 #[derive(Clone)]
 pub struct HttpWorker {
     client: Client,
-    endpoint: Url,
+    base: Url,
     authorization: HeaderValue,
     timeout: Duration,
 }
@@ -91,8 +107,6 @@ impl HttpWorker {
             return Err(ConfigError::BadToken);
         }
 
-        let mut endpoint = base.clone();
-        endpoint.set_path(&format!("{}/v1/inspect", base.path().trim_end_matches('/')));
         let mut authorization =
             HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| ConfigError::BadToken)?;
         // Marked sensitive, so it is redacted if a request is ever debug-printed.
@@ -107,7 +121,7 @@ impl HttpWorker {
             .map_err(|_| ConfigError::Client)?;
         Ok(HttpWorker {
             client,
-            endpoint,
+            base,
             authorization,
             timeout: DEFAULT_TIMEOUT,
         })
@@ -121,29 +135,156 @@ impl HttpWorker {
         self.timeout = timeout;
         Ok(self)
     }
-}
 
-impl DocumentProcessor for HttpWorker {
-    async fn inspect(&self, document: Bytes) -> Result<Inspection, ProcessError> {
+    /// The address of one of the worker's routes, with no doubled or missing slash.
+    fn url(&self, path: &str) -> Url {
+        let mut url = self.base.clone();
+        url.set_path(&format!("{}/{path}", self.base.path().trim_end_matches('/')));
+        url
+    }
+
+    /// Sends one request and returns the good answer's headers and body, or the error the
+    /// status stands for. `limit` is how much of a good answer may be read.
+    async fn send(
+        &self,
+        url: Url,
+        content_type: &'static str,
+        body: Bytes,
+        limit: usize,
+    ) -> Result<(HeaderMap, Vec<u8>), ProcessError> {
         let response = self
             .client
-            .post(self.endpoint.clone())
+            .post(url)
             .header(AUTHORIZATION, self.authorization.clone())
-            .header(CONTENT_TYPE, "application/octet-stream")
-            .body(document)
+            .header(CONTENT_TYPE, content_type)
+            .body(body)
             .timeout(self.timeout)
             .send()
             .await
             .map_err(classify)?;
         let status = response.status().as_u16();
-        let (body, complete) = read_limited(response).await?;
-        if status == 200 {
-            if !complete {
-                return Err(ProcessError::BadResponse("the answer was too large"));
-            }
-            return parse_inspection(&body);
+        let headers = response.headers().clone();
+        // An error answer is short whatever the call; a good one has its own limit.
+        let read_up_to = if status == 200 { limit } else { MAX_RESPONSE_BYTES };
+        let (body, complete) = read_limited(response, read_up_to).await?;
+        if status != 200 {
+            return Err(map_status(status, &body));
         }
-        Err(map_status(status, &body))
+        if !complete {
+            return Err(ProcessError::BadResponse("the answer was too large"));
+        }
+        Ok((headers, body))
+    }
+}
+
+impl DocumentProcessor for HttpWorker {
+    async fn inspect(&self, document: Bytes) -> Result<Inspection, ProcessError> {
+        let (_, body) = self
+            .send(
+                self.url("v1/inspect"),
+                "application/octet-stream",
+                document,
+                MAX_RESPONSE_BYTES,
+            )
+            .await?;
+        parse_inspection(&body)
+    }
+
+    async fn page_texts(
+        &self,
+        document: Bytes,
+        range: PageRange,
+        words: bool,
+    ) -> Result<Vec<PageContent>, ProcessError> {
+        let mut url = self.url("v1/text");
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("from", &range.first().get().to_string());
+            if let Some(last) = range.last() {
+                query.append_pair("to", &last.get().to_string());
+            }
+            query.append_pair("words", if words { "true" } else { "false" });
+        }
+        let (_, body) = self
+            .send(url, "application/octet-stream", document, MAX_TEXT_RESPONSE_BYTES)
+            .await?;
+        wire::parse_pages(&body, &wire::Expect::Text { range, words })
+    }
+
+    async fn ocr_page(
+        &self,
+        document: Bytes,
+        page: NonZeroU32,
+        agreement: bool,
+    ) -> Result<PageContent, ProcessError> {
+        let mut url = self.url("v1/ocr");
+        url.query_pairs_mut()
+            .append_pair("page", &page.get().to_string())
+            .append_pair("agreement", if agreement { "true" } else { "false" });
+        let (_, body) = self
+            .send(url, "application/octet-stream", document, MAX_TEXT_RESPONSE_BYTES)
+            .await?;
+        wire::parse_pages(&body, &wire::Expect::Ocr { page, agreement })?
+            .pop()
+            .ok_or(ProcessError::BadResponse("not the pages that were asked for"))
+    }
+
+    async fn render_page(
+        &self,
+        document: Bytes,
+        page: NonZeroU32,
+        options: RenderOptions,
+    ) -> Result<RenderedPage, ProcessError> {
+        let mut url = self.url("v1/render");
+        url.query_pairs_mut()
+            .append_pair("page", &page.get().to_string())
+            .append_pair("dpi", &options.dpi().to_string())
+            .append_pair("format", options.format().as_str())
+            .append_pair("max_edge", &options.max_edge().to_string());
+        let (headers, body) = self
+            .send(
+                url,
+                "application/octet-stream",
+                document,
+                MAX_IMAGE_RESPONSE_BYTES,
+            )
+            .await?;
+        picture(&headers, body, options.format(), options.max_edge())
+    }
+
+    async fn mask_image(
+        &self,
+        image: Bytes,
+        boxes: Vec<MaskBox>,
+        format: ImageFormat,
+        max_edge: u16,
+    ) -> Result<RenderedPage, ProcessError> {
+        if boxes.len() > MAX_BOXES {
+            // The worker would refuse it as an invalid request; do not send it.
+            return Err(ProcessError::Unexpected { status: 400 });
+        }
+        let mut url = self.url("v1/mask");
+        url.query_pairs_mut()
+            .append_pair("format", format.as_str())
+            .append_pair("max_edge", &max_edge.to_string());
+        let request = json!({
+            "image": base64::engine::general_purpose::STANDARD.encode(&image),
+            "boxes": boxes
+                .iter()
+                .map(|b| json!({"x": b.x(), "y": b.y(), "w": b.w(), "h": b.h()}))
+                .collect::<Vec<Value>>(),
+        });
+        let body = serde_json::to_vec(&request)
+            .map_err(|_| ProcessError::BadResponse("the request could not be built"))?;
+        let (headers, body) = self
+            .send(
+                url,
+                "application/json",
+                Bytes::from(body),
+                MAX_IMAGE_RESPONSE_BYTES,
+            )
+            .await?;
+        picture(&headers, body, format, max_edge)
     }
 }
 
@@ -158,12 +299,14 @@ fn classify(error: reqwest::Error) -> ProcessError {
     }
 }
 
-/// Reads at most [`MAX_RESPONSE_BYTES`] of the body. The flag says whether that
-/// was all of it.
-async fn read_limited(mut response: reqwest::Response) -> Result<(Vec<u8>, bool), ProcessError> {
+/// Reads at most `limit` bytes of the body. The flag says whether that was all of it.
+async fn read_limited(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<(Vec<u8>, bool), ProcessError> {
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(classify)? {
-        let room = MAX_RESPONSE_BYTES - body.len();
+        let room = limit - body.len();
         if chunk.len() > room {
             body.extend_from_slice(&chunk[..room]);
             return Ok((body, false));
@@ -173,7 +316,7 @@ async fn read_limited(mut response: reqwest::Response) -> Result<(Vec<u8>, bool)
     Ok((body, true))
 }
 
-/// The worker's success answer. Fields we do not know yet are ignored.
+/// The worker's success answer to an inspection. Fields we do not know yet are ignored.
 #[derive(Deserialize)]
 struct Wire {
     media_type: String,
@@ -197,6 +340,39 @@ fn parse_inspection(body: &[u8]) -> Result<Inspection, ProcessError> {
     Ok(inspection)
 }
 
+/// A picture answer: its kind from `Content-Type`, its size from the two size headers, and
+/// all of it held to what was asked. A PNG asked for may come back as a JPEG (a big one is
+/// sent that way); a JPEG asked for may not come back as a PNG.
+fn picture(
+    headers: &HeaderMap,
+    body: Vec<u8>,
+    asked: ImageFormat,
+    max_edge: u16,
+) -> Result<RenderedPage, ProcessError> {
+    const BAD: ProcessError = ProcessError::BadResponse("the picture was not as promised");
+    let text = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+    let media = match text("content-type") {
+        Some("image/png") => ImageType::Png,
+        Some("image/jpeg") => ImageType::Jpeg,
+        _ => return Err(BAD),
+    };
+    if asked == ImageFormat::Jpeg && media == ImageType::Png {
+        return Err(BAD);
+    }
+    let dimension = |name: &str| {
+        let value = text(name)?;
+        let plain = !value.is_empty() && value.len() <= 9 && value.bytes().all(|b| b.is_ascii_digit());
+        plain.then(|| value.parse::<u32>().ok()).flatten()
+    };
+    let (Some(width), Some(height)) = (dimension("x-image-width"), dimension("x-image-height")) else {
+        return Err(BAD);
+    };
+    if width > u32::from(max_edge) || height > u32::from(max_edge) {
+        return Err(BAD);
+    }
+    RenderedPage::new(media, Bytes::from(body), width, height).map_err(|_| BAD)
+}
+
 /// An error answer, understood by its status first and its message second. The
 /// message is only ever compared with known texts, never repeated.
 fn map_status(status: u16, body: &[u8]) -> ProcessError {
@@ -216,8 +392,18 @@ fn map_status(status: u16, body: &[u8]) -> ProcessError {
                 Some(max_pages) if max_pages > 0 => DocumentProblem::TooManyPages { max_pages },
                 _ => DocumentProblem::Unreadable,
             },
+            "the page range is outside the document" => {
+                match limit("pages").and_then(|n| u32::try_from(n).ok()) {
+                    Some(pages) => DocumentProblem::PageOutOfRange { pages },
+                    None => DocumentProblem::Unreadable,
+                }
+            }
+            "a page holds more text than the worker will report" => DocumentProblem::PageTooLarge,
+            "the page is too large to render" => DocumentProblem::PageTooBig,
+            "the image is too large" => DocumentProblem::ImageTooLarge,
             _ => DocumentProblem::Unreadable,
         }),
+        503 if message == "OCR is not available" => ProcessError::NotAvailable,
         500..=599 => ProcessError::Server { status },
         _ => ProcessError::Unexpected { status },
     }
@@ -225,3 +411,6 @@ fn map_status(status: u16, body: &[u8]) -> ProcessError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod page_tests;

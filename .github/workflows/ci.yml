@@ -97,6 +97,10 @@ jobs:
           cache-dependency-path: services/worker/constraints.txt
       - run: pip install -r requirements.txt -c constraints.txt
         working-directory: services/worker
+      - name: Tesseract with English and Afrikaans (so OCR is exercised through the client too)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-afr
       - name: Start the worker
         working-directory: services/worker
         run: |
@@ -105,7 +109,7 @@ jobs:
           echo "CLEARCUT_LIVE_WORKER_TOKEN=$TOKEN" >> "$GITHUB_ENV"
           # A 2-page cap and a 2 MB size cap: two of the contract tests probe those limits.
           CLEARCUT_WORKER_TOKEN="$TOKEN" CLEARCUT_WORKER_MAX_PAGES=2 CLEARCUT_WORKER_MAX_BYTES=2000000 \
-            CLEARCUT_WORKER_PORT=8090 PYTHONPATH=src nohup python -m clearcut_worker > "$RUNNER_TEMP/worker.log" 2>&1 &
+            CLEARCUT_WORKER_TESSERACT=tesseract CLEARCUT_WORKER_PORT=8090 PYTHONPATH=src nohup python -m clearcut_worker > "$RUNNER_TEMP/worker.log" 2>&1 &
           for i in $(seq 1 60); do
             curl -sf http://127.0.0.1:8090/health > /dev/null && exit 0
             sleep 0.5

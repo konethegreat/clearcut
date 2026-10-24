@@ -368,14 +368,18 @@ name = "clearcut-docproc"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bytes",
  "clearcut-core",
+ "clearcut-pack",
+ "clearcut-provider",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -16,9 +16,15 @@
 //! The worker must be started with a 2-page cap and a 2 000 000-byte size cap,
 //! because two of these tests probe those limits.
 
+use base64::Engine as _;
 use bytes::Bytes;
 use clearcut_core::jobs::FailureKind;
-use clearcut_docproc::{DocumentKind, DocumentProblem, DocumentProcessor, HttpWorker, ProcessError};
+use clearcut_docproc::{
+    DocumentKind, DocumentProblem, DocumentProcessor, HttpWorker, ImageFormat, MaskBox, PageRange,
+    PageSource, ProcessError, RenderOptions,
+};
+use clearcut_provider::ImageType;
+use std::num::NonZeroU32;
 
 const MAX_PAGES: u32 = 2;
 const MAX_BYTES: u64 = 2_000_000;
@@ -134,4 +140,148 @@ async fn several_inspections_at_once_all_get_their_own_answer() {
     assert_eq!(b.unwrap().pages_with_text(), 1);
     assert_eq!(c.unwrap().pages_with_text(), 0);
     assert_eq!(d.unwrap().pages_with_text(), 1);
+}
+
+// ---------- the newer calls (ADR-0016) ----------
+
+/// A real 1 by 1 pixel PNG, so the picture calls have a picture to work on.
+fn tiny_png() -> Bytes {
+    let encoded =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+    Bytes::from(base64::engine::general_purpose::STANDARD.decode(encoded).unwrap())
+}
+
+fn n(value: u32) -> NonZeroU32 {
+    NonZeroU32::new(value).unwrap()
+}
+
+#[tokio::test]
+#[ignore = "needs the real worker; run by the CI contract job"]
+async fn a_picture_is_a_one_page_document() {
+    let found = worker().inspect(tiny_png()).await.unwrap();
+    assert_eq!(
+        (found.kind(), found.pages(), found.has_text_layer()),
+        (DocumentKind::Png, 1, false)
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs the real worker; run by the CI contract job"]
+async fn the_text_of_pages_comes_back_checked_with_words_and_a_page_without_text_says_so() {
+    let range = PageRange::new(n(1), Some(n(2))).unwrap();
+    let pages = worker()
+        .page_texts(fixture("mixed_two_pages.pdf"), range, true)
+        .await
+        .unwrap();
+    assert_eq!(pages.len(), 2);
+    assert_eq!(
+        pages
+            .iter()
+            .filter(|p| p.source() == PageSource::TextLayer)
+            .count(),
+        1
+    );
+    assert_eq!(pages.iter().filter(|p| p.source() == PageSource::None).count(), 1);
+    for page in &pages {
+        assert!(page.words().is_some());
+        assert!(page.width_pt() > 0.0 && page.height_pt() > 0.0);
+        if page.source() == PageSource::TextLayer {
+            assert!(!page.words().unwrap().is_empty());
+            assert!(!page.fonts().is_empty());
+        }
+    }
+    // Without words, none are sent.
+    let plain = worker()
+        .page_texts(fixture("mixed_two_pages.pdf"), PageRange::single(n(1)), false)
+        .await
+        .unwrap();
+    assert!(plain[0].words().is_none());
+}
+
+#[tokio::test]
+#[ignore = "needs the real worker; run by the CI contract job"]
+async fn asking_for_pages_past_the_end_says_how_many_there_are() {
+    let range = PageRange::new(n(2), Some(n(5))).unwrap();
+    let error = worker()
+        .page_texts(fixture("mixed_two_pages.pdf"), range, false)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        ProcessError::Document(DocumentProblem::PageOutOfRange { pages: 2 })
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs the real worker; run by the CI contract job"]
+async fn a_page_is_drawn_and_then_painted_over() {
+    let drawn = worker()
+        .render_page(fixture("mixed_two_pages.pdf"), n(1), RenderOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(drawn.media(), ImageType::Png);
+    assert!(drawn.width() > 0 && drawn.height() > 0);
+    assert!(drawn.bytes().starts_with(b"\x89PNG"));
+
+    let boxes = vec![MaskBox::new(100, 100, 300, 100).unwrap()];
+    let painted = worker()
+        .mask_image(drawn.bytes().clone(), boxes, ImageFormat::Png, 2000)
+        .await
+        .unwrap();
+    assert_eq!(
+        (painted.width(), painted.height()),
+        (drawn.width(), drawn.height())
+    );
+    assert!(painted.bytes().starts_with(b"\x89PNG"));
+}
+
+#[tokio::test]
+#[ignore = "needs the real worker; run by the CI contract job"]
+async fn a_picture_can_be_drawn_and_painted_as_a_document() {
+    let drawn = worker()
+        .render_page(tiny_png(), n(1), RenderOptions::default())
+        .await
+        .unwrap();
+    assert_eq!((drawn.width(), drawn.height()), (1, 1));
+    let boxes = vec![MaskBox::new(0, 0, 1000, 1000).unwrap()];
+    assert!(worker()
+        .mask_image(tiny_png(), boxes, ImageFormat::Jpeg, 2000)
+        .await
+        .is_ok());
+}
+
+#[tokio::test]
+#[ignore = "needs the real worker; run by the CI contract job"]
+async fn drawing_a_page_that_is_not_there_or_a_file_that_is_not_supported_is_refused() {
+    let past = worker()
+        .render_page(fixture("mixed_two_pages.pdf"), n(3), RenderOptions::default())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        past,
+        ProcessError::Document(DocumentProblem::PageOutOfRange { pages: 2 })
+    );
+    let html = Bytes::from_static(b"<html>not a picture</html>");
+    let masked = worker()
+        .mask_image(html, Vec::new(), ImageFormat::Png, 2000)
+        .await
+        .unwrap_err();
+    assert_eq!(masked, ProcessError::Document(DocumentProblem::UnsupportedType));
+}
+
+#[tokio::test]
+#[ignore = "needs the real worker; run by the CI contract job"]
+async fn ocr_is_read_when_the_worker_has_it_and_is_not_available_when_it_does_not() {
+    // The contract job has no Tesseract, so the worker answers 503; a worker that has it
+    // gives a page read by OCR. Either is understood.
+    match worker().ocr_page(fixture("scan_two_pages.pdf"), n(1), true).await {
+        Ok(page) => {
+            assert_eq!(page.source(), PageSource::Ocr);
+            assert!(page.words().is_some());
+        }
+        Err(error) => {
+            assert_eq!(error, ProcessError::NotAvailable);
+            assert_eq!(error.failure_kind(), FailureKind::ProviderUnavailable);
+        }
+    }
 }
