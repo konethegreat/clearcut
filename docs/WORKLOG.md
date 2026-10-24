@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-25 (part 34) — ADR-0017 step 4: the live test on PDFs whose text layer lies
+**Done** (PR #59, step 3, merged first with CI green; tests first, no key)
+- `crates/clearcut-pipeline/tests/live.rs`: the analysis stage against the real worker (real PDF reader, real Tesseract), on three two-page PDFs written inside the test: honest, every letter shifted in the hidden `ToUnicode` map, every digit shifted. The picture is right and the text layer is wrong in a way we know exactly. Results: honest agrees 1000 and is trusted after one OCR; shifted letters agree 285 and 0, so both pages are rejected and read from their pictures (page 1 disagreed, so page 2 was read by OCR as well); shifted digits agree 685, so page 1 goes picture first and page 2, which has no digits, is correctly trusted.
+- My first expectation was wrong, not the system: I had assumed the digit PDF would be flagged on both pages; page 2 has no digits, so its text is right. The test now says so, which is a better test (the check is per page).
+- CI: the `contract` job gets a Postgres service and one more step. Ran twice locally against the worker in a Linux container with Tesseract 5.5 (this machine has none).
+**Next**: ADR-0017 is complete except wiring into the server's job runner (P1-07). Candidates: P2-03 (embedded XML invoices), P2-14 (the model router and escalation ladder, needs an ADR), P1-07 (the container and compose stack). Also queued, with Kone's go-ahead: the small docs PR answering the TimeLex request list.
+
 ## 2026-10-24 (part 33) — ADR-0017 step 3: the `clearcut-pipeline` crate
 **Done** (PR #58, step 2, merged first with CI green; tests first, no key)
 - New crate `clearcut-pipeline`: `PipelineHandler` (a `clearcut_jobs::Handler`) reads the stored file and checks its size and SHA-256 against the record, asks the worker for the page count and every page's text (50 at a time), lets the core's rule choose which pages OCR reads (page 1, pages not already good, the rest if page 1 disagrees, capped at 50), then records how each page will be read in `page_reads` with an audit entry of counts only and a checkpoint. A worker without OCR is not a failure; every other worker error keeps the queue's mapping; nothing is written until the end; a cancelled job stops with nothing written; a job taken over after the analysis does not redo it.

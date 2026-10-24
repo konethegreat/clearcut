@@ -84,8 +84,23 @@ jobs:
   contract:
     # The Rust client against the real Python worker (ADR-0009): proves the two
     # sides still understand each other. The token is made fresh for each run and
-    # masked in the logs, so there is no secret in the repository.
+    # masked in the logs, so there is no secret in the repository. The pipeline's
+    # live test (ADR-0017) also needs a database, as in the rust job.
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: clearcut
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: clearcut
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clearcut -d clearcut"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -118,6 +133,11 @@ jobs:
       - run: cargo test -p clearcut-docproc --test live -- --ignored
         env:
           CLEARCUT_LIVE_WORKER_URL: http://127.0.0.1:8090
+      - name: The analysis stage on PDFs whose text layer lies (real PDF reader, real OCR)
+        run: cargo test -p clearcut-pipeline --test live -- --ignored
+        env:
+          CLEARCUT_LIVE_WORKER_URL: http://127.0.0.1:8090
+          DATABASE_URL: postgres://clearcut@localhost:5432/clearcut
       - name: Worker log
         if: failure()
         run: cat "$RUNNER_TEMP/worker.log"
