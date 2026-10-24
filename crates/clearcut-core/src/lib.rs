@@ -16,6 +16,7 @@ pub mod invoice;
 pub mod jobs;
 pub mod money;
 pub mod narration;
+pub mod page_read;
 pub mod reading;
 pub mod redact;
 pub mod status;

@@ -685,3 +685,43 @@ fn the_longest_run_stays_the_longest_when_shorter_ones_follow() {
     assert_eq!(measure("cccc bb a").longest_token, 4);
     assert_eq!(measure("a\ncccc\tb").longest_token, 4);
 }
+
+// ---------- names that are stored (ADR-0017 reads them back) ----------
+
+#[test]
+fn verdict_names_are_exactly_the_agreed_list_and_parse_back() {
+    assert_eq!(
+        TextVerdict::ALL,
+        [TextVerdict::Good, TextVerdict::NeedsCheck, TextVerdict::Unusable]
+    );
+    for verdict in TextVerdict::ALL {
+        assert_eq!(TextVerdict::parse(verdict.as_str()), Some(verdict));
+    }
+    for bad in ["", "Good", " good", "good ", "ok", "needs check"] {
+        assert_eq!(TextVerdict::parse(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn reason_names_are_exactly_the_agreed_list_and_parse_back() {
+    let names: Vec<&str> = Reason::ALL.iter().map(|r| r.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "no_text",
+            "replacement_characters",
+            "ocr_disagrees",
+            "ocr_partly_agrees",
+            "ocr_agrees",
+            "risky_font",
+            "no_keywords",
+            "many_vowelless_words",
+        ]
+    );
+    for reason in Reason::ALL {
+        assert_eq!(Reason::parse(reason.as_str()), Some(reason));
+    }
+    for bad in ["", "No_Text", " no_text", "no_text ", "text", "*"] {
+        assert_eq!(Reason::parse(bad), None, "{bad:?}");
+    }
+}
