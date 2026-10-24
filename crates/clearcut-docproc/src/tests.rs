@@ -35,11 +35,18 @@ fn text_pages_can_never_be_more_than_pages() {
 fn the_kinds_and_their_names() {
     assert_eq!(DocumentKind::Pdf.media_type(), "application/pdf");
     assert_eq!(DocumentKind::parse("application/pdf"), Some(DocumentKind::Pdf));
+    assert_eq!(DocumentKind::Png.media_type(), "image/png");
+    assert_eq!(DocumentKind::Jpeg.media_type(), "image/jpeg");
+    assert_eq!(DocumentKind::parse("image/png"), Some(DocumentKind::Png));
+    assert_eq!(DocumentKind::parse("image/jpeg"), Some(DocumentKind::Jpeg));
     for bad in [
         "",
         "APPLICATION/PDF",
         " application/pdf",
-        "image/png",
+        "IMAGE/PNG",
+        "image/gif",
+        "image/jpg",
+        "image/png; x=1",
         "application/pdf; x=1",
     ] {
         assert_eq!(DocumentKind::parse(bad), None, "{bad:?}");
@@ -209,4 +216,227 @@ async fn clones_of_the_fake_share_one_script_and_one_record() {
     ask(&fake, b"a").await.unwrap();
     assert_eq!(ask(&other, b"b").await.unwrap().pages(), 2);
     assert_eq!((fake.call_count(), other.call_count()), (2, 2));
+}
+
+// ---------- pictures are documents too ----------
+
+#[test]
+fn a_picture_is_a_one_page_document_with_no_text_layer() {
+    let png = Inspection::new(DocumentKind::Png, 1, 0).unwrap();
+    assert_eq!(
+        (png.kind(), png.pages(), png.has_text_layer()),
+        (DocumentKind::Png, 1, false)
+    );
+    assert!(Inspection::new(DocumentKind::Jpeg, 1, 0).is_ok());
+}
+
+// ---------- the new ways a call can go ----------
+
+#[test]
+fn a_worker_that_does_not_offer_what_was_asked_is_the_platforms_problem_not_the_documents() {
+    assert_eq!(
+        ProcessError::NotAvailable.failure_kind(),
+        FailureKind::ProviderUnavailable
+    );
+    assert!(!ProcessError::NotAvailable.is_about_the_document());
+    assert_eq!(
+        ProcessError::NotAvailable.to_string(),
+        "the document worker does not offer this"
+    );
+}
+
+#[test]
+fn the_new_problems_with_a_document_go_to_a_person() {
+    use DocumentProblem::*;
+    for problem in [
+        PageOutOfRange { pages: 2 },
+        PageTooLarge,
+        PageTooBig,
+        ImageTooLarge,
+    ] {
+        let error = ProcessError::Document(problem);
+        assert_eq!(error.failure_kind(), FailureKind::NeedsReview, "{error}");
+        assert!(error.is_about_the_document());
+    }
+    assert_eq!(
+        ProcessError::Document(PageOutOfRange { pages: 2 }).to_string(),
+        "the document has only 2 pages"
+    );
+    assert_eq!(
+        ProcessError::Document(PageTooLarge).to_string(),
+        "a page holds more text than the worker will report"
+    );
+    assert_eq!(
+        ProcessError::Document(PageTooBig).to_string(),
+        "a page is too large to draw"
+    );
+    assert_eq!(
+        ProcessError::Document(ImageTooLarge).to_string(),
+        "the picture is too large"
+    );
+}
+
+// ---------- the fake does the new calls too ----------
+
+fn n(value: u32) -> NonZeroU32 {
+    NonZeroU32::new(value).unwrap()
+}
+
+fn text_page(number: u32) -> PageContent {
+    PageContent::from_parts(PageParts {
+        page: n(number),
+        source: PageSource::TextLayer,
+        text: "Total 100".to_string(),
+        width_pt: 595.0,
+        height_pt: 842.0,
+        fonts: Vec::new(),
+        words: None,
+        agreement: None,
+    })
+    .unwrap()
+}
+
+fn picture(width: u32) -> RenderedPage {
+    RenderedPage::new(
+        clearcut_provider::ImageType::Png,
+        Bytes::from_static(b"\x89PNG\r\n\x1a\nxx"),
+        width,
+        10,
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn the_fake_reads_text_in_the_order_scripted_and_remembers_what_it_was_asked() {
+    let fake = FakeWorker::scripted(vec![]).with_texts(vec![
+        Ok(vec![text_page(1), text_page(2)]),
+        Err(ProcessError::Timeout),
+    ]);
+    let range = PageRange::new(n(1), Some(n(2))).unwrap();
+    let pages = fake
+        .page_texts(Bytes::from_static(b"doc"), range, true)
+        .await
+        .unwrap();
+    assert_eq!(pages.len(), 2);
+    let again = fake
+        .page_texts(Bytes::from_static(b"doc2"), PageRange::single(n(3)), false)
+        .await;
+    assert_eq!(again, Err(ProcessError::Timeout));
+    assert_eq!(
+        fake.text_calls(),
+        [
+            TextCall {
+                document: Bytes::from_static(b"doc"),
+                range,
+                words: true
+            },
+            TextCall {
+                document: Bytes::from_static(b"doc2"),
+                range: PageRange::single(n(3)),
+                words: false
+            },
+        ]
+    );
+    let none_left = fake.page_texts(Bytes::new(), range, false).await;
+    assert_eq!(none_left, Err(ProcessError::Unexpected { status: 0 }));
+}
+
+#[tokio::test]
+async fn the_fake_reads_by_ocr_draws_and_masks_from_its_scripts() {
+    let ocr = text_page(4);
+    let fake = FakeWorker::scripted(vec![])
+        .with_ocr(vec![Ok(ocr.clone())])
+        .with_renders(vec![Ok(picture(40))])
+        .with_masks(vec![Ok(picture(41)), Err(ProcessError::Auth)]);
+    assert_eq!(
+        fake.ocr_page(Bytes::from_static(b"d"), n(4), true).await.unwrap(),
+        ocr
+    );
+    let options = RenderOptions::new(200, ImageFormat::Jpeg, 1500).unwrap();
+    assert_eq!(
+        fake.render_page(Bytes::from_static(b"d"), n(2), options)
+            .await
+            .unwrap()
+            .width(),
+        40
+    );
+    let boxes = vec![MaskBox::new(1, 2, 3, 4).unwrap()];
+    let masked = fake
+        .mask_image(Bytes::from_static(b"img"), boxes.clone(), ImageFormat::Png, 2000)
+        .await
+        .unwrap();
+    assert_eq!(masked.width(), 41);
+    assert_eq!(
+        fake.mask_image(Bytes::new(), Vec::new(), ImageFormat::Png, 2000)
+            .await,
+        Err(ProcessError::Auth)
+    );
+    assert_eq!(
+        fake.ocr_calls(),
+        [OcrCall {
+            document: Bytes::from_static(b"d"),
+            page: n(4),
+            agreement: true
+        }]
+    );
+    assert_eq!(
+        fake.render_calls(),
+        [RenderCall {
+            document: Bytes::from_static(b"d"),
+            page: n(2),
+            options
+        }]
+    );
+    assert_eq!(
+        fake.mask_calls()[0],
+        MaskCall {
+            image: Bytes::from_static(b"img"),
+            boxes,
+            format: ImageFormat::Png,
+            max_edge: 2000,
+        }
+    );
+}
+
+#[tokio::test]
+async fn the_fake_says_so_when_it_has_no_answer_for_the_new_calls() {
+    let fake = FakeWorker::scripted(vec![]);
+    let nothing = ProcessError::Unexpected { status: 0 };
+    assert_eq!(fake.ocr_page(Bytes::new(), n(1), false).await, Err(nothing));
+    assert_eq!(
+        fake.render_page(Bytes::new(), n(1), RenderOptions::default())
+            .await,
+        Err(nothing)
+    );
+    assert_eq!(
+        fake.mask_image(Bytes::new(), vec![], ImageFormat::Png, 2000)
+            .await,
+        Err(nothing)
+    );
+}
+
+#[tokio::test]
+async fn every_kind_of_call_counts_and_the_scripts_do_not_mix() {
+    let fake = FakeWorker::scripted(vec![Ok(pdf_inspection(1, 1))])
+        .with_texts(vec![Ok(vec![text_page(1)])])
+        .with_ocr(vec![Ok(text_page(1))]);
+    let other = fake.clone();
+    other.inspect(Bytes::from_static(b"a")).await.unwrap();
+    fake.page_texts(Bytes::new(), PageRange::single(n(1)), false)
+        .await
+        .unwrap();
+    fake.ocr_page(Bytes::new(), n(1), false).await.unwrap();
+    let _ = fake
+        .render_page(Bytes::new(), n(1), RenderOptions::default())
+        .await;
+    let _ = fake
+        .mask_image(Bytes::new(), vec![], ImageFormat::Png, 2000)
+        .await;
+    assert_eq!(fake.call_count(), 5);
+    assert_eq!(other.call_count(), 5);
+    assert_eq!(
+        fake.documents(),
+        [Bytes::from_static(b"a")],
+        "only inspections are documents"
+    );
 }

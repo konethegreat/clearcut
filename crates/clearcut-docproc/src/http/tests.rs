@@ -15,34 +15,35 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 
-const TOKEN: &str = "t0ken-0123456789-0123456789-0123456789";
+pub(super) const TOKEN: &str = "t0ken-0123456789-0123456789-0123456789";
 
 // ---------- a stub worker ----------
 
 #[derive(Debug, Clone)]
-struct Seen {
-    method: Method,
-    path: String,
-    headers: HeaderMap,
-    body: Vec<u8>,
+pub(super) struct Seen {
+    pub(super) method: Method,
+    pub(super) path: String,
+    pub(super) path_and_query: String,
+    pub(super) headers: HeaderMap,
+    pub(super) body: Vec<u8>,
 }
 
 #[derive(Clone)]
-struct Script {
-    status: u16,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
-    delay: Duration,
-    seen: Arc<Mutex<Vec<Seen>>>,
+pub(super) struct Script {
+    pub(super) status: u16,
+    pub(super) headers: Vec<(String, String)>,
+    pub(super) body: Vec<u8>,
+    pub(super) delay: Duration,
+    pub(super) seen: Arc<Mutex<Vec<Seen>>>,
 }
 
-struct Stub {
-    url: String,
-    seen: Arc<Mutex<Vec<Seen>>>,
+pub(super) struct Stub {
+    pub(super) url: String,
+    pub(super) seen: Arc<Mutex<Vec<Seen>>>,
 }
 
 impl Stub {
-    fn requests(&self) -> Vec<Seen> {
+    pub(super) fn requests(&self) -> Vec<Seen> {
         self.seen.lock().unwrap().clone()
     }
 }
@@ -57,6 +58,7 @@ async fn answer(
     script.seen.lock().unwrap().push(Seen {
         method,
         path: uri.path().to_string(),
+        path_and_query: uri.path_and_query().map(ToString::to_string).unwrap_or_default(),
         headers,
         body: body.to_vec(),
     });
@@ -71,7 +73,7 @@ async fn answer(
     response
 }
 
-async fn serve(script: Script) -> Stub {
+pub(super) async fn serve(script: Script) -> Stub {
     let seen = script.seen.clone();
     let app = Router::new().fallback(answer).with_state(script);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -82,7 +84,7 @@ async fn serve(script: Script) -> Stub {
     Stub { url, seen }
 }
 
-fn script(status: u16, body: impl Into<Vec<u8>>) -> Script {
+pub(super) fn script(status: u16, body: impl Into<Vec<u8>>) -> Script {
     Script {
         status,
         headers: Vec::new(),
@@ -92,13 +94,13 @@ fn script(status: u16, body: impl Into<Vec<u8>>) -> Script {
     }
 }
 
-async fn stub(status: u16, body: impl Into<Vec<u8>>) -> Stub {
+pub(super) async fn stub(status: u16, body: impl Into<Vec<u8>>) -> Stub {
     serve(script(status, body)).await
 }
 
 const GOOD: &str = r#"{"media_type":"application/pdf","pages":4,"pages_with_text":2,"has_text_layer":true}"#;
 
-fn worker(stub: &Stub) -> HttpWorker {
+pub(super) fn worker(stub: &Stub) -> HttpWorker {
     HttpWorker::new(&stub.url, TOKEN).unwrap()
 }
 
@@ -179,7 +181,6 @@ async fn an_answer_that_is_wrong_is_a_bad_response_not_a_guess() {
         r#"{"media_type":"application/pdf","pages":-1,"pages_with_text":0,"has_text_layer":false}"#,
         r#"{"media_type":"application/pdf","pages":1.5,"pages_with_text":0,"has_text_layer":false}"#,
         r#"{"media_type":"application/pdf","pages":5000000000,"pages_with_text":0,"has_text_layer":false}"#,
-        r#"{"media_type":"image/png","pages":1,"pages_with_text":0,"has_text_layer":false}"#,
         r#"{"media_type":"application/pdf","pages":1,"pages_with_text":2,"has_text_layer":true}"#,
         r#"{"media_type":"application/pdf","pages":3,"pages_with_text":2,"has_text_layer":false}"#,
         r#"{"media_type":"application/pdf","pages":3,"pages_with_text":0,"has_text_layer":true}"#,
@@ -564,7 +565,12 @@ fn the_edges_of_the_visible_ascii_range_decide_which_tokens_are_allowed() {
 
 #[test]
 fn the_endpoint_is_built_from_the_base_with_no_doubled_or_missing_slash() {
-    let endpoint = |base: &str| HttpWorker::new(base, TOKEN).unwrap().endpoint.to_string();
+    let endpoint = |base: &str| {
+        HttpWorker::new(base, TOKEN)
+            .unwrap()
+            .url("v1/inspect")
+            .to_string()
+    };
     assert_eq!(endpoint("http://h:1"), "http://h:1/v1/inspect");
     assert_eq!(endpoint("http://h:1/"), "http://h:1/v1/inspect");
     assert_eq!(endpoint("http://h:1/p"), "http://h:1/p/v1/inspect");
