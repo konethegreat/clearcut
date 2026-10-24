@@ -1,6 +1,6 @@
 # ADR-0017: The document analysis stage (first stage of the pipeline handler)
 
-Status: **Proposed** (waiting for Kone Tshivhinda's answers below) · Date: 2026-10-24 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-24, with all four recommended answers below) · Date: 2026-10-24 · Deciders: Kone Tshivhinda, Claude
 Task P2-02 (document intake analysis), and the first piece of the job code that P2-05 left open: the decision of when to run OCR and what to do with the `text_quality` verdict, which ADR-0016 (section 4 and the step 6 notes) hands to the pipeline. Builds on [ADR-0004](0004-ingestion-and-narration-pipeline.md), [ADR-0008](0008-job-queue.md) (the queue and its handler), [ADR-0009](0009-worker-and-provider-boundary.md) and [ADR-0016](0016-page-text-images-and-text-quality.md).
 
 ## What it is
@@ -59,7 +59,7 @@ This is the "never trust one path" rule of P2-20: a page whose text and picture 
 ## Build order (after approval)
 1. The routing rule and the `page_reads` record type in `clearcut-core`. 2. The migration for `page_reads` and its store functions (shown to you first). 3. `clearcut-pipeline` with the analyse stage and the handler. 4. The live test and docs; wiring into the server's job runner waits for P1-07, when the runner becomes its own process.
 
-## Questions for Kone
+## Questions for Kone (all four answered: yes, as recommended)
 1. A new crate `clearcut-pipeline` for the handler (decision 1)?
 2. The routing table (decision 2): is it right that `NeedsCheck` with no OCR means "picture first, text as a labelled hint" rather than refusing the page?
 3. OCR on page 1 of every PDF as a sentinel, plus whole-document OCR (capped at 50 pages) when it disagrees (decision 3)?

@@ -2,12 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
-## 2026-10-24 (part 30) — ADR-0017: the document analysis stage (P2-02), proposed
+## 2026-10-24 (part 30) — ADR-0017: the document analysis stage (P2-02), accepted
 **Done** (PR #55, the Rust side of the worker boundary, merged first with CI green; documentation only, no code)
 - Merged #55. The automated security review of it found one real weakness, fixed before merging: a redaction span counted as located if it touched any word, so a value only partly covered by words would have been painted in part. `boxes_for_spans` now takes the page text and needs every non-white-space character of the span inside a word (142 tests; the mutation check found one more missing test, added).
 - ADR-0017 (Proposed): the first stage of the `process_document` job. A new crate `clearcut-pipeline` implements the job handler; stage 1 reads the file, asks the worker for the page count and every page's text, judges each page with `text_quality`, runs OCR on page 1 of every PDF and on pages that need checking, and gives each page a **reading route** (`text_and_image`, `image_first`, `image_only`) by a pure rule in `clearcut-core`. The result goes in a new `page_reads` table (facts only, no text); page text is not stored.
 - Found while reading the code: de-duplication by hash and type sniffing are already done at intake, and `documents.page_count` exists but nothing sets it, so P2-02 is smaller than its line in the roadmap suggested.
-**Next**: Kone's answers to the four questions in the ADR; then core rule and record type, the `page_reads` migration (shown to you first), the crate and the handler. The docs PR answering the TimeLex request list is still queued.
+**Next**: Kone approved all four answers; step 1 is the core rule and record type, the `page_reads` migration (shown to you first), the crate and the handler. The docs PR answering the TimeLex request list is still queued.
 
 ## 2026-10-24 (part 29) — P2-05 step 7: the Rust side of the worker boundary
 **Done** (PR #54, `text_quality`, merged first with CI green; tests first, no key)
