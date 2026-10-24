@@ -8,9 +8,11 @@
 //! **Which words are hidden.** A redaction span is a range of bytes of the page's text,
 //! and the page's words (from the text layer or from OCR) say which bytes are which word
 //! and where it is. Every word the span touches, even partly, is hidden whole, with a small
-//! margin all round. A span that touches no word cannot be located, so it cannot be
-//! painted: that is an error, never a quiet omission, so that the strict policy sends
-//! nothing rather than a picture with a number still in it.
+//! margin all round. A span can only be painted if the words cover **all** of it: every
+//! character in it that is not white space must lie inside some word, or part of the value
+//! would stay in the picture. A span that touches no word, or that runs past the words, is
+//! an error, never a quiet omission, so that the strict policy sends nothing rather than a
+//! picture with a number still in it.
 //!
 //! **Why `prepare` is asynchronous and `mask` is not.** The pack builder asks for the
 //! masked picture while it builds, and it is not asynchronous; the worker is a network
@@ -59,10 +61,30 @@ fn with_margin(word: &PageWord) -> Option<MaskBox> {
     MaskBox::new(left, top, right.checked_sub(left)?, bottom.checked_sub(top)?).ok()
 }
 
-/// The boxes to paint to hide `spans`: one for each word any span touches, in the order of
-/// the words.
-pub fn boxes_for_spans(words: &[PageWord], spans: &[Span]) -> Result<Vec<MaskBox>, MaskPlanError> {
-    let located = |span: &Span| span.start < span.end && words.iter().any(|word| touches(word, span));
+/// Whether the words cover the whole of `span` in `text`: the span lies on character
+/// boundaries inside the text, touches a word, and every character in it that is not white
+/// space is inside some word (white space between words needs no box).
+fn covered(text: &str, words: &[PageWord], span: &Span) -> bool {
+    if span.start >= span.end || !words.iter().any(|word| touches(word, span)) {
+        return false;
+    }
+    let Some(inside) = text.get(span.start..span.end) else {
+        return false;
+    };
+    inside.char_indices().all(|(offset, c)| {
+        let at = span.start + offset;
+        c.is_whitespace() || words.iter().any(|word| word.start <= at && at < word.end)
+    })
+}
+
+/// The boxes to paint to hide `spans` (byte ranges of `text`): one for each word any span
+/// touches, in the order of the words.
+pub fn boxes_for_spans(
+    text: &str,
+    words: &[PageWord],
+    spans: &[Span],
+) -> Result<Vec<MaskBox>, MaskPlanError> {
+    let located = |span: &Span| covered(text, words, span);
     if !spans.iter().all(located) {
         return Err(MaskPlanError::UnlocatedSpan);
     }
@@ -109,7 +131,7 @@ impl WorkerMasker {
             image.clone()
         } else {
             let words = page.words().ok_or(MaskError::Failed)?;
-            let boxes = boxes_for_spans(words, spans).map_err(|_| MaskError::Failed)?;
+            let boxes = boxes_for_spans(&text.content, words, spans).map_err(|_| MaskError::Failed)?;
             let painted = processor
                 .mask_image(
                     Bytes::from(image.bytes.clone()),

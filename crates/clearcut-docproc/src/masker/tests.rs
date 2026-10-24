@@ -45,81 +45,95 @@ fn the_margin_is_three_thousandths_on_every_side() {
 
 #[test]
 fn a_span_inside_a_word_boxes_the_whole_word_with_a_margin() {
-    let boxes = boxes_for_spans(&words(), &[span(14, 17)]).unwrap();
+    let boxes = boxes_for_spans(NUMBER_TEXT, &words(), &[span(14, 17)]).unwrap();
     assert_eq!(boxes, [mask_box(537, 197, 256, 46)]);
 }
 
 #[test]
 fn a_span_across_words_boxes_each_word_it_touches() {
-    let boxes = boxes_for_spans(&words(), &[span(9, 15)]).unwrap();
+    let boxes = boxes_for_spans(NUMBER_TEXT, &words(), &[span(9, 15)]).unwrap();
     assert_eq!(boxes, [mask_box(417, 197, 106, 46), mask_box(537, 197, 256, 46)]);
 }
 
 #[test]
 fn spans_are_half_open_so_a_span_that_only_touches_a_word_leaves_it_alone() {
     // The first word is bytes 0 to 7 and the second 8 to 11.
-    assert_eq!(boxes_for_spans(&words(), &[span(0, 7)]).unwrap().len(), 1);
     assert_eq!(
-        boxes_for_spans(&words(), &[span(6, 8)]).unwrap().len(),
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(0, 7)])
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(6, 8)])
+            .unwrap()
+            .len(),
         1,
         "touches word one only"
     );
     assert_eq!(
-        boxes_for_spans(&words(), &[span(7, 9)]).unwrap().len(),
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(7, 9)])
+            .unwrap()
+            .len(),
         1,
         "touches word two only"
     );
-    assert_eq!(boxes_for_spans(&words(), &[span(6, 9)]).unwrap().len(), 2);
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(6, 9)])
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 #[test]
 fn several_spans_on_one_word_give_one_box() {
-    let boxes = boxes_for_spans(&words(), &[span(12, 14), span(15, 20), span(21, 22)]).unwrap();
+    let boxes = boxes_for_spans(NUMBER_TEXT, &words(), &[span(12, 14), span(15, 20), span(21, 22)]).unwrap();
     assert_eq!(boxes.len(), 1);
 }
 
 #[test]
 fn boxes_come_in_the_order_of_the_words() {
-    let boxes = boxes_for_spans(&words(), &[span(14, 15), span(1, 2)]).unwrap();
+    let boxes = boxes_for_spans(NUMBER_TEXT, &words(), &[span(14, 15), span(1, 2)]).unwrap();
     assert_eq!(boxes, [mask_box(97, 197, 306, 46), mask_box(537, 197, 256, 46)]);
 }
 
 #[test]
 fn the_margin_stops_at_the_edge_of_the_picture() {
     let at_corners = [word(0, 3, 0, 0, 10, 10), word(4, 7, 990, 990, 10, 10)];
-    let boxes = boxes_for_spans(&at_corners, &[span(0, 7)]).unwrap();
+    let boxes = boxes_for_spans("abc def", &at_corners, &[span(0, 7)]).unwrap();
     assert_eq!(boxes, [mask_box(0, 0, 13, 13), mask_box(987, 987, 13, 13)]);
     let whole = [word(0, 3, 0, 0, 1000, 1000)];
     assert_eq!(
-        boxes_for_spans(&whole, &[span(0, 3)]).unwrap(),
+        boxes_for_spans("abc", &whole, &[span(0, 3)]).unwrap(),
         [mask_box(0, 0, 1000, 1000)]
     );
 }
 
 #[test]
 fn nothing_to_hide_is_nothing_to_paint_even_with_no_words() {
-    assert_eq!(boxes_for_spans(&words(), &[]).unwrap(), Vec::new());
-    assert_eq!(boxes_for_spans(&[], &[]).unwrap(), Vec::new());
+    assert_eq!(boxes_for_spans(NUMBER_TEXT, &words(), &[]).unwrap(), Vec::new());
+    assert_eq!(boxes_for_spans("", &[], &[]).unwrap(), Vec::new());
 }
 
 #[test]
 fn a_span_that_covers_no_word_cannot_be_painted_and_says_so() {
     // Byte 11 is the space between the second and third words.
     assert_eq!(
-        boxes_for_spans(&words(), &[span(11, 12)]),
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(11, 12)]),
         Err(MaskPlanError::UnlocatedSpan)
     );
     assert_eq!(
-        boxes_for_spans(&words(), &[span(30, 40)]),
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(30, 40)]),
         Err(MaskPlanError::UnlocatedSpan)
     );
     assert_eq!(
-        boxes_for_spans(&[], &[span(0, 3)]),
+        boxes_for_spans(NUMBER_TEXT, &[], &[span(0, 3)]),
         Err(MaskPlanError::UnlocatedSpan)
     );
     // One located span does not excuse another.
     assert_eq!(
-        boxes_for_spans(&words(), &[span(0, 3), span(30, 40)]),
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(0, 3), span(30, 40)]),
         Err(MaskPlanError::UnlocatedSpan)
     );
 }
@@ -127,11 +141,11 @@ fn a_span_that_covers_no_word_cannot_be_painted_and_says_so() {
 #[test]
 fn a_span_with_no_length_is_not_a_span_to_trust() {
     assert_eq!(
-        boxes_for_spans(&words(), &[span(3, 3)]),
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(3, 3)]),
         Err(MaskPlanError::UnlocatedSpan)
     );
     assert_eq!(
-        boxes_for_spans(&words(), &[span(5, 2)]),
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(5, 2)]),
         Err(MaskPlanError::UnlocatedSpan)
     );
 }
@@ -146,9 +160,14 @@ fn at_most_five_hundred_boxes() {
         (words, spans)
     };
     let (words, spans) = many(500);
-    assert_eq!(boxes_for_spans(&words, &spans).unwrap().len(), 500);
+    let text = "a ".repeat(500);
+    assert_eq!(boxes_for_spans(&text, &words, &spans).unwrap().len(), 500);
     let (words, spans) = many(501);
-    assert_eq!(boxes_for_spans(&words, &spans), Err(MaskPlanError::TooManyBoxes));
+    let text = "a ".repeat(501);
+    assert_eq!(
+        boxes_for_spans(&text, &words, &spans),
+        Err(MaskPlanError::TooManyBoxes)
+    );
 }
 
 // ---------- the masker that asks the worker ----------
@@ -406,4 +425,86 @@ async fn the_kind_of_picture_that_comes_back_is_the_one_that_is_kept() {
     let masked = masker.mask(&image(), &page_text(), &number_span()).unwrap();
     assert_eq!(masked.media, ImageType::Jpeg);
     assert_eq!(masked.bytes, b"\xff\xd8\xff\xe0MASKED");
+}
+
+// ---------- a span must be covered by words all the way ----------
+
+#[test]
+fn a_span_that_runs_past_the_words_is_not_trusted_even_if_it_touches_one() {
+    // Only "No:" (bytes 8 to 11) is a word here; the number after it has no word, so
+    // painting "No:" would leave the digits in the picture.
+    let only_label = [word(8, 11, 420, 200, 100, 40)];
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &only_label, &[span(8, 22)]),
+        Err(MaskPlanError::UnlocatedSpan)
+    );
+    // The same span, once the digits have their word, is fine.
+    let both = [word(8, 11, 420, 200, 100, 40), word(12, 22, 540, 200, 250, 40)];
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &both, &[span(8, 22)]).unwrap().len(),
+        2
+    );
+}
+
+#[test]
+fn a_gap_inside_a_word_that_is_not_white_space_is_not_covered() {
+    // The word covers bytes 12 to 17; bytes 17 to 22 are digits with no word.
+    let short = [word(12, 17, 540, 200, 120, 40)];
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &short, &[span(12, 22)]),
+        Err(MaskPlanError::UnlocatedSpan)
+    );
+}
+
+#[test]
+fn white_space_between_words_needs_no_word() {
+    // The spans of "No: 1234567890" include the space at byte 11, which no word covers.
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &words(), &[span(8, 22)])
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn a_span_of_only_white_space_touches_nothing_and_is_refused() {
+    let around = [word(0, 7, 100, 200, 300, 40), word(12, 22, 540, 200, 250, 40)];
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &around, &[span(7, 12)]),
+        Err(MaskPlanError::UnlocatedSpan)
+    );
+}
+
+#[test]
+fn a_span_off_the_text_or_inside_a_character_is_refused() {
+    let text = "Konto 1é2";
+    let all = [word(0, 5, 0, 0, 100, 10), word(6, 10, 120, 0, 100, 10)];
+    assert_eq!(boxes_for_spans(text, &all, &[span(6, 10)]).unwrap().len(), 1);
+    // Past the end of the text.
+    assert_eq!(
+        boxes_for_spans(text, &all, &[span(6, 11)]),
+        Err(MaskPlanError::UnlocatedSpan)
+    );
+    // Byte 8 is the middle of the two-byte "é".
+    assert_eq!(
+        boxes_for_spans(text, &all, &[span(6, 8)]),
+        Err(MaskPlanError::UnlocatedSpan)
+    );
+}
+
+#[test]
+fn one_character_just_past_the_end_of_a_word_is_not_covered() {
+    // The word stops one digit short of the end of the number.
+    let nearly = [word(12, 21, 540, 200, 230, 40)];
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &nearly, &[span(12, 22)]),
+        Err(MaskPlanError::UnlocatedSpan)
+    );
+    assert_eq!(
+        boxes_for_spans(NUMBER_TEXT, &nearly, &[span(12, 21)])
+            .unwrap()
+            .len(),
+        1
+    );
 }
