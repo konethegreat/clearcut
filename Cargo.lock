@@ -464,6 +464,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "clearcut-pipeline"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "clearcut-core",
+ "clearcut-docproc",
+ "clearcut-jobs",
+ "clearcut-objects",
+ "clearcut-store",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "clearcut-provider"
 version = "0.1.0"
 dependencies = [
