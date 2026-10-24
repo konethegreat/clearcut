@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 31) — ADR-0017 step 1: the routing rule and the page record
+**Done** (PR #56, ADR-0017 accepted with all four recommended answers, merged first with CI green; tests first, no key)
+- New `clearcut_core::page_read`: `route_for` (`Good` is `text_and_image`, `NeedsCheck` is `image_first`, `Unusable` is `image_only`), `PageRead::decide` from a page's text, fonts and OCR result (text source, verdict, reasons, clamped agreement, route, rules version `routing-v1`, `text_layer_rejected()`), `PageRead::from_stored` that refuses a row contradicting the rules, and the two pure OCR planners `first_ocr_round` and `second_ocr_round` with a default cap of 50. `TextVerdict` and `Reason` gained `ALL` and `parse`.
+- Two gaps in the ADR text settled and recorded in its implementation notes: the cap applies to the first round too, and scanned pages with no text layer are read by OCR in the first round (the table gives their OCR text as the hint).
+- 410 tests in core (32 new). Mutation check of 41 breakages by hand: all caught. Full workspace tests with Postgres green.
+**Next**: step 2, the `page_reads` migration and store functions; I will show you the SQL before applying it. Also queued, with Kone's go-ahead: the small docs PR answering the TimeLex request list.
+
 ## 2026-10-24 (part 30) — ADR-0017: the document analysis stage (P2-02), accepted
 **Done** (PR #55, the Rust side of the worker boundary, merged first with CI green; documentation only, no code)
 - Merged #55. The automated security review of it found one real weakness, fixed before merging: a redaction span counted as located if it touched any word, so a value only partly covered by words would have been painted in part. `boxes_for_spans` now takes the page text and needs every non-white-space character of the span inside a word (142 tests; the mutation check found one more missing test, added).

@@ -40,4 +40,6 @@ pub enum Error {
     InvalidJobProgress(&'static str),
     #[error("invalid job policy: {0}")]
     InvalidJobPolicy(&'static str),
+    #[error("invalid page read: {0}")]
+    InvalidPageRead(&'static str),
 }

@@ -313,12 +313,21 @@ pub enum TextVerdict {
 }
 
 impl TextVerdict {
+    pub const ALL: [TextVerdict; 3] = [TextVerdict::Good, TextVerdict::NeedsCheck, TextVerdict::Unusable];
+
     pub fn as_str(self) -> &'static str {
         match self {
             TextVerdict::Good => "good",
             TextVerdict::NeedsCheck => "needs_check",
             TextVerdict::Unusable => "unusable",
         }
+    }
+
+    /// Parses exactly one name: no trimming, no case folding.
+    pub fn parse(text: &str) -> Option<TextVerdict> {
+        TextVerdict::ALL
+            .into_iter()
+            .find(|verdict| verdict.as_str() == text)
     }
 }
 
@@ -345,6 +354,17 @@ pub enum Reason {
 }
 
 impl Reason {
+    pub const ALL: [Reason; 8] = [
+        Reason::NoText,
+        Reason::ReplacementCharacters,
+        Reason::OcrDisagrees,
+        Reason::OcrPartlyAgrees,
+        Reason::OcrAgrees,
+        Reason::RiskyFont,
+        Reason::NoKeywords,
+        Reason::ManyVowellessWords,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Reason::NoText => "no_text",
@@ -356,6 +376,11 @@ impl Reason {
             Reason::NoKeywords => "no_keywords",
             Reason::ManyVowellessWords => "many_vowelless_words",
         }
+    }
+
+    /// Parses exactly one name: no trimming, no case folding.
+    pub fn parse(text: &str) -> Option<Reason> {
+        Reason::ALL.into_iter().find(|reason| reason.as_str() == text)
     }
 }
 
