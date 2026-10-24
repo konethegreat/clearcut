@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 33) — ADR-0017 step 3: the `clearcut-pipeline` crate
+**Done** (PR #58, step 2, merged first with CI green; tests first, no key)
+- New crate `clearcut-pipeline`: `PipelineHandler` (a `clearcut_jobs::Handler`) reads the stored file and checks its size and SHA-256 against the record, asks the worker for the page count and every page's text (50 at a time), lets the core's rule choose which pages OCR reads (page 1, pages not already good, the rest if page 1 disagrees, capped at 50), then records how each page will be read in `page_reads` with an audit entry of counts only and a checkpoint. A worker without OCR is not a failure; every other worker error keeps the queue's mapping; nothing is written until the end; a cancelled job stops with nothing written; a job taken over after the analysis does not redo it.
+- New `Store::document_file` (where a document's file is and what it should contain).
+- **One point to confirm:** with nothing after the analysis, the handler ends the job `needs_review` ("analysed; the later stages are not built yet") rather than `done`, so no document is ever marked done for work that was not done. Nothing runs the handler in the server yet, so no real document is affected; the ending is one line to change when extraction exists.
+- 34 tests in the new crate, 163 in the store. Hand mutation check of about 60 breakages of the handler. Full workspace tests and clippy green.
+**Next**: step 4, a live test against the real worker with a generated scrambled-font PDF (ground truth by construction). Also queued, with Kone's go-ahead: the small docs PR answering the TimeLex request list.
+
 ## 2026-10-24 (part 32) — ADR-0017 step 2: the `page_reads` table and its store functions
 **Done** (PR #57, step 1, merged first with CI green; tests first, no key; the SQL was shown to Kone and approved before anything ran)
 - Migration `0006_page_reads.sql`: one row per page (text source, verdict, reasons, OCR agreement, route, rules version), a composite foreign key to the document, the routing rule repeated as a check so a contradictory row cannot be stored, row-level security, `select`/`insert`/`delete` for the application role (no update, no truncate), and the eraser and `erase_document` extended so POPIA erasure still works.

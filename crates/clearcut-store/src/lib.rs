@@ -140,6 +140,16 @@ pub struct NewDocument {
     pub page_count: Option<i32>,
 }
 
+/// Where a stored document's file is, and what it should contain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredFile {
+    /// Key in object storage, never a file path.
+    pub storage_key: String,
+    pub content_type: String,
+    pub byte_size: u64,
+    pub sha256: [u8; 32],
+}
+
 /// The result of [`Store::add_document`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AddedDocument {
@@ -318,6 +328,28 @@ impl Store {
         Ok(AddedDocument {
             id: DocId(existing),
             duplicate: true,
+        })
+    }
+
+    /// Where the document's file is kept and what it should contain, so a reader of
+    /// the file can check what it got. The tenant must own the document.
+    pub async fn document_file(&self, tenant: TenantId, document: DocId) -> Result<StoredFile> {
+        let mut tx = self.begin(tenant).await?;
+        let row: Option<(String, String, i64, Vec<u8>)> = sqlx::query_as(
+            "select storage_key, content_type, byte_size, sha256 from documents where tenant_id = $1 and id = $2",
+        )
+        .bind(tenant.0)
+        .bind(document.0)
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let (storage_key, content_type, byte_size, sha256) = row.ok_or(Error::DocumentNotFound)?;
+        // The column is a non-negative size and exactly 32 bytes (checked by the table).
+        Ok(StoredFile {
+            storage_key,
+            content_type,
+            byte_size: u64::try_from(byte_size).map_err(|_| Error::DocumentNotFound)?,
+            sha256: sha256.try_into().map_err(|_| Error::DocumentNotFound)?,
         })
     }
 

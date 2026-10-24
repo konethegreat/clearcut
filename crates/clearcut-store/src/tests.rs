@@ -1638,3 +1638,30 @@ fn a_stored_document_id_is_the_core_id_a_citation_uses() {
         EventId::new("x"),
     );
 }
+
+// ---------- where a document's file is ----------
+
+#[sqlx::test]
+async fn a_documents_file_details_are_returned_as_stored(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let file = store.document_file(tenant, doc).await.unwrap();
+    let expected = new_document(1);
+    assert_eq!(file.storage_key, expected.storage_key);
+    assert_eq!(file.content_type, expected.content_type);
+    assert_eq!(file.byte_size, 1234);
+    assert_eq!(file.sha256, expected.sha256);
+}
+
+#[sqlx::test]
+async fn another_tenants_or_a_missing_documents_file_is_not_found(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let other = new_tenant(&pool, "Other Advisory").await.unwrap();
+    assert!(matches!(
+        store.document_file(other, doc).await,
+        Err(Error::DocumentNotFound)
+    ));
+    assert!(matches!(
+        store.document_file(tenant, DocId(Uuid::new_v4())).await,
+        Err(Error::DocumentNotFound)
+    ));
+}
