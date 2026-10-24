@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-24 (part 32) — ADR-0017 step 2: the `page_reads` table and its store functions
+**Done** (PR #57, step 1, merged first with CI green; tests first, no key; the SQL was shown to Kone and approved before anything ran)
+- Migration `0006_page_reads.sql`: one row per page (text source, verdict, reasons, OCR agreement, route, rules version), a composite foreign key to the document, the routing rule repeated as a check so a contradictory row cannot be stored, row-level security, `select`/`insert`/`delete` for the application role (no update, no truncate), and the eraser and `erase_document` extended so POPIA erasure still works.
+- `Store::replace_page_reads` (pages exactly 1 to n, old rows replaced and `documents.page_count` set in one transaction) and `Store::load_page_reads` (re-checked by the core's `PageRead::from_stored`), with new errors `InvalidPageReads` and `InvalidStoredPageRead`.
+- 25 new store tests, 161 in all. Hand mutation check of about 50 breakages across the Rust and the SQL: the survivors were missing tests and are caught now, apart from equivalents (tenant filters beside row-level security, three column checks implied by the combined check). Full workspace tests and clippy green.
+**Next**: step 3, the `clearcut-pipeline` crate with the analyse stage and the `process_document` handler (checkpointed, tested with `FakeWorker`). Also queued, with Kone's go-ahead: the small docs PR answering the TimeLex request list.
+
 ## 2026-10-24 (part 31) — ADR-0017 step 1: the routing rule and the page record
 **Done** (PR #56, ADR-0017 accepted with all four recommended answers, merged first with CI green; tests first, no key)
 - New `clearcut_core::page_read`: `route_for` (`Good` is `text_and_image`, `NeedsCheck` is `image_first`, `Unusable` is `image_only`), `PageRead::decide` from a page's text, fonts and OCR result (text source, verdict, reasons, clamped agreement, route, rules version `routing-v1`, `text_layer_rejected()`), `PageRead::from_stored` that refuses a row contradicting the rules, and the two pure OCR planners `first_ocr_round` and `second_ocr_round` with a default cap of 50. `TextVerdict` and `Reason` gained `ALL` and `parse`.

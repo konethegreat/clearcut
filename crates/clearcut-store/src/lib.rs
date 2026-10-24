@@ -28,6 +28,7 @@ use clearcut_core::event::{DocumentId as CoreDocumentId, Event};
 pub mod jobs;
 pub use jobs::{ClaimedJob, EnqueuedJob, FailureResult, Heartbeat, Job, LeaseToken, NewJob};
 pub mod keys;
+pub mod page_reads;
 use sqlx::postgres::PgPool;
 use std::num::NonZeroU32;
 use time::OffsetDateTime;
@@ -77,6 +78,12 @@ pub enum Error {
     /// A stored job no longer passes the core's rules.
     #[error("a stored job is invalid: {0}")]
     InvalidStoredJob(String),
+    /// The page rows handed in are not exactly pages 1 to n, once each.
+    #[error("invalid page reads: {0}")]
+    InvalidPageReads(&'static str),
+    /// A stored page row no longer passes the core's rules.
+    #[error("a stored page read is invalid: {0}")]
+    InvalidStoredPageRead(String),
     #[error("an API key needs a name")]
     BlankName,
     #[error("an API key needs at least one scope")]
