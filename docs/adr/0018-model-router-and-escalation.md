@@ -1,6 +1,6 @@
 # ADR-0018: The model router and the escalation ladder
 
-Status: **Proposed** (waiting for Kone Tshivhinda's answers below) · Date: 2026-10-25 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-25, with all eight recommended answers below; for question 6 the per-document cap grows with the pages) · Date: 2026-10-25 · Deciders: Kone Tshivhinda, Claude
 Task P2-14, with the page-reading half of P2-06 and the per-call log of P2-15. Builds on [ADR-0005](0005-model-strategy-escalation.md) (the ladder), [ADR-0011](0011-bring-your-own-anthropic-key.md) (the user's key, budgets, errors), [ADR-0012](0012-anthropic-adapter.md) (the adapter and its failures), [ADR-0013](0013-model-facing-reading-shape.md) (what the model returns), [ADR-0014](0014-context-pack-builder.md) (what is sent), [ADR-0017](0017-document-analysis-stage.md) (how each page is read) and [research 06](../research/06-anthropic-api.md) (the API's facts). Design only; nothing is built until this is approved. **No model has been called in the whole project yet**, so every number below that depends on real model behaviour is a starting value for the gold set to correct.
 
 ## What it is
@@ -140,7 +140,7 @@ Two new tables, both under row-level security and erased with the document. **Th
 - *Retry transport failures in the router.* Multiplies the adapter's and the queue's retries; refused in §5.
 - *Read pages in parallel from the start.* Loses context between pages, and needs the rate-limit-aware client first.
 
-## Questions for Kone
+## Questions for Kone (all eight answered: yes, as recommended)
 1. **Layout (§1):** the rules, state machine and costs in `clearcut-core`; an async driver in a new `clearcut-router` crate with no database; the read stage and storage in `clearcut-pipeline`: agreed?
 2. **Start every page at Haiku (§4),** including scans, with a per-route start rung to be set from the gold set; this departs from ADR-0005's table: agreed?
 3. **Evidence only (§3):** no model confidence, no two-pass voting, no model as judge; accept on schema, critical-field problems, page-local arithmetic and the page-text check; the text check (P2-13c) built as part of this: agreed?
