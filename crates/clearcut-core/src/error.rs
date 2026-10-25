@@ -42,4 +42,6 @@ pub enum Error {
     InvalidJobPolicy(&'static str),
     #[error("invalid page read: {0}")]
     InvalidPageRead(&'static str),
+    #[error("invalid router policy: {0}")]
+    InvalidRouterPolicy(&'static str),
 }

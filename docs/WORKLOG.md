@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-25 (part 36) — ADR-0018 step 1: `escalation` in `clearcut-core`
+**Done** (PR #61, ADR-0018 accepted with all eight recommended answers, merged first with CI green; tests first, no key)
+- `clearcut_core::escalation`: the ladder as checked data (`RouterPolicy`, Fable off by default), `assess` (accept / escalate with a named reason / review, from the conversion problems, the arithmetic and a text check, and nothing the model or the page says about itself), and `PageReader`, the per-page state machine with attempts, retries after a cut-off or an invalid answer, caps, the best draft, and a stored form so a retried job resumes mid-page.
+- Settled while building: `amounts_include_vat` and too many lines go straight to a person (a stronger model reads the same page); an unlisted path is critical, so nothing new can hide.
+- It always ends: every sequence of five outcomes over twelve kinds (248 832) and 20 000 generated policies stay inside the caps.
+- 74 new tests (484 in core). Hand mutation check of about 130 breakages; the survivors of the first run were missing tests and are caught now. Full workspace tests and clippy green.
+**Next**: step 2, prices and `Cost` in `clearcut-core` (the first half of P2-12: the per-document cap that grows with the pages, and the worst-case check of the next call). The docs PR answering the TimeLex request list is still queued.
+
 ## 2026-10-25 (part 35) — ADR-0018: the model router and escalation ladder (P2-14), accepted
 **Done** (PR #60, step 4 of ADR-0017, merged first with CI green; documentation only, no code)
 - ADR-0018 (Proposed) designs the router on top of everything already built (reading routes, context pack, provider, reading shape, validation). The centre is a pure **page state machine** in `clearcut-core` (start, outcome, next step), driven by a thin async loop in a new `clearcut-router` crate with no database; the job's read stage stays in `clearcut-pipeline`. Because the machine is pure, termination is a tested property and a later Batch driver can run the same rules in rounds.
