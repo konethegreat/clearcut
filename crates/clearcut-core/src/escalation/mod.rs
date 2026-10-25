@@ -30,6 +30,7 @@ mod tests_policy;
 mod tests_reader;
 
 pub use assess::{assess, Assessment, ReadingEvidence, TextCheck, Verdict};
+pub(crate) use policy::plain_model_id;
 pub use policy::{Picture, RouterPolicy, Rung};
 pub use reader::{CallKind, CallPlan, Outcome, PageOutcome, PageReader, Step};
 

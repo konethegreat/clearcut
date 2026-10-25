@@ -104,7 +104,7 @@ pub(super) fn check_rung(rung: &Rung, answer_ceiling: u32) -> Result<()> {
     Ok(())
 }
 
-fn plain_model_id(id: &str) -> bool {
+pub(crate) fn plain_model_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_MODEL_ID_LEN
         && id

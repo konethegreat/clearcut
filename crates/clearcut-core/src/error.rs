@@ -46,4 +46,8 @@ pub enum Error {
     InvalidRouterPolicy(&'static str),
     #[error("invalid stored page reader: {0}")]
     InvalidStoredReader(&'static str),
+    #[error("invalid pricing: {0}")]
+    InvalidPricing(&'static str),
+    #[error("no price is known for model {0:?}")]
+    UnknownModelPrice(String),
 }
