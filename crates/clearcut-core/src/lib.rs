@@ -10,6 +10,7 @@ pub mod compliance_za;
 pub mod decimal;
 pub mod document;
 pub mod error;
+pub mod escalation;
 pub mod event;
 pub mod extraction;
 pub mod invoice;
