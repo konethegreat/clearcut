@@ -23,6 +23,7 @@ pub mod reading;
 pub mod redact;
 pub mod status;
 pub mod tax;
+pub mod text_check;
 pub mod text_quality;
 pub mod untrusted;
 

@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 38) — ADR-0018 step 3: the check against the page's own text
+**Done** (PR #63, step 2, merged first with CI green; tests first, no key)
+- `clearcut_core::text_check` (P2-13c): looks for every non-zero amount of the reading, the invoice number and the supplier's VAT number in the page's own text. Amounts are read however South African pages group them (spaces, commas, points, apostrophes, with or without cents); the invoice number and VAT number must be found as a whole, not inside a longer one. The report names the place of each figure not found (`totals/gross`) and never holds a value.
+- A departure from the ADR's wording, with the reason: a miss is a **failure** only when the text is trusted; against an unverified layer or OCR text it is only reported, because the text may be the wrong one (a lying layer would otherwise send a correctly read page up every rung and into review). Dates are not checked yet (too many printed forms; a false failure costs a page).
+- The mutation run showed two things: the 32-group cap on a run of numbers is what keeps a page of numbers from taking for ever (without it the test never finishes), and four pieces of code were implied by others and were removed. The harness now has a per-mutant time limit.
+- 31 new tests (576 in core). Hand mutation check of about 80 breakages, all caught. Full workspace tests and clippy green.
+**Next**: step 4, the pack's `unverified_text_layer` label and the sentence in the cached rules (`prompt-v1` edited in place; no live call has happened). The docs PR answering the TimeLex request list is still queued.
+
 ## 2026-10-25 (part 37) — ADR-0018 step 2: prices and budgets in `clearcut-core`
 **Done** (PR #62, step 1, merged first with CI green; tests first, no key)
 - `clearcut_core::cost`: `Cost` in nano-rand (integers, rounded up, saturating, shown in rand cents rounded up), the price table of research 06 with the date it was read (cache reads and writes exact, Haiku's higher price above 100 000 tokens), `cost` from a call's token counts, `worst_case` for the next call (page at the input price, the prefix at the one-hour write price, the largest answer), `unaffordable_models` to take rungs that do not fit a cap out of a ladder, and `BudgetCheck` with the document cap that grows with the pages (the larger of R5 and R0.50 a page, never past the month). Everything read from text is checked like what is built.
