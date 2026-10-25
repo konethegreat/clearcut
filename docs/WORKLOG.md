@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-25 (part 37) — ADR-0018 step 2: prices and budgets in `clearcut-core`
+**Done** (PR #62, step 1, merged first with CI green; tests first, no key)
+- `clearcut_core::cost`: `Cost` in nano-rand (integers, rounded up, saturating, shown in rand cents rounded up), the price table of research 06 with the date it was read (cache reads and writes exact, Haiku's higher price above 100 000 tokens), `cost` from a call's token counts, `worst_case` for the next call (page at the input price, the prefix at the one-hour write price, the largest answer), `unaffordable_models` to take rungs that do not fit a cap out of a ladder, and `BudgetCheck` with the document cap that grows with the pages (the larger of R5 and R0.50 a page, never past the month). Everything read from text is checked like what is built.
+- Checked against research 06: a typical page costs R0.02 on Haiku, R0.396 on Sonnet, R0.792 on Opus and R1.98 on Fable at R18/USD, to the nano-rand.
+- **A correction to the ADR's text:** Fable fits R5 only if no cache has to be written (R4.68); with the prefix written for an hour it is R6.12, so it would be dropped on a document's first call at the default cap. Off by default anyway; a document of 13 pages or more has a cap with room.
+- 56 new tests (546 in core). Hand mutation check of about 90 breakages; the survivors of the first run were missing tests and are caught now. Full workspace tests and clippy green.
+**Next**: step 3, the check of what the model read against the page's own text (P2-13c) in `clearcut-core`. The docs PR answering the TimeLex request list is still queued.
+
 ## 2026-10-25 (part 36) — ADR-0018 step 1: `escalation` in `clearcut-core`
 **Done** (PR #61, ADR-0018 accepted with all eight recommended answers, merged first with CI green; tests first, no key)
 - `clearcut_core::escalation`: the ladder as checked data (`RouterPolicy`, Fable off by default), `assess` (accept / escalate with a named reason / review, from the conversion problems, the arithmetic and a text check, and nothing the model or the page says about itself), and `PageReader`, the per-page state machine with attempts, retries after a cut-off or an invalid answer, caps, the best draft, and a stored form so a retried job resumes mid-page.

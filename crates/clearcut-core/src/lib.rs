@@ -7,6 +7,7 @@
 
 pub mod auth;
 pub mod compliance_za;
+pub mod cost;
 pub mod decimal;
 pub mod document;
 pub mod error;
