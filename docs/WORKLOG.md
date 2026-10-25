@@ -6,8 +6,9 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 **Done** (PR #61, ADR-0018 accepted with all eight recommended answers, merged first with CI green; tests first, no key)
 - `clearcut_core::escalation`: the ladder as checked data (`RouterPolicy`, Fable off by default), `assess` (accept / escalate with a named reason / review, from the conversion problems, the arithmetic and a text check, and nothing the model or the page says about itself), and `PageReader`, the per-page state machine with attempts, retries after a cut-off or an invalid answer, caps, the best draft, and a stored form so a retried job resumes mid-page.
 - Settled while building: `amounts_include_vat` and too many lines go straight to a person (a stronger model reads the same page); an unlisted path is critical, so nothing new can hide.
+- The automated security review of the PR found that `RouterPolicy` and `PageReader` could be read back from text without the checks that building them applies (a damaged stored reader could panic on an index or overspend its calls). Both now go through the same checks on reading (`serde(try_from)`).
 - It always ends: every sequence of five outcomes over twelve kinds (248 832) and 20 000 generated policies stay inside the caps.
-- 74 new tests (484 in core). Hand mutation check of about 130 breakages; the survivors of the first run were missing tests and are caught now. Full workspace tests and clippy green.
+- 80 new tests (490 in core). Hand mutation check of about 145 breakages; the survivors of the first run were missing tests and are caught now. Full workspace tests and clippy green.
 **Next**: step 2, prices and `Cost` in `clearcut-core` (the first half of P2-12: the per-document cap that grows with the pages, and the worst-case check of the next call). The docs PR answering the TimeLex request list is still queued.
 
 ## 2026-10-25 (part 35) — ADR-0018: the model router and escalation ladder (P2-14), accepted

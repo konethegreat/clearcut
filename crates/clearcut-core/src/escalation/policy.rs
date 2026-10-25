@@ -40,8 +40,10 @@ pub struct Rung {
 }
 
 /// The ladder and the caps on calls. Built with [`RouterPolicy::new`] (which checks it), or
-/// [`RouterPolicy::default_ladder`].
+/// [`RouterPolicy::default_ladder`]. **Read back from text, it goes through the same checks**
+/// (`try_from`), so a configuration file cannot hold a policy that `new` would refuse.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "UncheckedPolicy")]
 pub struct RouterPolicy {
     rungs: Vec<Rung>,
     /// What a cut-off answer is retried with (the adapter's non-streaming limit by default).
@@ -51,8 +53,55 @@ pub struct RouterPolicy {
     document_calls_extra: u32,
 }
 
+/// A policy as it is written, before it is checked.
+#[derive(Deserialize)]
+struct UncheckedPolicy {
+    rungs: Vec<Rung>,
+    answer_ceiling: u32,
+    max_calls_per_page: u32,
+    document_calls_per_page: u32,
+    document_calls_extra: u32,
+}
+
+impl TryFrom<UncheckedPolicy> for RouterPolicy {
+    type Error = Error;
+
+    fn try_from(raw: UncheckedPolicy) -> Result<Self> {
+        RouterPolicy::new(
+            raw.rungs,
+            raw.answer_ceiling,
+            raw.max_calls_per_page,
+            raw.document_calls_per_page,
+            raw.document_calls_extra,
+        )
+    }
+}
+
 fn invalid(why: &'static str) -> Error {
     Error::InvalidRouterPolicy(why)
+}
+
+/// The answer ceiling must be a size the provider takes.
+pub(super) fn check_ceiling(answer_ceiling: u32) -> Result<()> {
+    if answer_ceiling == 0 || answer_ceiling > PROVIDER_MAX_OUTPUT_TOKENS {
+        return Err(invalid("the answer ceiling is outside 1 to 64000"));
+    }
+    Ok(())
+}
+
+/// What a single rung must satisfy, whoever built it.
+pub(super) fn check_rung(rung: &Rung, answer_ceiling: u32) -> Result<()> {
+    if !plain_model_id(&rung.model) {
+        return Err(invalid("a model id is not a plain identifier"));
+    }
+    if rung.max_output_tokens == 0 || rung.max_output_tokens > answer_ceiling {
+        return Err(invalid("a rung's answer cap is outside 1 to the ceiling"));
+    }
+    let Picture { dpi, max_edge } = rung.picture;
+    if !(MIN_DPI..=MAX_DPI).contains(&dpi) || !(MIN_EDGE..=MAX_EDGE).contains(&max_edge) {
+        return Err(invalid("a rung's picture is outside what the worker draws"));
+    }
+    Ok(())
 }
 
 fn plain_model_id(id: &str) -> bool {
@@ -80,25 +129,14 @@ impl RouterPolicy {
         if !rungs.iter().any(|r| r.enabled) {
             return Err(invalid("at least one rung must be on"));
         }
-        if answer_ceiling == 0 || answer_ceiling > PROVIDER_MAX_OUTPUT_TOKENS {
-            return Err(invalid("the answer ceiling is outside 1 to 64000"));
-        }
+        check_ceiling(answer_ceiling)?;
         if max_calls_per_page == 0 || document_calls_per_page == 0 {
             return Err(invalid("a call cap must be above zero"));
         }
         for (i, rung) in rungs.iter().enumerate() {
-            if !plain_model_id(&rung.model) {
-                return Err(invalid("a model id is not a plain identifier"));
-            }
+            check_rung(rung, answer_ceiling)?;
             if rungs[..i].iter().any(|earlier| earlier.model == rung.model) {
                 return Err(invalid("a model appears twice in the ladder"));
-            }
-            if rung.max_output_tokens == 0 || rung.max_output_tokens > answer_ceiling {
-                return Err(invalid("a rung's answer cap is outside 1 to the ceiling"));
-            }
-            let Picture { dpi, max_edge } = rung.picture;
-            if !(MIN_DPI..=MAX_DPI).contains(&dpi) || !(MIN_EDGE..=MAX_EDGE).contains(&max_edge) {
-                return Err(invalid("a rung's picture is outside what the worker draws"));
             }
         }
         Ok(RouterPolicy {

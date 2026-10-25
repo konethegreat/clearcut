@@ -306,3 +306,70 @@ fn the_call_caps_must_be_above_zero() {
         Err(Error::InvalidRouterPolicy("a call cap must be above zero"))
     );
 }
+
+// ---------- a policy read back is checked like one built ----------
+
+#[test]
+fn a_policy_survives_being_written_and_read_back() {
+    let policy = RouterPolicy::default_ladder();
+    let json = serde_json::to_string(&policy).unwrap();
+    let back: RouterPolicy = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, policy);
+}
+
+fn tampered(change: impl FnOnce(&mut serde_json::Value)) -> Result<RouterPolicy, serde_json::Error> {
+    let mut value = serde_json::to_value(RouterPolicy::default_ladder()).unwrap();
+    change(&mut value);
+    serde_json::from_value(value)
+}
+
+#[test]
+fn a_policy_read_from_text_cannot_skip_the_checks() {
+    use serde_json::json;
+    assert!(tampered(|_| {}).is_ok());
+    let refused: Vec<(&str, Tamper)> = vec![
+        ("no rungs", Box::new(|v| v["rungs"] = json!([]))),
+        (
+            "a model id with a space",
+            Box::new(|v| v["rungs"][0]["model"] = json!("has space")),
+        ),
+        (
+            "a duplicate model",
+            Box::new(|v| v["rungs"][1]["model"] = json!("claude-haiku-5-5")),
+        ),
+        (
+            "an answer over the ceiling",
+            Box::new(|v| v["rungs"][0]["max_output_tokens"] = json!(16_001)),
+        ),
+        (
+            "a zero answer",
+            Box::new(|v| v["rungs"][0]["max_output_tokens"] = json!(0)),
+        ),
+        (
+            "a picture too small",
+            Box::new(|v| v["rungs"][0]["picture"]["dpi"] = json!(50)),
+        ),
+        (
+            "a ceiling too large",
+            Box::new(|v| v["answer_ceiling"] = json!(64_001)),
+        ),
+        (
+            "a zero page cap",
+            Box::new(|v| v["max_calls_per_page"] = json!(0)),
+        ),
+        (
+            "every rung off",
+            Box::new(|v| {
+                for rung in v["rungs"].as_array_mut().unwrap() {
+                    rung["enabled"] = json!(false);
+                }
+            }),
+        ),
+    ];
+    for (case, change) in refused {
+        assert!(tampered(change).is_err(), "{case}");
+    }
+}
+
+/// A change to make to a stored value, to see whether it is still accepted.
+type Tamper = Box<dyn FnOnce(&mut serde_json::Value)>;

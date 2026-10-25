@@ -672,3 +672,126 @@ fn an_escalation_names_the_rung_it_came_from_by_the_policy() {
         }
     );
 }
+
+// ---------- a reader read back is checked, so a stored one cannot panic or overspend ----------
+
+fn tampered_reader(
+    reader: &PageReader,
+    change: impl FnOnce(&mut serde_json::Value),
+) -> Result<PageReader, serde_json::Error> {
+    let mut value = serde_json::to_value(reader).unwrap();
+    change(&mut value);
+    serde_json::from_value(value)
+}
+
+#[test]
+fn a_finished_page_with_no_rungs_can_still_be_stored_and_read_back() {
+    let policy = RouterPolicy::default_ladder();
+    let all: Vec<&str> = policy.rungs().iter().map(|r| r.model.as_str()).collect();
+    let (reader, step) = PageReader::start(&policy.without_models(&all), 100);
+    assert_eq!(review_of(&step).0, ReviewReason::NoRungAvailable);
+    let back: PageReader = serde_json::from_str(&serde_json::to_string(&reader).unwrap()).unwrap();
+    assert_eq!(back, reader);
+    assert!(back.is_done());
+}
+
+#[test]
+fn a_stored_reader_that_breaks_its_own_rules_is_refused() {
+    use serde_json::json;
+    let (mut reader, _) = default_start();
+    reader.on_outcome(escalate(1));
+    assert!(tampered_reader(&reader, |_| {}).is_ok());
+
+    let cases: Vec<(&str, Tamper)> = vec![
+        (
+            "a position past the rungs",
+            Box::new(|v| v["position"] = json!(9)),
+        ),
+        (
+            "no rungs on an unfinished page",
+            Box::new(|v| v["rungs"] = json!([])),
+        ),
+        (
+            "more calls than the limit",
+            Box::new(|v| {
+                v["calls_made"] = json!(6);
+                v["issued"] = json!(6);
+            }),
+        ),
+        (
+            "more calls made than plans issued",
+            Box::new(|v| v["calls_made"] = json!(5)),
+        ),
+        (
+            "a cap raised past the ceiling",
+            Box::new(|v| v["cap_override"] = json!(16_001)),
+        ),
+        ("a raised cap of zero", Box::new(|v| v["cap_override"] = json!(0))),
+        ("a best attempt of zero", Box::new(|v| v["best"] = json!([0, 1]))),
+        (
+            "a ceiling past the provider's",
+            Box::new(|v| v["ceiling"] = json!(64_001)),
+        ),
+        (
+            "a best attempt that was never issued",
+            Box::new(|v| v["best"] = json!([9, 1])),
+        ),
+        (
+            "a model id with a space",
+            Box::new(|v| v["rungs"][0]["rung"]["model"] = json!("has space")),
+        ),
+        (
+            "an answer cap over the ceiling",
+            Box::new(|v| v["rungs"][0]["rung"]["max_output_tokens"] = json!(16_001)),
+        ),
+        (
+            "a picture the worker would refuse",
+            Box::new(|v| v["rungs"][0]["rung"]["picture"]["max_edge"] = json!(9_999)),
+        ),
+    ];
+    for (case, change) in cases {
+        assert!(tampered_reader(&reader, change).is_err(), "{case}");
+    }
+}
+
+#[test]
+fn a_reader_read_back_after_every_step_behaves_like_the_original() {
+    // Store and restore between every two outcomes of a long script.
+    let script = [
+        escalate(3),
+        Outcome::InvalidOutput,
+        Outcome::Truncated,
+        escalate(1),
+        accept(),
+    ];
+    let (mut live, _) = default_start();
+    let (mut restored, _) = default_start();
+    for outcome in script {
+        let json = serde_json::to_string(&restored).unwrap();
+        restored = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.on_outcome(outcome.clone()), live.on_outcome(outcome));
+    }
+    assert_eq!(restored, live);
+}
+
+/// A change to make to a stored value, to see whether it is still accepted.
+type Tamper = Box<dyn FnOnce(&mut serde_json::Value)>;
+
+#[test]
+fn a_page_that_ended_exactly_at_its_limit_with_its_last_attempt_as_the_draft_reads_back() {
+    // Boundary values that are valid: calls made equal to the limit, the best attempt equal to
+    // the last one issued.
+    let base = RouterPolicy::default_ladder();
+    let policy = RouterPolicy::new(base.rungs().to_vec(), 16_000, 2, 3, 10).unwrap();
+    let (mut reader, _) = PageReader::start(&policy, 100);
+    let step = feed(&mut reader, vec![escalate(1), escalate(1)]);
+    assert_eq!(review_of(&step), (ReviewReason::CallCap, Some(2)));
+    assert_eq!(reader.calls_made(), 2);
+    let back: PageReader = serde_json::from_str(&serde_json::to_string(&reader).unwrap()).unwrap();
+    assert_eq!(back, reader);
+    // A raised cap at exactly the ceiling is valid too.
+    let (mut raised, _) = PageReader::start(&without_haiku(), 100);
+    raised.on_outcome(Outcome::Truncated);
+    let back: PageReader = serde_json::from_str(&serde_json::to_string(&raised).unwrap()).unwrap();
+    assert_eq!(back, raised);
+}

@@ -44,4 +44,6 @@ pub enum Error {
     InvalidPageRead(&'static str),
     #[error("invalid router policy: {0}")]
     InvalidRouterPolicy(&'static str),
+    #[error("invalid stored page reader: {0}")]
+    InvalidStoredReader(&'static str),
 }

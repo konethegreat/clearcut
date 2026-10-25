@@ -20,10 +20,12 @@
 //! reach it: the adapter has already retried them and the job queue retries after that, so the
 //! driver stops the document there and resumes from the stored machine (it is `Serialize`).
 
+use super::policy::{check_ceiling, check_rung};
 use super::{
     Assessment, ConfidenceBasis, EscalationReason, Note, Picture, ReviewReason, RouterPolicy, Rung,
     ThinkingEffort, Verdict,
 };
+use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 
 /// Why a call is being made.
@@ -114,8 +116,11 @@ struct Planned {
     rung: Rung,
 }
 
-/// The state of one page.
+/// The state of one page. **Read back from text, it is checked** (`try_from`): a stored
+/// reader that has been damaged or edited is refused instead of panicking on an index or
+/// spending more calls than the page was allowed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "UncheckedReader")]
 pub struct PageReader {
     rungs: Vec<Planned>,
     ceiling: u32,
@@ -135,6 +140,68 @@ pub struct PageReader {
     /// The attempt with the fewest blocking issues so far, and how many it had.
     best: Option<(u32, u32)>,
     finished: Option<PageOutcome>,
+}
+
+/// A reader as it is stored, before it is checked.
+#[derive(Deserialize)]
+struct UncheckedReader {
+    rungs: Vec<Planned>,
+    ceiling: u32,
+    call_limit: u32,
+    position: usize,
+    calls_made: u32,
+    issued: u32,
+    invalid_retried: bool,
+    cap_override: Option<u32>,
+    best: Option<(u32, u32)>,
+    finished: Option<PageOutcome>,
+}
+
+fn broken(why: &'static str) -> Error {
+    Error::InvalidStoredReader(why)
+}
+
+impl TryFrom<UncheckedReader> for PageReader {
+    type Error = Error;
+
+    fn try_from(raw: UncheckedReader) -> Result<Self> {
+        check_ceiling(raw.ceiling).map_err(|_| broken("the answer ceiling is not one the provider takes"))?;
+        for planned in &raw.rungs {
+            check_rung(&planned.rung, raw.ceiling)
+                .map_err(|_| broken("a rung is not one a policy could hold"))?;
+        }
+        // A page that is still being read must have a current rung to call.
+        if raw.finished.is_none() && raw.position >= raw.rungs.len() {
+            return Err(broken("the position is outside the rungs"));
+        }
+        if raw.calls_made > raw.call_limit {
+            return Err(broken("more calls were made than the limit"));
+        }
+        if raw.calls_made > raw.issued {
+            return Err(broken("more calls were made than were planned"));
+        }
+        if raw.cap_override.is_some_and(|cap| cap == 0 || cap > raw.ceiling) {
+            return Err(broken("the raised answer cap is outside 1 to the ceiling"));
+        }
+        if raw
+            .best
+            .is_some_and(|(attempt, _)| attempt == 0 || attempt > raw.issued)
+        {
+            return Err(broken("the best attempt was never planned"));
+        }
+        Ok(PageReader {
+            rungs: raw.rungs,
+            ceiling: raw.ceiling,
+            call_limit: raw.call_limit,
+            position: raw.position,
+            calls_made: raw.calls_made,
+            issued: raw.issued,
+            invalid_retried: raw.invalid_retried,
+            cap_override: raw.cap_override,
+            best: raw.best,
+            finished: raw.finished,
+        })
+    }
 }
 
 impl PageReader {
