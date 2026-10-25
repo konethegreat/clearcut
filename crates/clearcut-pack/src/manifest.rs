@@ -20,7 +20,8 @@ pub enum ImageState {
     Masked,
     /// Personal data was found in the text and the image could not be masked.
     Unmasked,
-    /// There is no text to check the image against, so nothing is known.
+    /// There is no text to check the image against, or only text that could not itself be
+    /// checked (an unverified text layer), so nothing is known.
     Unchecked,
 }
 

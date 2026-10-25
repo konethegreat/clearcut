@@ -847,3 +847,124 @@ fn a_page_that_imitates_any_of_our_tags_is_flagged() {
         );
     }
 }
+
+// ---------- text whose source could not be checked (ADR-0018 section 4) ----------
+
+fn unverified(content: &str) -> PageInput {
+    let mut input = page(content);
+    input.text = Some(PageText {
+        source: TextSource::UnverifiedTextLayer,
+        content: content.into(),
+    });
+    input
+}
+
+#[test]
+fn a_text_layer_that_could_not_be_checked_is_labelled_so_in_the_tag_and_the_manifest() {
+    let pack = build(&settings(), &unverified("Invoice INV-1"));
+    let parts = blocks(&pack.request);
+    assert_eq!(
+        parts[2],
+        format!(
+            "<page_text id=\"{NONCE}\" source=\"unverified_text_layer\">\nInvoice INV-1\n</page_text id=\"{NONCE}\">"
+        )
+    );
+    assert_eq!(pack.manifest.text_source, "unverified_text_layer");
+}
+
+#[test]
+fn the_three_labels_and_none_are_exactly_these() {
+    assert_eq!(TextSource::TextLayer.as_str(), "text_layer");
+    assert_eq!(TextSource::Ocr.as_str(), "ocr");
+    assert_eq!(TextSource::UnverifiedTextLayer.as_str(), "unverified_text_layer");
+}
+
+#[test]
+fn unverified_text_is_redacted_like_any_other() {
+    let input = unverified("Account No: 1234567890 and INV-7");
+    let pack = build(&settings(), &input);
+    let shown = format!("{:?}", blocks(&pack.request));
+    assert!(!shown.contains("1234567890"), "{shown}");
+    assert!(shown.contains("[REDACTED bank_account]"), "{shown}");
+    assert_eq!(pack.manifest.redaction.counts.get("bank_account"), Some(&1));
+}
+
+#[test]
+fn text_that_could_not_be_checked_cannot_vouch_for_the_picture() {
+    // The layer may say something other than what is printed, so finding nothing in it proves
+    // nothing about the image: the image is unchecked, never "nothing to hide".
+    let masker = RecordingMasker {
+        seen: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    for content in ["Invoice INV-1 Total R100.00", "Account No: 1234567890"] {
+        let pack = build_pack_with_nonce(
+            &settings(),
+            &unverified(content),
+            &DocumentContext::default(),
+            None,
+            &masker,
+            NONCE,
+        )
+        .unwrap();
+        assert_eq!(pack.manifest.redaction.image, ImageState::Unchecked, "{content}");
+        // The picture goes as it is, and the masker was not asked to paint from doubtful words.
+        match &pack.request.content()[0] {
+            Block::Image { bytes, .. } => assert_eq!(bytes, &vec![1, 2, 3, 4]),
+            other => panic!("{other:?}"),
+        }
+    }
+    assert!(masker.seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_strict_policy_sends_no_picture_that_only_unverified_text_describes() {
+    let mut s = settings();
+    s.redaction = RedactionPolicy::Strict;
+    for content in ["Invoice INV-1 Total R100.00", "Account No: 1234567890"] {
+        let refused = build_pack_with_nonce(
+            &s,
+            &unverified(content),
+            &DocumentContext::default(),
+            None,
+            &NoMasker,
+            NONCE,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                PackError::CannotBeSentSafely(UnsafeReason::NothingToCheck)
+            ),
+            "{content}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn unverified_text_alone_is_still_sent_under_the_strict_policy_after_redaction() {
+    // No picture, so there is nothing to vouch for: the text is redacted and goes.
+    let mut s = settings();
+    s.redaction = RedactionPolicy::Strict;
+    let mut input = unverified("Account No: 1234567890 INV-7");
+    input.image = None;
+    let pack =
+        build_pack_with_nonce(&s, &input, &DocumentContext::default(), None, &NoMasker, NONCE).unwrap();
+    let shown = format!("{:?}", blocks(&pack.request));
+    assert!(!shown.contains("1234567890"), "{shown}");
+    assert_eq!(pack.manifest.redaction.image, ImageState::NotApplicable);
+}
+
+#[test]
+fn the_cached_prefix_is_the_same_whatever_the_source_of_the_text() {
+    let a = build(&settings(), &page("x")).manifest.prefix_sha256;
+    let b = build(&settings(), &unverified("x")).manifest.prefix_sha256;
+    let mut ocr = page("x");
+    ocr.text = Some(PageText {
+        source: TextSource::Ocr,
+        content: "x".into(),
+    });
+    let c = build(&settings(), &ocr).manifest.prefix_sha256;
+    assert_eq!(a, b);
+    assert_eq!(a, c);
+}

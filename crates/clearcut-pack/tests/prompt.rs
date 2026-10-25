@@ -187,3 +187,33 @@ fn the_examples_cover_the_three_situations_they_are_there_for() {
     );
     assert!(examples[2].1.invoice_number.is_empty() && examples[2].1.supplier.name.is_empty());
 }
+
+// ---------- the rules tell the model how to weigh each kind of text ----------
+
+#[test]
+fn the_rules_name_every_label_the_page_text_can_carry() {
+    let rules = static_prefix();
+    for label in ["text_layer", "ocr", "unverified_text_layer", "none"] {
+        assert!(rules.contains(&format!("source=\"{label}\"")), "{label}");
+    }
+}
+
+#[test]
+fn the_rules_say_the_picture_alone_decides_when_the_text_is_unverified() {
+    let rules = static_prefix();
+    assert!(
+        rules.contains("the picture is the only source for what is printed"),
+        "the sentence about unverified text is missing"
+    );
+    // And that such text is only a hint for reading unclear characters.
+    assert!(rules.contains("only as a hint for reading unclear characters"));
+    // The earlier general sentence is still there.
+    assert!(rules.contains("If the page text and the image disagree, trust the image"));
+}
+
+#[test]
+fn the_rules_say_that_checked_text_may_be_used_to_read_small_characters_and_ocr_may_be_wrong() {
+    let rules = static_prefix();
+    assert!(rules.contains("has been checked"));
+    assert!(rules.contains("can make mistakes"));
+}
