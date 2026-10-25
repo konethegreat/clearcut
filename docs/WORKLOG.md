@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-25 (part 35) — ADR-0018: the model router and escalation ladder (P2-14), accepted
+**Done** (PR #60, step 4 of ADR-0017, merged first with CI green; documentation only, no code)
+- ADR-0018 (Proposed) designs the router on top of everything already built (reading routes, context pack, provider, reading shape, validation). The centre is a pure **page state machine** in `clearcut-core` (start, outcome, next step), driven by a thin async loop in a new `clearcut-router` crate with no database; the job's read stage stays in `clearcut-pipeline`. Because the machine is pure, termination is a tested property and a later Batch driver can run the same rules in rounds.
+- A page is accepted, escalated or sent to a person on **deterministic evidence only**: no critical-field problems, page-local line arithmetic, and a check that every amount the model read occurs in the page's own text (P2-13c, built as part of this). Document-level findings (due before issue, compliance) are recorded, not escalated, and the totals check is page-local only for one-page documents (P2-07 reconciles across pages and chooses what to re-read).
+- Departures from ADR-0005, with reasons: every page starts at Haiku (a failed attempt costs about two cents; Haiku first wins whenever it passes more than 5% of such pages); no model confidence and no two-pass voting (the shape has no confidence field; arithmetic and the text check are the second opinion); transport failures are never retried by the router (the adapter and the queue already do).
+- Budgets: the next call happens only if spent plus its worst case fits; the defaults make every rung fit in R5. Found while working it out: a flat R5 a document stops a 300-page statement before any escalation, so the ADR proposes a cap that grows with the pages.
+- Eight questions for Kone at the end of the ADR. Nothing is built until they are answered.
+**Next**: Kone approved all eight answers (the per-document cap grows with the pages); step 1 of the build order (`escalation` and `cost` in `clearcut-core`). The docs PR answering the TimeLex request list is still queued.
+
 ## 2026-10-25 (part 34) — ADR-0017 step 4: the live test on PDFs whose text layer lies
 **Done** (PR #59, step 3, merged first with CI green; tests first, no key)
 - `crates/clearcut-pipeline/tests/live.rs`: the analysis stage against the real worker (real PDF reader, real Tesseract), on three two-page PDFs written inside the test: honest, every letter shifted in the hidden `ToUnicode` map, every digit shifted. The picture is right and the text layer is wrong in a way we know exactly. Results: honest agrees 1000 and is trusted after one OCR; shifted letters agree 285 and 0, so both pages are rejected and read from their pictures (page 1 disagreed, so page 2 was read by OCR as well); shifted digits agree 685, so page 1 goes picture first and page 2, which has no digits, is correctly trusted.
