@@ -122,7 +122,10 @@ impl WorkerMasker {
     ) -> Result<WorkerMasker, MaskError> {
         let same_reading = matches!(
             (page.source(), text.source),
-            (PageSource::TextLayer, TextSource::TextLayer) | (PageSource::Ocr, TextSource::Ocr)
+            (
+                PageSource::TextLayer,
+                TextSource::TextLayer | TextSource::UnverifiedTextLayer
+            ) | (PageSource::Ocr, TextSource::Ocr)
         );
         if !same_reading || page.text() != text.content {
             return Err(MaskError::Failed);

@@ -508,3 +508,31 @@ fn one_character_just_past_the_end_of_a_word_is_not_covered() {
         1
     );
 }
+
+// ---------- text that is only a hint is still the page's own text ----------
+
+fn unverified_text() -> PageText {
+    PageText {
+        source: TextSource::UnverifiedTextLayer,
+        content: NUMBER_TEXT.to_string(),
+    }
+}
+
+#[tokio::test]
+async fn an_unverified_text_layer_goes_with_the_pdfs_own_words() {
+    let fake = FakeWorker::scripted(vec![]).with_masks(vec![Ok(painted(ImageType::Png))]);
+    let masker = WorkerMasker::prepare(&fake, &image(), &text_layer(), &unverified_text(), &number_span())
+        .await
+        .unwrap();
+    assert_eq!(fake.mask_calls().len(), 1);
+    assert!(masker.mask(&image(), &unverified_text(), &number_span()).is_ok());
+}
+
+#[tokio::test]
+async fn an_unverified_text_layer_is_not_the_text_of_an_ocr_page() {
+    let fake = FakeWorker::scripted(vec![]);
+    let ocr = page_content(PageSource::Ocr, NUMBER_TEXT, Some(words()));
+    let result = WorkerMasker::prepare(&fake, &image(), &ocr, &unverified_text(), &number_span()).await;
+    assert_eq!(result.unwrap_err(), MaskError::Failed);
+    assert_eq!(fake.call_count(), 0, "nothing was asked of the worker");
+}

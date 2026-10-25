@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 39) — ADR-0018 step 4: the pack's text label
+**Done** (PR #64, step 3, merged first with CI green; tests first, no key)
+- The context pack gets a third text label, `unverified_text_layer`, for a text layer that could not be checked (route `image_first`), and `PageText::for_route` that chooses the text and its label from the page's reading route, so a rejected layer can never be sent by mistake. One sentence is added to the cached rules naming the four labels and what each means for the model (an unverified layer is only a hint; the picture decides). `prompt-v1` is edited in place and the golden file regenerated (one added line) because no live call has happened. The cached prefix is the same whatever label a page has (tested).
+- `WorkerMasker` accepts an unverified layer for a PDF-text page and refuses it for an OCR page.
+- 15 new tests in the pack (63), 2 in docproc (144). Hand mutation check of 22 breakages, all caught (including each clause of the new rules text). Full workspace tests and clippy green.
+**Next**: step 5, the `clearcut-router` crate: the async driver for one page (worker for picture and text, the pack, the provider, conversion, `validate`, the text check, `assess`, the state machine), tested with `FakeProvider` and `FakeWorker`. The docs PR answering the TimeLex request list is still queued.
+
 ## 2026-10-26 (part 38) — ADR-0018 step 3: the check against the page's own text
 **Done** (PR #63, step 2, merged first with CI green; tests first, no key)
 - `clearcut_core::text_check` (P2-13c): looks for every non-zero amount of the reading, the invoice number and the supplier's VAT number in the page's own text. Amounts are read however South African pages group them (spaces, commas, points, apostrophes, with or without cents); the invoice number and VAT number must be found as a whole, not inside a longer one. The report names the place of each figure not found (`totals/gross`) and never holds a value.
