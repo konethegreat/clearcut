@@ -890,33 +890,69 @@ fn unverified_text_is_redacted_like_any_other() {
 }
 
 #[test]
-fn unverified_text_counts_as_text_for_the_strict_policy() {
+fn text_that_could_not_be_checked_cannot_vouch_for_the_picture() {
+    // The layer may say something other than what is printed, so finding nothing in it proves
+    // nothing about the image: the image is unchecked, never "nothing to hide".
+    let masker = RecordingMasker {
+        seen: Mutex::new(Vec::new()),
+        fail: false,
+    };
+    for content in ["Invoice INV-1 Total R100.00", "Account No: 1234567890"] {
+        let pack = build_pack_with_nonce(
+            &settings(),
+            &unverified(content),
+            &DocumentContext::default(),
+            None,
+            &masker,
+            NONCE,
+        )
+        .unwrap();
+        assert_eq!(pack.manifest.redaction.image, ImageState::Unchecked, "{content}");
+        // The picture goes as it is, and the masker was not asked to paint from doubtful words.
+        match &pack.request.content()[0] {
+            Block::Image { bytes, .. } => assert_eq!(bytes, &vec![1, 2, 3, 4]),
+            other => panic!("{other:?}"),
+        }
+    }
+    assert!(masker.seen.lock().unwrap().is_empty());
+}
+
+#[test]
+fn the_strict_policy_sends_no_picture_that_only_unverified_text_describes() {
     let mut s = settings();
     s.redaction = RedactionPolicy::Strict;
-    // With text to check the image against and nothing to hide, strict has no objection.
-    let ok = build_pack_with_nonce(
-        &s,
-        &unverified("Invoice INV-1 Total R100.00"),
-        &DocumentContext::default(),
-        None,
-        &NoMasker,
-        NONCE,
-    );
-    assert!(ok.is_ok(), "{ok:?}");
-    // With something to hide and no way to mask the image, it still refuses.
-    let refused = build_pack_with_nonce(
-        &s,
-        &unverified("Account No: 1234567890"),
-        &DocumentContext::default(),
-        None,
-        &NoMasker,
-        NONCE,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        refused,
-        PackError::CannotBeSentSafely(UnsafeReason::UnmaskableMatches)
-    ));
+    for content in ["Invoice INV-1 Total R100.00", "Account No: 1234567890"] {
+        let refused = build_pack_with_nonce(
+            &s,
+            &unverified(content),
+            &DocumentContext::default(),
+            None,
+            &NoMasker,
+            NONCE,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                refused,
+                PackError::CannotBeSentSafely(UnsafeReason::NothingToCheck)
+            ),
+            "{content}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn unverified_text_alone_is_still_sent_under_the_strict_policy_after_redaction() {
+    // No picture, so there is nothing to vouch for: the text is redacted and goes.
+    let mut s = settings();
+    s.redaction = RedactionPolicy::Strict;
+    let mut input = unverified("Account No: 1234567890 INV-7");
+    input.image = None;
+    let pack =
+        build_pack_with_nonce(&s, &input, &DocumentContext::default(), None, &NoMasker, NONCE).unwrap();
+    let shown = format!("{:?}", blocks(&pack.request));
+    assert!(!shown.contains("1234567890"), "{shown}");
+    assert_eq!(pack.manifest.redaction.image, ImageState::NotApplicable);
 }
 
 #[test]

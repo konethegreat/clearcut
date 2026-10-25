@@ -1,7 +1,9 @@
 // Written by Kone Tshivhinda & Claude
 //! Assembling a pack (ADR-0014 §1 to §4).
 
-use crate::input::{DocumentContext, FailureReport, PackSettings, PageImage, PageInput, RedactionPolicy};
+use crate::input::{
+    DocumentContext, FailureReport, PackSettings, PageImage, PageInput, RedactionPolicy, TextSource,
+};
 use crate::manifest::{ImageState, PackManifest, RedactionReport, Section};
 use crate::mask::ImageMasker;
 use crate::prompt::{prompt_version, static_prefix};
@@ -133,6 +135,12 @@ pub fn build_pack_with_nonce(
         (None, _) => (ImageState::NotApplicable, None),
         // Text with nothing in it proves nothing about the image, so it counts as no text.
         (Some(image), Some((text, _))) if text.content.trim().is_empty() => {
+            (ImageState::Unchecked, Some(image.clone()))
+        }
+        // Text that could not itself be checked may differ from what is printed, so a search of
+        // it finding nothing proves nothing about the picture, and painting from its words could
+        // miss what is really there. It cannot vouch for the image: fail closed.
+        (Some(image), Some((text, _))) if text.source == TextSource::UnverifiedTextLayer => {
             (ImageState::Unchecked, Some(image.clone()))
         }
         (Some(image), Some((_, redacted))) if redacted.spans.is_empty() => {

@@ -509,7 +509,7 @@ fn one_character_just_past_the_end_of_a_word_is_not_covered() {
     );
 }
 
-// ---------- text that is only a hint is still the page's own text ----------
+// ---------- text that is only a hint cannot be what the paint is based on ----------
 
 fn unverified_text() -> PageText {
     PageText {
@@ -519,20 +519,16 @@ fn unverified_text() -> PageText {
 }
 
 #[tokio::test]
-async fn an_unverified_text_layer_goes_with_the_pdfs_own_words() {
-    let fake = FakeWorker::scripted(vec![]).with_masks(vec![Ok(painted(ImageType::Png))]);
-    let masker = WorkerMasker::prepare(&fake, &image(), &text_layer(), &unverified_text(), &number_span())
-        .await
-        .unwrap();
-    assert_eq!(fake.mask_calls().len(), 1);
-    assert!(masker.mask(&image(), &unverified_text(), &number_span()).is_ok());
-}
-
-#[tokio::test]
-async fn an_unverified_text_layer_is_not_the_text_of_an_ocr_page() {
-    let fake = FakeWorker::scripted(vec![]);
-    let ocr = page_content(PageSource::Ocr, NUMBER_TEXT, Some(words()));
-    let result = WorkerMasker::prepare(&fake, &image(), &ocr, &unverified_text(), &number_span()).await;
-    assert_eq!(result.unwrap_err(), MaskError::Failed);
-    assert_eq!(fake.call_count(), 0, "nothing was asked of the worker");
+async fn an_unverified_text_layer_is_never_a_basis_for_painting() {
+    // Its words may not be what is printed, so painting from them could miss real data. The
+    // masker refuses, and the strict policy then sends nothing.
+    for page in [
+        text_layer(),
+        page_content(PageSource::Ocr, NUMBER_TEXT, Some(words())),
+    ] {
+        let fake = FakeWorker::scripted(vec![]);
+        let result = WorkerMasker::prepare(&fake, &image(), &page, &unverified_text(), &number_span()).await;
+        assert_eq!(result.unwrap_err(), MaskError::Failed);
+        assert_eq!(fake.call_count(), 0, "nothing was asked of the worker");
+    }
 }
