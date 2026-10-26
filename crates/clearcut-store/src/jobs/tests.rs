@@ -1544,7 +1544,12 @@ async fn erasing_a_document_erases_its_jobs_and_only_its_jobs(pool: PgPool) {
         .complete_job(&claimed, Outcome::Succeeded, None)
         .await
         .unwrap();
+    // A job still waiting makes the erasure fail (see below), so this one is cancelled first.
     let queued = enqueue(&store, tenant, doc).await;
+    store
+        .request_cancel(tenant, queued, &serde_json::json!({}))
+        .await
+        .unwrap();
     let kept = enqueue(&store, tenant, other_doc).await;
 
     store.erase_document(tenant, doc).await.unwrap();
@@ -1564,11 +1569,16 @@ async fn erasing_a_document_erases_its_jobs_and_only_its_jobs(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_worker_whose_document_was_erased_under_it_is_told_the_job_is_gone(pool: PgPool) {
+async fn a_document_cannot_be_erased_from_under_its_worker(pool: PgPool) {
     let (store, tenant, doc) = setup(&pool).await;
     enqueue(&store, tenant, doc).await;
     let claimed = claim_expect(&store).await;
-    store.erase_document(tenant, doc).await.unwrap();
+    // A running job: the erasure is refused and rolled back, so the worker's lease and the
+    // document are untouched (it used to succeed and leave the worker writing into nothing).
+    assert!(matches!(
+        store.erase_document(tenant, doc).await,
+        Err(Error::DocumentBusy)
+    ));
     let beat = store
         .heartbeat_job(
             &claimed,
@@ -1578,5 +1588,6 @@ async fn a_worker_whose_document_was_erased_under_it_is_told_the_job_is_gone(poo
             None,
         )
         .await;
-    assert!(matches!(beat, Err(Error::JobNotFound)), "{beat:?}");
+    assert!(beat.is_ok(), "{beat:?}");
+    assert_eq!(count(&pool, "select count(*) from documents").await, 1);
 }

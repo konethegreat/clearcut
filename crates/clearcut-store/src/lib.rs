@@ -31,6 +31,7 @@ pub mod keys;
 pub mod model_calls;
 pub mod page_readings;
 pub mod page_reads;
+pub mod tenant_keys;
 use sqlx::postgres::PgPool;
 use std::num::NonZeroU32;
 use time::OffsetDateTime;
@@ -96,6 +97,12 @@ pub enum Error {
     /// to read it again.
     #[error("the page has already ended")]
     PageReadingFinished,
+    /// A sealed tenant key handed in breaks the rules of its shape.
+    #[error("invalid tenant key: {0}")]
+    InvalidTenantKey(&'static str),
+    /// The document has a job queued or running, so it cannot be erased right now.
+    #[error("the document is being worked on")]
+    DocumentBusy,
     /// A person tried to confirm a page that is not waiting for review (it was never sent to
     /// review, or someone has confirmed it already).
     #[error("the page is not waiting for review")]
@@ -565,6 +572,10 @@ impl Store {
             // The function raises "no data found" for a missing or foreign document.
             Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("P0002") => {
                 Err(Error::DocumentNotFound)
+            }
+            // The function raises "object in use" when a job is queued or running for it.
+            Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("55006") => {
+                Err(Error::DocumentBusy)
             }
             Err(error) => Err(error.into()),
         }
