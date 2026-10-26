@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 43) — ADR-0018 step 8: the live test and the closing docs
+**Done** (PR #68, step 7, merged first with CI green)
+- `tests/live_read.rs` in `clearcut-pipeline`: one invented invoice page through the real worker, the real model and a real Postgres, capped at R1, printing every call and its cost in rand. `#[ignore]`d; **not run** (no funded key yet). Its PDF builder has an ordinary test.
+- ADR-0018 is marked implemented, with the honest line that nothing in it has met the real API. BYOK.md says how to run the check.
+- PHASES.md now says where the project stands on the way to a first real run (what exists, what does not, in what order to build it).
+**Next**: the first real run needs a small funded key; the build needs P2-07 (pages into one extraction, validated, events stored, the document `done`), a running process for the job runner (P1-07), and a way to read the result back (REST, JSON and CSV export). See PHASES.md.
+
 ## 2026-10-27 (part 42) — ADR-0018 step 7: the read stage
 **Done** (PR #67, step 6, merged first with CI green; tests first, no key)
 - `clearcut-pipeline`: with `with_models(provider, ReadSettings)` the job now reads the pages after the analysis, one after the other, with the router; without it nothing changes and no model can be asked. Each page's reading (or best draft) is stored, every call is logged with what it was charged, and the audit says what happened in counts and fixed names. Pages that ended in an earlier run are skipped, a page stopped by a failure of the service resumes from its stored carry, and what earlier pages established (currency, invoice number, supplier, totals seen, lines) is carried to the next one.
