@@ -366,6 +366,59 @@ impl Store {
         Ok(())
     }
 
+    /// A person's confirmation of a page that went to review: the page becomes a page that was
+    /// read, with the person's reading, and the reasons it was stopped (its problems, findings,
+    /// unconfirmed figures and flags) are cleared because a person has dealt with them. Only a
+    /// page that is **still waiting for review** can be confirmed
+    /// ([`Error::PageNotAwaitingReview`] otherwise, so two people cannot confirm the same page,
+    /// and a page the model read cannot be overwritten). `notes` is what the confirmation records.
+    pub async fn confirm_page_reading(
+        &self,
+        tenant: TenantId,
+        document: DocId,
+        page: u32,
+        kept: &KeptReading,
+        notes: &Value,
+    ) -> Result<()> {
+        let page_number =
+            i32::try_from(page).map_err(|_| Error::InvalidPageReading("the page number is too large"))?;
+        check_state(&PageState::Read(kept.clone()))?;
+        if kept.confidence != ConfidenceBasis::PersonConfirmed {
+            return Err(Error::InvalidPageReading(
+                "a confirmation is confirmed by a person",
+            ));
+        }
+        check_details(&PageDetails {
+            notes: notes.clone(),
+            ..PageDetails::default()
+        })?;
+        let mut tx = self.begin(tenant).await?;
+        require_document(&mut *tx, tenant, document).await?;
+        let updated = sqlx::query(
+            "update page_readings set state = 'read', carry = null, review_reason = null, \
+               rung = $4, attempt = $5, confidence_basis = $6, model = $7, reading = $8, \
+               problems = '[]', findings = '[]', notes = $9, unconfirmed = '{}', \
+               injection_suspected = '{}', updated_at = now() \
+             where tenant_id = $1 and document_id = $2 and page = $3 and state = 'needs_review'",
+        )
+        .bind(tenant.0)
+        .bind(document.0)
+        .bind(page_number)
+        .bind(i16::from(kept.rung))
+        .bind(kept.attempt.cast_signed())
+        .bind(kept.confidence.as_str())
+        .bind(&kept.model)
+        .bind(&kept.reading)
+        .bind(notes)
+        .execute(&mut *tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(Error::PageNotAwaitingReview);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Every stored page of `document`, in page order; empty if none has been started. Each
     /// row is checked by the rules it had to meet to be written.
     pub async fn load_page_readings(&self, tenant: TenantId, document: DocId) -> Result<Vec<PageReading>> {

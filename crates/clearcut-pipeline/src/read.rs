@@ -587,9 +587,16 @@ fn convert_stored(
     let context = ConversionContext {
         document: document.as_core_id(),
         page: NonZeroU32::new(page)?,
-        extractor: clearcut_core::event::Extractor::Model {
-            name: kept.model.clone(),
-            prompt_version: clearcut_pack::prompt_version(),
+        // A page a person confirmed keeps who they were where the model's name would be.
+        extractor: if kept.confidence == ConfidenceBasis::PersonConfirmed {
+            clearcut_core::event::Extractor::Human {
+                user: kept.model.clone(),
+            }
+        } else {
+            clearcut_core::event::Extractor::Model {
+                name: kept.model.clone(),
+                prompt_version: clearcut_pack::prompt_version(),
+            }
         },
         confidence: Confidence::new(kept.confidence.per_mille()).ok()?,
         currency_known: established.context.currency,

@@ -82,6 +82,6 @@ orders); otherwise it ends **`needs_review`** with the reason in the job's `last
 
 ## Limits to know about (an honest list)
 - One document at a time, on purpose: the shared monthly budget gate is not built (P2-12). The budget (R5 a document, R100 a month) is still enforced.
-- The web page is plain on purpose: sign in, upload, a list of documents and one document's report. No review screen yet (a document that needs review shows why and what was read); no accounts, the key is pasted each visit.
+- The web page is plain on purpose: sign in, upload, a list of documents, one document's report, and **a review form** for a page the reader could not settle (for example an invoice that prints no tax: you choose the tax category from the original and confirm; ClearCut still checks the arithmetic, records the page as confirmed by your key, and finishes the document without asking a model). No accounts: the key is pasted each visit. Review needs a key with `documents:write` to confirm and `documents:read` to look.
 - Nothing is encrypted at rest; run it on your own computer, not on a shared one.
 - The first measurements: one invented page costs about R0.02 on Haiku. Real invoices will tell us more.

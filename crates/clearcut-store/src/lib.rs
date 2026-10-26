@@ -96,6 +96,10 @@ pub enum Error {
     /// to read it again.
     #[error("the page has already ended")]
     PageReadingFinished,
+    /// A person tried to confirm a page that is not waiting for review (it was never sent to
+    /// review, or someone has confirmed it already).
+    #[error("the page is not waiting for review")]
+    PageNotAwaitingReview,
     /// A model call handed in breaks the rules of its shape.
     #[error("invalid model call: {0}")]
     InvalidModelCall(&'static str),

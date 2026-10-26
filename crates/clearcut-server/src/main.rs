@@ -116,6 +116,7 @@ async fn main() -> ExitCode {
         app(AppState::new(store.clone())
             .with_ingest(intake)
             .with_jobs(store.clone())
+            .with_reviews(store.clone())
             .with_results(store)),
     )
     .with_graceful_shutdown(async move {

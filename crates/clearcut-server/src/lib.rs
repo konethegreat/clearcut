@@ -8,12 +8,14 @@ mod auth;
 mod documents;
 mod jobs;
 mod results;
+mod review;
 mod web;
 
 pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
 pub use documents::{Ingest, IngestFuture, UploadBody};
 pub use jobs::{JobQueue, QueueFuture};
 pub use results::{Results, ResultsFuture};
+pub use review::{ReviewError, ReviewFuture, Reviewer, Reviews, WaitingPage};
 
 use axum::{
     http::{header, StatusCode},
@@ -42,6 +44,8 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/documents/{id}/report", get(results::get_report))
         .route("/v1/documents/{id}/export", get(results::export_document))
         .route("/v1/documents/{id}/jobs", get(jobs::list_for_document))
+        .route("/v1/documents/{id}/review", get(review::waiting))
+        .route("/v1/documents/{id}/pages/{page}/review", post(review::confirm))
         .route("/v1/jobs/{id}/cancel", post(jobs::cancel))
         .route("/v1/invoices/calculate", post(calculate))
 }
