@@ -310,6 +310,19 @@ impl<O: ObjectStore> Intake<O> {
         if jobs.iter().any(|job| !job.state.is_terminal()) {
             return Err(IntakeError::Busy);
         }
+        // Who asked is recorded first (the database function can only say "system"). No content.
+        self.store
+            .record_audit(
+                tenant,
+                &AuditEntry {
+                    actor: serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() }),
+                    action: "document.erase_requested".into(),
+                    subject_type: "document".into(),
+                    subject_id: document.0.to_string(),
+                    detail: serde_json::json!({}),
+                },
+            )
+            .await?;
         self.store.erase_document(tenant, document).await?;
         if self.store.storage_key_in_use(tenant, &file.storage_key).await? {
             return Ok(());

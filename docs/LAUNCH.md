@@ -54,4 +54,5 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 - No HTTPS in the compose file; the page is bound to this computer only.
 - If saving a review succeeds but queueing the finishing job fails, the document waits until a job is queued.
 - A file whose deletion fails after its rows were erased is left behind (reported in the log) for a sweep that does not exist yet.
+- Deleting a document is not locked against a job queued, or the same bytes uploaded again, in the same instant: the first makes that job fail on its foreign keys (nothing is written), the second can leave a row whose file is missing (reported as "file missing", fixed by uploading again). Both need a lock inside the database function; it goes into the next migration (item 1).
 - Nothing is encrypted at rest in the database or file store: use disk encryption on the host.
