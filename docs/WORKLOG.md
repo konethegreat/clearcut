@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 51) — delete a document, and the launch checklist
+**Done**
+- `DELETE /v1/documents/{id}` (`documents:write`): erases the document, its events, readings and jobs through the vetted `erase_document` function, then its file (only when no other document of the tenant uses it). `409` while a job runs on it, `404` for another tenant's. A "Delete this document" button on the document screen. The call log keeps costs (no content) and the audit log keeps a record that it was deleted (no content). It had existed in the database since migration 3 with no way to reach it. Known limit: if removing the file fails after the rows are gone it is logged and left for a sweep that does not exist yet.
+- Used it to clear the 13 synthetic test documents from the local database (0 rows left, no files), and revoked the four test keys.
+- `docs/LAUNCH.md`: one checklist of what works, what is being built in order, what only Kone can do, what is later, and the known limits. Linked from CLAUDE.md and PHASES.md.
+
 ## 2026-10-26 (part 50) — the review screen
 **Done**
 - A person can now finish a page the reader could not settle. The document screen shows each page that is waiting, why it stopped in plain words, what could not be read and where, and a form of the model's best draft (or a blank form). The person corrects it and presses *Confirm this page*.

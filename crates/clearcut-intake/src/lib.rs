@@ -27,7 +27,7 @@
 use clearcut_core::auth::{Principal, Scope};
 use clearcut_core::document::DocumentStatus;
 use clearcut_core::jobs::JobKind;
-use clearcut_objects::{ObjectStore, PutLimits};
+use clearcut_objects::{ObjectKey, ObjectStore, PutLimits};
 use clearcut_store::{AuditEntry, DocId, NewDocument, NewJob, Store, TenantId};
 use std::io::ErrorKind;
 use tokio::io::AsyncRead;
@@ -177,6 +177,9 @@ pub enum IntakeError {
     Storage(clearcut_objects::Error),
     #[error("could not record the document: {0}")]
     Database(#[from] clearcut_store::Error),
+    /// A job is queued or running for the document, so it cannot be erased right now.
+    #[error("the document is being worked on")]
+    Busy,
 }
 
 /// Accepts uploads.
@@ -287,6 +290,45 @@ impl<O: ObjectStore> Intake<O> {
             media_type,
             job,
         })
+    }
+
+    /// Erases a document for good (POPIA): its events, readings, jobs and row, through the vetted
+    /// `erase_document` database function, and then its file. Needs `documents:write`.
+    ///
+    /// Refused while a job is queued or running on it ([`IntakeError::Busy`]): the job would be
+    /// writing what is being removed. The file is removed **after** the rows, and only when no
+    /// document of the tenant still points at it (a file is named by its content, and one upload
+    /// of the same bytes reuses it). If removing the file fails the rows are already gone; that is
+    /// reported, and the file is left for a sweep. What stays by design: the audit entry naming the
+    /// document (no content) and the call log's costs (no content).
+    pub async fn erase(&self, by: &Principal, document: DocId) -> Result<(), IntakeError> {
+        by.require(Scope::DocumentsWrite)
+            .map_err(|_| IntakeError::Forbidden(Scope::DocumentsWrite))?;
+        let tenant = TenantId(by.tenant());
+        let file = self.store.document_file(tenant, document).await?;
+        let jobs = self.store.jobs_for_document(tenant, document).await?;
+        if jobs.iter().any(|job| !job.state.is_terminal()) {
+            return Err(IntakeError::Busy);
+        }
+        // Who asked is recorded first (the database function can only say "system"). No content.
+        self.store
+            .record_audit(
+                tenant,
+                &AuditEntry {
+                    actor: serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() }),
+                    action: "document.erase_requested".into(),
+                    subject_type: "document".into(),
+                    subject_id: document.0.to_string(),
+                    detail: serde_json::json!({}),
+                },
+            )
+            .await?;
+        self.store.erase_document(tenant, document).await?;
+        if self.store.storage_key_in_use(tenant, &file.storage_key).await? {
+            return Ok(());
+        }
+        let key = ObjectKey::parse(&file.storage_key).map_err(IntakeError::Storage)?;
+        self.objects.delete(&key).await.map_err(IntakeError::Storage)
     }
 
     fn too_large(&self) -> IntakeError {

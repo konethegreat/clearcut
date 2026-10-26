@@ -25,13 +25,15 @@
 
 use crate::auth::{ApiProblem, AppState, Authed};
 use axum::body::Body;
-use axum::extract::{Query, State};
+use axum::extract::rejection::PathRejection;
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use clearcut_core::auth::{Principal, Scope};
 use clearcut_intake::{Intake, IntakeError, MediaType, Upload, Uploaded};
 use clearcut_objects::ObjectStore;
+use clearcut_store::DocId;
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
@@ -39,11 +41,13 @@ use std::io;
 use std::pin::Pin;
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
+use uuid::Uuid;
 
 /// The request body as the intake reads it: a stream of bytes.
 pub type UploadBody = Pin<Box<dyn AsyncRead + Send>>;
 
 pub type IngestFuture<'a> = Pin<Box<dyn Future<Output = Result<Uploaded, IntakeError>> + Send + 'a>>;
+pub type EraseFuture<'a> = Pin<Box<dyn Future<Output = Result<(), IntakeError>> + Send + 'a>>;
 
 /// Something that can accept an upload. The real one is
 /// [`clearcut_intake::Intake`]; tests use a fake so the HTTP rules can be
@@ -51,11 +55,18 @@ pub type IngestFuture<'a> = Pin<Box<dyn Future<Output = Result<Uploaded, IntakeE
 /// as `dyn`, the same way as [`crate::Authenticator`].)
 pub trait Ingest: Send + Sync + 'static {
     fn ingest<'a>(&'a self, by: &'a Principal, upload: Upload<UploadBody>) -> IngestFuture<'a>;
+
+    /// Erases a document and its file for good (see [`Intake::erase`]).
+    fn erase<'a>(&'a self, by: &'a Principal, document: DocId) -> EraseFuture<'a>;
 }
 
 impl<O: ObjectStore + 'static> Ingest for Intake<O> {
     fn ingest<'a>(&'a self, by: &'a Principal, upload: Upload<UploadBody>) -> IngestFuture<'a> {
         Box::pin(self.upload(by, upload))
+    }
+
+    fn erase<'a>(&'a self, by: &'a Principal, document: DocId) -> EraseFuture<'a> {
+        Box::pin(Intake::erase(self, by, document))
     }
 }
 
@@ -121,12 +132,34 @@ pub(crate) async fn upload_document(
     }
 }
 
+/// `DELETE /v1/documents/{id}`: erase a document and its file for good (POPIA). Needs
+/// `documents:write`. `204` when it is gone, `404` for one that does not exist or belongs to
+/// another tenant, `409` while a job is queued or running on it.
+pub(crate) async fn erase_document(
+    State(state): State<AppState>,
+    auth: Authed,
+    id: Result<Path<Uuid>, PathRejection>,
+) -> Result<StatusCode, UploadFailure> {
+    let principal = auth.require(Scope::DocumentsWrite)?;
+    let Path(id) = id.map_err(|_| UploadFailure::Refused(Box::new(IntakeError::Empty)))?;
+    let Some(ingest) = state.ingest() else {
+        return Err(UploadFailure::NotConfigured);
+    };
+    match ingest.erase(principal, DocId(id)).await {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(IntakeError::Database(clearcut_store::Error::DocumentNotFound)) => Err(UploadFailure::NotFound),
+        Err(error) => Err(UploadFailure::Refused(Box::new(error))),
+    }
+}
+
 /// Why an upload did not go ahead. (Boxed where large, to keep the error small.)
 pub(crate) enum UploadFailure {
     /// No scope: the usual 403.
     Api(ApiProblem),
     /// The server was started without an intake.
     NotConfigured,
+    /// The document does not exist, or belongs to another tenant.
+    NotFound,
     /// The intake said no, or failed.
     Refused(Box<IntakeError>),
 }
@@ -144,6 +177,7 @@ impl IntoResponse for UploadFailure {
             UploadFailure::NotConfigured => {
                 problem(StatusCode::SERVICE_UNAVAILABLE, "uploads are not available")
             }
+            UploadFailure::NotFound => problem(StatusCode::NOT_FOUND, "document not found"),
             UploadFailure::Refused(error) => explain(*error),
         }
     }
@@ -187,6 +221,10 @@ fn explain(error: IntakeError) -> Response {
             .into_response(),
         IntakeError::Empty => problem(StatusCode::BAD_REQUEST, "the file is empty"),
         IntakeError::Interrupted => problem(StatusCode::BAD_REQUEST, "the upload was interrupted"),
+        IntakeError::Busy => problem(
+            StatusCode::CONFLICT,
+            "the document is being worked on; try again when it has finished",
+        ),
         IntakeError::Storage(_) | IntakeError::Database(_) => {
             // The detail stays in the log; the caller is told nothing about it.
             tracing::error!(%error, "an upload failed");

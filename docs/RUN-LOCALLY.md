@@ -75,6 +75,7 @@ It answers with a `document_id` and a `job_id` straight away; the reading happen
 | The facts | `GET /v1/documents/{id}/events` |
 | The story | `GET /v1/documents/{id}/report?mode=summary` (or `timeline`, `grouped`) |
 | A file | `GET /v1/documents/{id}/export?format=json` (or `csv`, `md`) |
+| Delete it (POPIA) | `DELETE /v1/documents/{id}` (needs `documents:write`; `409` while a job runs on it) |
 
 Every sentence in a report cites the events it comes from. A document ends **`done`** when every page was read and the
 whole document checks out (lines add up to the printed totals, the pages agree, nothing on a page tries to give

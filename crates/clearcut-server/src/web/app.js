@@ -278,6 +278,7 @@ async function documentPage(id) {
     } else if (!working) {
       parts.push(h("div", { class: "states" }, "Nothing was read from this document."));
     }
+    if (!working) parts.push(eraseSection());
     body.replaceChildren(...parts);
     if (info.events > 0) loadReport();
     if (working) timer = setTimeout(draw, 2000);
@@ -343,6 +344,33 @@ async function documentPage(id) {
         ),
       ),
     );
+  }
+
+  function eraseSection() {
+    const message = h("p", { class: "small error", role: "alert" });
+    const button = h(
+      "button",
+      {
+        type: "button",
+        class: "secondary danger",
+        onclick: async () => {
+          if (!confirm("Delete this document, what was read from it and its file for good? This cannot be undone.")) return;
+          button.disabled = true;
+          try {
+            const response = await api("/v1/documents/" + id, { method: "DELETE" });
+            if (response.status === 409) throw new Error("The document is being worked on. Try again when it has finished.");
+            if (!response.ok && response.status !== 404) throw new Error("The document was not deleted (" + response.status + ").");
+            location.hash = "#/";
+          } catch (e) {
+            if (e instanceof AuthError) return signIn(e.message);
+            message.textContent = e.message;
+            button.disabled = false;
+          }
+        },
+      },
+      "Delete this document",
+    );
+    return h("div", {}, h("h2", {}, "Delete"), h("p", { class: "small muted" }, "Removes the document, everything read from it and its file. A record that it was deleted (with no content) is kept."), button, message);
   }
 
   function downloads() {

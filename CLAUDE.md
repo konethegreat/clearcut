@@ -6,6 +6,7 @@ Written by Kone Tshivhinda & Claude. Claude Code loads this file automatically.
 ClearCut: **upload any invoice (any length) → it is read and understood → events are narrated and grouped → exported in popular formats.** Later: issuing, SA e-invoicing, payments. One Rust core, exposed as REST API, MCP server and Claude plugin. South African VAT first. Public repo: github.com/konethegreat/clearcut (Apache-2.0).
 
 ## Read these first (in order)
+0. `docs/LAUNCH.md` — the launch checklist: what works, what is being built and in what order, what only Kone can do, what is later. Keep it current.
 1. `docs/PHASES.md` — roadmap and task IDs (P1-01 …). Work in that order unless told otherwise.
 2. `docs/research/05-ingestion-narration-export.md` — the core product design.
 3. `docs/adr/0004-ingestion-and-narration-pipeline.md` and `docs/adr/0005-model-strategy-escalation.md`.
