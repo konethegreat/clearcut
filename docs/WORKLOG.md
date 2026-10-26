@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 52) — users' own keys, step 1 (ADR-0019)
+**Done**
+- ADR-0019 accepted by Kone as written (default `shared`, `tenant-only` as the deployment setting, `keys:admin` only); #82, #83 (TimeLex answers) and #84 merged.
+- `clearcut_anthropic::vault`: AES-256-GCM sealing of a tenant's key with a random nonce and the tenant id bound in as associated data (a ciphertext moved to another tenant fails), a master key from `CLEARCUT_MASTER_KEY` or `_FILE` (32 bytes, base64; unprintable, wiped on drop), errors that never repeat a key. 4 tests.
+- Migration `0010` (the SQL Kone approved): `tenant_anthropic_keys`, a login-less `clearcut_vault` role and five security-definer functions; the application role has no privilege on the table. The same migration replaces `erase_document` so only ended jobs are removed and a live job makes the document delete fail its foreign key and roll back (`DocumentBusy`, SQLSTATE 55006): this closes the race found in review of #82. `clearcut_store::tenant_keys` wraps the functions. 4 tests (round trip, replace, reject, remove; bad shapes refused; the application role cannot read the table and cannot reach another tenant's key; the erase race).
+- Not done yet (steps 2 to 4): the endpoints and the free key check, the runner using the tenant's key with `tenant-only` and waiting for a key, the Settings screen and docs.
+
 ## 2026-10-26 (part 51) — delete a document, and the launch checklist
 **Done**
 - `DELETE /v1/documents/{id}` (`documents:write`): erases the document, its events, readings and jobs through the vetted `erase_document` function, then its file (only when no other document of the tenant uses it). `409` while a job runs on it, `404` for another tenant's. A "Delete this document" button on the document screen. The call log keeps costs (no content) and the audit log keeps a record that it was deleted (no content). It had existed in the database since migration 3 with no way to reach it. Known limit: if removing the file fails after the rows are gone it is logged and left for a sweep that does not exist yet.

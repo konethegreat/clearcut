@@ -1,6 +1,6 @@
 # ADR-0019: Each tenant's own Anthropic key (ADR-0011 mode B)
 
-Status: **Proposed** (awaiting Kone Tshivhinda's approval of the design and the migration SQL; nothing is applied until then) · Date: 2026-10-26 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-26, as written: default `shared` with `tenant-only` as the deployment setting, `keys:admin` only) · Date: 2026-10-26 · Deciders: Kone Tshivhinda, Claude
 Builds on [ADR-0011](0011-bring-your-own-anthropic-key.md) (mode B was designed there and deferred "until the key store has had its own review": this is that review), [ADR-0007](0007-auth-and-row-level-security.md) (roles and row-level security), [ADR-0015](0015-try-it-deployment.md) (mode C, still deferred). Task: LAUNCH.md item 1, P2-23 mode B.
 
 ## Context

@@ -323,7 +323,13 @@ impl<O: ObjectStore> Intake<O> {
                 },
             )
             .await?;
-        self.store.erase_document(tenant, document).await?;
+        self.store
+            .erase_document(tenant, document)
+            .await
+            .map_err(|error| match error {
+                clearcut_store::Error::DocumentBusy => IntakeError::Busy,
+                other => other.into(),
+            })?;
         if self.store.storage_key_in_use(tenant, &file.storage_key).await? {
             return Ok(());
         }

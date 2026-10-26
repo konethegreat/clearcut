@@ -97,6 +97,22 @@ async fn world(pool: &PgPool) -> World {
 }
 
 impl World {
+    /// Takes a document away from under a running job. `erase_document` now refuses that (a live
+    /// job makes it fail), so this does it as the owner: what a worker must survive whatever the
+    /// cause (an operator's hard removal, a tenant deleted).
+    async fn remove_under_a_running_job(&self, doc: DocId) {
+        sqlx::query("delete from jobs where document_id = $1")
+            .bind(doc.0)
+            .execute(&self.pool)
+            .await
+            .unwrap();
+        sqlx::query("delete from documents where id = $1")
+            .bind(doc.0)
+            .execute(&self.pool)
+            .await
+            .unwrap();
+    }
+
     /// A new document with a queued job.
     async fn job(&self, seed: u8) -> (DocId, Uuid) {
         let doc = self
@@ -662,7 +678,7 @@ async fn a_worker_whose_document_was_erased_stops_too(pool: PgPool) {
         async move { r.run_once().await }
     });
     w.wait_for_state(id, "running").await;
-    w.store.erase_document(w.tenant, doc).await.unwrap();
+    w.remove_under_a_running_job(doc).await;
     let report = tokio::time::timeout(Duration::from_secs(10), task)
         .await
         .expect("the worker must stop")
@@ -966,7 +982,7 @@ async fn a_report_that_finds_the_lease_gone_stops_the_worker_even_if_the_handler
         async move { r.run_once().await }
     });
     w.wait_for_state(id, "running").await;
-    w.store.erase_document(w.tenant, doc).await.unwrap();
+    w.remove_under_a_running_job(doc).await;
     let report = tokio::time::timeout(Duration::from_secs(10), task)
         .await
         .expect("the runner must stop a worker whose report found the lease gone")

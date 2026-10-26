@@ -17,6 +17,7 @@ pub mod request;
 pub mod response;
 pub mod schema;
 pub mod source;
+pub mod vault;
 
 #[cfg(test)]
 mod testutil;
@@ -26,3 +27,6 @@ pub use http::{AnthropicHttp, Reply, TransportError};
 pub use key::{ApiKey, KeyError};
 pub use models::{check_key, check_key_with, KeyCheck, KeyCheckError, KeyCheckKind, Lifecycle, ModelInfo};
 pub use source::{load, load_from, reject_key_in_arguments, ArgsError, LoadError, KEY_ENV, KEY_FILE_ENV};
+pub use vault::{
+    open, seal, MasterKey, Sealed, VaultError, MASTER_KEY_ENV, MASTER_KEY_FILE_ENV, MASTER_KEY_ID_ENV,
+};
