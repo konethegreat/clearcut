@@ -251,17 +251,39 @@ impl ClearCut {
                 let dir = self.config.upload_dir.as_ref().ok_or(
                     "uploading from a path is off: set CLEARCUT_MCP_UPLOAD_DIR to the one folder uploads may be read from, or send content_base64",
                 )?;
-                let dir = dir
+                let configured = dir;
+                let dir = configured
                     .canonicalize()
                     .map_err(|_| "the upload folder cannot be opened".to_string())?;
+                // What the agent supplied is looked at **as text** before the file system is touched
+                // at all. Resolving a Windows network path (\\host\share\...) would make the computer
+                // open a connection to it, and hand over the person's Windows credentials, before any
+                // check could run. Only a plain relative path inside the folder (or the folder's own
+                // absolute path followed by one) ever gets as far as the disk.
                 let wanted = Path::new(path);
-                let joined = if wanted.is_absolute() {
-                    wanted.to_path_buf()
+                let relative = if wanted.is_absolute() || wanted.has_root() {
+                    wanted
+                        .strip_prefix(configured)
+                        .or_else(|_| wanted.strip_prefix(&dir))
+                        .map_err(|_| {
+                            "give the file's name or its path inside the upload folder".to_string()
+                        })?
                 } else {
-                    dir.join(wanted)
+                    wanted
                 };
-                // Resolves links and `..`: what is checked is where the file really is.
-                let real = joined
+                if relative.as_os_str().is_empty()
+                    || !relative
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+                {
+                    return Err(
+                        "give the file's name or its path inside the upload folder (no drive, network path or ..)"
+                            .into(),
+                    );
+                }
+                // Links inside the folder can still lead out of it, so where the file really is gets checked too.
+                let real = dir
+                    .join(relative)
                     .canonicalize()
                     .map_err(|_| "that file was not found in the upload folder".to_string())?;
                 if !real.starts_with(&dir) {

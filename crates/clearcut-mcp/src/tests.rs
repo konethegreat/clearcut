@@ -189,6 +189,21 @@ async fn an_upload_reads_only_from_the_configured_folder_and_only_real_documents
             upload_params(Some("missing.pdf"), None),
             "a file that does not exist",
         ),
+        (
+            upload_params(Some(r"\\attacker\share\x.pdf"), None),
+            "a Windows network path",
+        ),
+        (upload_params(Some(r"C:\Windows\win.ini"), None), "a drive path"),
+        (upload_params(Some(r"\\?\C:\x.pdf"), None), "a verbatim path"),
+        (
+            upload_params(Some("/etc/passwd"), None),
+            "a root path outside the folder",
+        ),
+        (
+            upload_params(Some("sub/../../secret.pdf"), None),
+            "a path that climbs out in the middle",
+        ),
+        (upload_params(Some(""), None), "an empty path"),
         (upload_params(None, None), "nothing given"),
         (
             upload_params(Some("invoice.pdf"), Some("AAAA".into())),
