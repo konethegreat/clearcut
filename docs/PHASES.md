@@ -68,13 +68,13 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P3-10 MCP tools: `get_events`, `narrate_document`, `group_events`
 
 ## Phase 4 — Export (≈2–3 weeks) ⭐ core
-- ⬜ P4-01 Export framework: all formats rendered from stored events only
-- ⬜ P4-02 Shared **export schema** (document → groups → events → lines → checks → sources) with per-format layout spec and golden-file tests
-- ⬜ P4-03 PDF report (narrative, grouped events, citations)
-- ⬜ P4-04 Excel: Summary · Events · Line items · Checks · Sources sheets; real numeric cells
-- ⬜ P4-05 Word (.docx) editable report
-- ⬜ P4-06 CSV (events, lines) and JSON (canonical)
-- ⬜ P4-07 Plain text, Markdown and HTML
+- ✅ P4-01 Export framework: all formats rendered from stored events only — **built** (`clearcut-export`; one `render(format, input)`)
+- ✅ P4-02 Shared **export schema** (document → groups → events → lines → checks → sources) — **built** as `clearcut_core::export::ExportModel`, built once from the events; the formats only lay it out (golden-file tests are structural: the XML of the Excel and Word files, the text of the PDF)
+- ✅ P4-03 PDF report (narrative, grouped events, citations) — **built** (A4, built-in Helvetica, tables, footer with page numbers)
+- ✅ P4-04 Excel: Summary · Events · Line items · Checks · Sources sheets; real numeric cells — **built**
+- ✅ P4-05 Word (.docx) editable report — **built**
+- ✅ P4-06 CSV (events, lines) and JSON (canonical) — **built** (CSV is the events; lines are in the Excel and Word files)
+- ✅ P4-07 Plain text, Markdown and HTML — **built**
 - ⬜ P4-08 Batch export (many documents → one workbook/zip)
 - ⬜ P4-09 MCP tool: `export_document`; SDK helpers
 

@@ -14,6 +14,7 @@ pub mod document;
 pub mod error;
 pub mod escalation;
 pub mod event;
+pub mod export;
 pub mod extraction;
 pub mod invoice;
 pub mod jobs;

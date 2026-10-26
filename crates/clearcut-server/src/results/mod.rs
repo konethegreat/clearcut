@@ -5,7 +5,7 @@
 //! - `GET /v1/documents/{id}/events`: the events as stored (the source of truth).
 //! - `GET /v1/documents/{id}/report?mode=summary|timeline|grouped`: the narration, every
 //!   sentence with the ids of the events it cites (a number that is not in them cannot be in it).
-//! - `GET /v1/documents/{id}/export?format=json|csv|md`: the same, as a file to download.
+//! - `GET /v1/documents/{id}/export?format=json|csv|md|html|txt|xlsx|docx|pdf`: the same, as a file to download.
 //!
 //! All need `documents:read`; all answer `404` for something that does not exist **or belongs to
 //! another tenant**, `400` for an id or a mode that makes no sense, `503` without a store.
@@ -22,6 +22,7 @@ use axum::Json;
 use clearcut_core::auth::Scope;
 use clearcut_core::event::Event;
 use clearcut_core::narration::report::{narrate, NarrationMode};
+use clearcut_export::{render, DocumentFacts, ExportInput, Format};
 use clearcut_store::{DocId, DocumentInfo, DocumentSummary, Store, TenantId};
 use serde::Serialize;
 use serde_json::json;
@@ -218,37 +219,41 @@ pub(crate) async fn get_report(
     Ok(Json(export::report_json(&narrate(&events, mode))))
 }
 
-/// `GET /v1/documents/{id}/export`
+/// `GET /v1/documents/{id}/export`: the document as a file, laid out from the same export model
+/// whatever the format (`json`, `csv`, `md`, `html`, `txt`, `xlsx`, `docx` or `pdf`).
 pub(crate) async fn export_document(
     State(state): State<AppState>,
     auth: Authed,
     id: Id,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Response, ResultsProblem> {
-    let format = query.get("format").map_or("json", String::as_str);
-    if !matches!(format, "json" | "csv" | "md") {
-        return Err(ResultsProblem::BadChoice("format must be json, csv or md"));
-    }
+    let format = Format::parse(query.get("format").map_or("json", String::as_str)).ok_or(
+        ResultsProblem::BadChoice("format must be json, csv, md, html, txt, xlsx, docx or pdf"),
+    )?;
     let (info, events, id) = load(&state, &auth, id).await?;
-    let (content_type, extension, body) = match format {
-        "csv" => ("text/csv; charset=utf-8", "csv", export::csv(&events)),
-        "md" => (
-            "text/markdown; charset=utf-8",
-            "md",
-            export::markdown(&info, &events),
-        ),
-        _ => ("application/json", "json", export::json(&info, &events, id)),
+    let input = ExportInput {
+        document: DocumentFacts {
+            id: id.to_string(),
+            filename: info.original_filename.clone(),
+            status: info.status.as_str().to_string(),
+            page_count: info.page_count.and_then(|n| u32::try_from(n).ok()),
+        },
+        events: &events,
     };
+    let file = render(format, &input).map_err(|error| {
+        tracing::error!(%error, "an export could not be made");
+        ResultsProblem::Api(ApiProblem::Internal)
+    })?;
     Ok((
         [
-            (header::CONTENT_TYPE, content_type.to_string()),
+            (header::CONTENT_TYPE, file.content_type.to_string()),
             (
                 header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"clearcut-{id}.{extension}\""),
+                format!("attachment; filename=\"clearcut-{id}.{}\"", file.extension),
             ),
             (header::CACHE_CONTROL, "no-store".to_string()),
         ],
-        body,
+        file.bytes,
     )
         .into_response())
 }
