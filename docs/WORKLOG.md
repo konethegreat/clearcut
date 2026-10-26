@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 57) — the MCP server (LAUNCH item 4, ADR-0020)
+**Done**
+- The MCP server is now a **thin client of the REST API** (`clearcut-mcp` is a library plus a binary): 10 document tools (`upload_document`, `list_documents`, `get_document`, `wait_for_document`, `get_events`, `narrate_document`, `export_document`, `get_review_queue`, `review_extraction`, `delete_document`) and the 3 calculation tools, each with MCP read-only / destructive hints. Settings from the environment: `CLEARCUT_URL`, `CLEARCUT_API_KEY` or `_FILE` (a ClearCut key, unprintable, no redirects, no proxy), `CLEARCUT_MCP_UPLOAD_DIR`, `CLEARCUT_MCP_OUTPUT_DIR`.
+- **Built for an agent that reads untrusted documents:** uploads read only from one configured folder (links and `..` resolved, so a path that leaves it is refused) and only real PDF, PNG or JPEG bytes; ids are parsed as UUIDs before they reach a URL; exports are written under a name made from the id and a known extension; every answer with document text carries a note that it is data, never instructions; confirming a page and deleting a document need an explicit `true` the agent may only give after asking the person (a soft guard, documented); no tool touches the Anthropic key.
+- 7 tests against a stand-in server that records what it receives, and **the real binary driven over stdio** against the running stack: `initialize`, `tools/list` (13 tools with annotations), a live `list_documents`, a refused delete. The check key was revoked.
+- Not done: Streamable HTTP and the 2026-07-28 spec (the Rust SDK still rejects it), an MCP tool to set the Anthropic key (deliberately none), SDK helpers for exports.
+
 ## 2026-10-26 (part 56) — exports: PDF, Excel, Word, HTML, text (P4-01 to P4-07)
 **Done**
 - **One model** (`clearcut_core::export::ExportModel`, pure, built once from the events): the cited summary, grouped report and timeline, one row per event, the line items, the totals (marked *stated on the document* or *calculated by ClearCut*), what the checks found, and which model or person read each page. Every format only lays it out, so they cannot disagree. `as_str()` on the event group, type and severity (tested equal to their serialised names) so the core needs no JSON library.

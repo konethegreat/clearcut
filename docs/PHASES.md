@@ -39,7 +39,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - 🔄 P2-08 **Deterministic validation** in `clearcut-core` (line/VAT/total checks, SA field rules, duplicate detection) — done: `extraction::{Extraction, validate}` (line arithmetic, stated vs recomputed totals, due-before-issue, `compliance_za` rules; exact to the cent; 27 tests). Remaining: duplicate detection (needs other documents as input)
 - ⬜ P2-09 Confidence scoring + human review queue (approve / correct / reject; corrections feed the gold set)
 - 🔄 P2-10 Evaluation harness in CI: field-level accuracy, "zero silent errors" gate — format, `check` and **scoring with the gate ✅** (`clearcut-gold score`, ADR-0010 step 2); **running it in CI against a real pipeline run** waits for the pipeline slice
-- ⬜ P2-11 MCP tools: `upload_document`, `get_extraction`, `review_extraction`
+- ✅ P2-11 MCP tools: `upload_document`, `get_events`, `review_extraction` — **built** ([ADR-0020](adr/0020-mcp-server-as-a-rest-client.md): the MCP server is a thin client of the REST API; 13 tools; guard rails for an agent that reads untrusted documents)
 - 🔄 P2-12 Cost guardrails: token estimate, per-tenant budget, batch mode — **the arithmetic and the document and month budget checks are built** (`clearcut_core::cost`, [ADR-0018](adr/0018-model-router-and-escalation.md) step 2); the month's ledger, the tenant settings and batch mode remain
 - ✅ P2-13 Anthropic provider adapter (behind the provider trait): structured outputs, one cache breakpoint, usage incl. cache fields, error mapping — **bring-your-own key, no operator key**; **built, tested against a stub server, never yet run against the real API** (one ignored live test for Kone to run with their own key) (design: [ADR-0012](adr/0012-anthropic-adapter.md) accepted, [ADR-0011](adr/0011-bring-your-own-anthropic-key.md), facts: [research 06](research/06-anthropic-api.md)). **P2-13b** ✅ a model-facing reading shape (built: `clearcut_core::reading`, schema accepted by the adapter profile with 0 optional / 0 union properties), because core's `Extraction` schema is **measured over** the API's structured-output limits (30 union properties against 16) — design: [ADR-0013](adr/0013-model-facing-reading-shape.md) proposed, awaiting review. **P2-13c** (proposed in ADR-0013, **built** as `clearcut_core::text_check`, ADR-0018 step 3): check what the model read against the page's own text layer
 - ✅ P2-14 (built; the live measurement is waiting for a key; design: [ADR-0018](adr/0018-model-router-and-escalation.md), **accepted 25 Oct 2026**; built in small PRs; steps 1 to 7 built (the read stage in `clearcut-pipeline` is the seventh): the rules and the page state machine in `clearcut-core::escalation`, the prices and budgets in `clearcut-core::cost`, the check against the page's own text in `clearcut-core::text_check`, the text label in the context pack, the driver for one page in `clearcut-router`, and the tables for readings and the call log in `clearcut-store`; step 8, the live test, remains) **Model router + escalation ladder** (Haiku 5.5 → Sonnet 5.5 → Opus 5.5 → Fable 5.1 → human review) driven by validation failures, disagreement, low confidence, truncation; escalation policy as config
@@ -65,7 +65,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ✅ P3-07 Narration modes: summary, chronological timeline, grouped report (`narration::report`: `narrate(events, mode)` returns a `Report` of titled sections; every mode passes the number guard; 16 tests)
 - ⬜ P3-08 Citation UI contract: event → page span / bounding box
 - ⬜ P3-09 Store model/prompt versions and raw output for audit reproducibility
-- ⬜ P3-10 MCP tools: `get_events`, `narrate_document`, `group_events`
+- ✅ P3-10 MCP tools: `get_events`, `narrate_document` (grouping is the `grouped` narration mode) — **built**
 
 ## Phase 4 — Export (≈2–3 weeks) ⭐ core
 - ✅ P4-01 Export framework: all formats rendered from stored events only — **built** (`clearcut-export`; one `render(format, input)`)
@@ -76,7 +76,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ✅ P4-06 CSV (events, lines) and JSON (canonical) — **built** (CSV is the events; lines are in the Excel and Word files)
 - ✅ P4-07 Plain text, Markdown and HTML — **built**
 - ⬜ P4-08 Batch export (many documents → one workbook/zip)
-- ⬜ P4-09 MCP tool: `export_document`; SDK helpers
+- 🔄 P4-09 MCP tool: `export_document` **built** (text formats inline; PDF, Excel and Word saved to a configured folder); SDK helpers remain
 
 ## Phase 5 — Dashboard and review UX (≈4 weeks)
 - 🔄 P5-01 Web app — **first version built** (plain page served by the server: sign in, upload, documents list, one document with the report, events and downloads); the review queue and the side-by-side page view remain (it is plain JavaScript for now; a TypeScript build can come when it grows)
