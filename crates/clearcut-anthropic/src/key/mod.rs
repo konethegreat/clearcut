@@ -9,7 +9,7 @@
 //! - it is **wiped from memory** when the last copy is dropped;
 //! - errors about a key say what is wrong with it (too short, has a space,
 //!   wrong kind) and **never repeat any of its text**;
-//! - only a regular API key (`sk-ant-api...`) is accepted. An **admin key**
+//! - only a regular API key (`sk-ant-api...`, or a personal one, `sk-ant-usr-...`) is accepted. An **admin key**
 //!   can manage a whole organisation, and a subscription **login token** is not
 //!   meant for third-party programs: both are refused with a clear message.
 
@@ -31,7 +31,7 @@ pub enum KeyError {
     Whitespace,
     #[error("the API key has characters that a key never has (it should be letters, digits, dashes and underscores)")]
     BadCharacters,
-    #[error("this is not an Anthropic API key (it should start with sk-ant-api)")]
+    #[error("this is not an Anthropic API key (it should start with sk-ant-api or sk-ant-usr-)")]
     NotAnApiKey,
     #[error("this looks like an Anthropic admin key; ClearCut needs a regular API key, which cannot manage your organisation")]
     AdminKey,
@@ -70,7 +70,8 @@ impl ApiKey {
         if text.starts_with("sk-ant-oat") {
             return Err(KeyError::LoginToken);
         }
-        if !text.starts_with("sk-ant-api") {
+        // A personal key from the Console is `sk-ant-usr-`; checked against the API on 27 Oct 2026.
+        if !(text.starts_with("sk-ant-api") || text.starts_with("sk-ant-usr-")) {
             return Err(KeyError::NotAnApiKey);
         }
         if !(MIN_LENGTH..=MAX_LENGTH).contains(&text.len()) {

@@ -86,6 +86,19 @@ fn keys_of_the_wrong_kind_are_named_as_such() {
 }
 
 #[test]
+fn a_personal_key_is_accepted_and_only_with_its_dash() {
+    let body = "a".repeat(80);
+    assert!(ApiKey::parse(&format!("sk-ant-usr-{body}")).is_ok());
+    for other in ["sk-ant-usr", "sk-ant-user-", "sk-ant-usrx-"] {
+        assert_eq!(
+            ApiKey::parse(&format!("{other}{body}")).unwrap_err(),
+            KeyError::NotAnApiKey,
+            "{other}"
+        );
+    }
+}
+
+#[test]
 fn the_length_must_be_plausible() {
     let at = |length: usize| format!("sk-ant-api03-{}", "a".repeat(length - "sk-ant-api03-".len()));
     assert_eq!(ApiKey::parse(&at(29)).unwrap_err(), KeyError::BadLength);
