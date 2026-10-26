@@ -33,10 +33,11 @@ use crate::call_log::to_new_model_call;
 use crate::month::month_start;
 use crate::{needs_review, report_failure, store_failure, transient, Models, PipelineHandler, Step, Stop};
 use bytes::Bytes;
+use clearcut_core::assemble::assemble;
 use clearcut_core::cost::{BudgetCheck, Cost};
 use clearcut_core::escalation::{ConfidenceBasis, PageOutcome};
 use clearcut_core::event::Confidence;
-use clearcut_core::extraction::Extraction;
+use clearcut_core::extraction::{derive_events, Extraction};
 use clearcut_core::jobs::Progress;
 use clearcut_core::page_read::{PageRead, ROUTING_VERSION};
 use clearcut_core::reading::{ConversionContext, PageReading};
@@ -52,9 +53,6 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use time::OffsetDateTime;
-
-/// Why a job ends `needs_review` once every page has been read: nothing comes after it yet.
-pub const AFTER_READING: &str = "read; the later stages are not built yet";
 
 /// The name saved in the checkpoint once every page has ended.
 pub const READ_STAGE: &str = "read";
@@ -394,6 +392,13 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
             return Err(transient("not every page has ended"));
         }
 
+        // A document whose pages were all read is put together, checked and turned into events.
+        let completion = if all.review == 0 {
+            Some(self.complete(tenant, document, &ended).await?)
+        } else {
+            None
+        };
+
         let first_end = ctx
             .checkpoint()
             .and_then(|saved| (saved.get("stage").and_then(Value::as_str) == Some(READ_STAGE)).then_some(()));
@@ -411,7 +416,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                         action: "document.read".to_string(),
                         subject_type: "document".to_string(),
                         subject_id: document.0.to_string(),
-                        detail: audit_detail(pages, &all, spend.calls, spend.cost),
+                        detail: audit_detail(pages, &all, spend.calls, spend.cost, completion.as_ref()),
                     },
                 )
                 .await
@@ -423,20 +428,88 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                 .await
                 .map_err(|e| report_failure(&e))?;
         }
-        let message = if all.review == 0 {
-            AFTER_READING.to_string()
-        } else {
+        Ok(match completion {
+            None => Finished::NeedsReview(format!("{} of {} pages need review", all.review, pages)),
+            Some(completion) if completion.is_done() => Finished::Succeeded,
+            Some(completion) => Finished::NeedsReview(completion.reason()),
+        })
+    }
+
+    /// Puts the pages of a document that was read together, checks the whole, and stores its
+    /// events. The events are stored even when the checks found something (the events say
+    /// what), and the job then ends for review instead of done.
+    async fn complete(&self, tenant: TenantId, document: DocId, ended: &[StoredPage]) -> Step<Completion> {
+        let mut established = Established::default();
+        let mut extractions = Vec::new();
+        for page in ended {
+            let PageState::Read(kept) = &page.state else {
+                return Err(transient("a page that was read is missing"));
+            };
+            let extraction = convert_stored(document, page.page, kept, &established)
+                .ok_or_else(|| needs_review("a stored reading could not be read back"))?;
+            established.absorb(&extraction);
+            extractions.push(extraction);
+        }
+        let assembled =
+            assemble(&extractions).map_err(|_| needs_review("the pages could not be put together"))?;
+        let earlier = self
+            .store
+            .load_events(tenant, document)
+            .await
+            .map_err(|e| store_failure(&e))?;
+        let derived = derive_events(&assembled.extraction, NonZeroU32::MIN, &earlier)
+            .map_err(|_| needs_review("events could not be made from the reading"))?;
+        match self.store.append_events(tenant, document, &derived.events).await {
+            Ok(()) => {}
+            Err(clearcut_store::Error::EventIdConflict(_)) => {
+                return Err(needs_review(
+                    "events from an earlier reading of this document already exist",
+                ));
+            }
+            Err(error) => return Err(store_failure(&error)),
+        }
+        Ok(Completion {
+            events: derived.events.len(),
+            blocking: derived
+                .validation
+                .findings
+                .iter()
+                .filter(|f| f.is_blocking())
+                .count(),
+            conflicts: assembled.conflicts.iter().map(|c| c.as_str()).collect(),
+        })
+    }
+}
+
+/// What came of putting a document's pages together.
+struct Completion {
+    events: usize,
+    /// How many of the checks' findings stop the document being called done.
+    blocking: usize,
+    /// What the pages printed differently, by fixed name.
+    conflicts: Vec<&'static str>,
+}
+
+impl Completion {
+    fn is_done(&self) -> bool {
+        self.blocking == 0 && self.conflicts.is_empty()
+    }
+
+    /// Why the document goes to a person. Counts and fixed names only.
+    fn reason(&self) -> String {
+        if self.conflicts.is_empty() {
             format!(
-                "{} of {} pages need review; the later stages are not built yet",
-                all.review, pages
+                "the checks found {} problem(s) in the whole document; the events say which",
+                self.blocking
             )
-        };
-        Ok(Finished::NeedsReview(message))
+        } else {
+            format!("the pages disagree about: {}", self.conflicts.join(", "))
+        }
     }
 }
 
 /// Counts and fixed names only: nothing from the document.
-fn audit_detail(pages: u32, tally: &Tally, calls: u32, cost: Cost) -> Value {
+fn audit_detail(pages: u32, tally: &Tally, calls: u32, cost: Cost, completion: Option<&Completion>) -> Value {
     let reasons: BTreeMap<&str, u32> = tally.review_reasons.clone();
     let rungs: BTreeMap<String, u32> = tally
         .rungs
@@ -451,6 +524,13 @@ fn audit_detail(pages: u32, tally: &Tally, calls: u32, cost: Cost) -> Value {
         "calls": calls,
         "cost_rand_cents": cost.rand_cents_ceil(),
         "rungs": rungs,
+        "events": completion.map_or(0, |c| c.events),
+        "blocking_findings": completion.map_or(0, |c| c.blocking),
+        "conflicts": completion.map(|c| c.conflicts.clone()).unwrap_or_default(),
+        "outcome": match completion {
+            Some(c) if c.is_done() => "done",
+            _ => "needs_review",
+        },
         "rules": ROUTING_VERSION,
     })
 }

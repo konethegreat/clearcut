@@ -5,6 +5,7 @@
 //! South African VAT compliance. Everything else (REST API, MCP host, SDKs)
 //! is a thin layer over this crate.
 
+pub mod assemble;
 pub mod auth;
 pub mod compliance_za;
 pub mod cost;

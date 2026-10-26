@@ -48,6 +48,25 @@ pub enum Finding {
     Compliance(Issue),
 }
 
+impl Finding {
+    /// Whether this finding stops a document from being called done. A wrong sum, an impossible
+    /// quantity or no lines at all are the extraction being wrong or the document being unusable;
+    /// a due date before the invoice date and a South African tax-invoice rule the document
+    /// breaks are facts about the document, shown to the reader, not reasons to refuse it.
+    pub fn is_blocking(&self) -> bool {
+        match self {
+            Finding::NoLines
+            | Finding::CurrencyMismatch { .. }
+            | Finding::NonPositiveQuantity { .. }
+            | Finding::AmountOutOfRange { .. }
+            | Finding::LineTotalMismatch { .. }
+            | Finding::TotalsMismatch { .. }
+            | Finding::TotalsOutOfRange => true,
+            Finding::DueBeforeIssue | Finding::Compliance(_) => false,
+        }
+    }
+}
+
 /// The result of [`validate`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Validation {
