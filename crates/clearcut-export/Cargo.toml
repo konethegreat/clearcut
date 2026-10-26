@@ -14,7 +14,8 @@ workspace = true
 [dependencies]
 clearcut-core = { path = "../clearcut-core" }
 docx-rs = "0.4.22"
-printpdf = "0.12.8"
+# No HTML layout, no image formats: the report is laid out by hand, and those features pull in a large tree.
+printpdf = { version = "0.12.8", default-features = false }
 rust_xlsxwriter = "0.101.0"
 serde_json = "1.0.154"
 thiserror = "2.0.21"

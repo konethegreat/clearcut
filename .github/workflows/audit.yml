@@ -1,0 +1,44 @@
+# Written by Kone Tshivhinda & Claude
+# Known vulnerabilities in what ClearCut depends on (docs/THREAT-MODEL.md section 5). Runs when a
+# lock file changes and every Monday, so a new advisory is seen without anyone having to look.
+name: Audit
+on:
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - "package-lock.json"
+      - "services/worker/requirements*.txt"
+      - "services/worker/constraints.txt"
+      - ".cargo/audit.toml"
+      - ".github/workflows/audit.yml"
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm audit --omit=dev --audit-level=low
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit -r services/worker/requirements.txt --no-deps --disable-pip

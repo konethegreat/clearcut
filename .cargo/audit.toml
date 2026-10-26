@@ -1,0 +1,12 @@
+# Written by Kone Tshivhinda & Claude
+# Settings for `cargo audit` (RustSec). See docs/THREAT-MODEL.md section 5.
+[advisories]
+# zip 8.6.0 arrives through the Word library (docx-rs). All three advisories are about
+# EXTRACTING a ZIP file (ZipArchive::extract and friends). ClearCut only ever WRITES ZIP files
+# (the Word and Excel exports) and never extracts one, so none of them can be triggered by our code.
+# Revisit when docx-rs moves to zip 9; remove these lines then. Any NEW advisory still fails the audit.
+ignore = [
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+]
