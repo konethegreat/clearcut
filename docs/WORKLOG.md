@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 59) — the deploy path (LAUNCH item 7)
+**Done**
+- **CI runs the whole stack** (a new `compose` job): throwaway random `.env`, both compose files validated, `docker compose up --build`, the server answers, the page loads, an unauthenticated call is `401`, and a real (generated, valid) PDF goes in and ends **analysed and held for an Anthropic key**: that proves the images build, the database and the restricted login work, the worker is reachable from the server, and the runner is wired. The job was **rehearsed locally first** in a separate compose project (your stack was stopped and restored, your `.env` checked identical).
+- **HTTPS:** `docker compose --profile https up -d` adds Caddy (certificate by itself, HSTS, upload limit a little above the server's), on its own `edge` network with the server. Tried: through Caddy the page and `/health` answer over HTTPS with both Caddy's and the server's security headers. A mistake found by `docker compose config`: a required `CLEARCUT_DOMAIN` would have broken plain `docker compose up` for everyone, so it defaults to `localhost`.
+- `docs/DEPLOY.md`: the POPIA warning first, what you need, setup step by step (master key, `tenant-only`, concurrency, first account), checks, what to back up and that a restore must be tested, upgrades, safety, what is not built. `.env.example` lists the new settings. `deploy/make-test-pdf.py`: the smallest valid PDF (a hand-typed one was rejected by a strict reader for lacking its cross-reference table).
+- Not done: S3-compatible storage, the hosted-trial path (waits for a decision), automated backups.
+
 ## 2026-10-26 (part 58) — more than one document at once, safely (LAUNCH item 5)
 **Done**
 - `CLEARCUT_RUNNER_CONCURRENCY` (1 to 16, default 1): how many documents are read at the same time, with the queue's cap of **one job per tenant** always on. A document's budget is rebuilt from its account's call log when it starts, so two documents of one account never see stale spending (they never run together), and different accounts spend different keys. That closes the "spend gate for concurrent documents" without building one. The cap itself was already built and tested in the job runner.

@@ -81,6 +81,56 @@ jobs:
       - run: pytest -q
       - name: Licences (permissive only, ADR-0016)
         run: python tools/licences.py
+  compose:
+    # The whole stack as a person runs it (docker compose): the images build, the database is made, the
+    # restricted login works, the worker is reachable only from the server, and a document goes in,
+    # is analysed and waits for a key. Everything here is made fresh and thrown away.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: A throwaway .env (random values, masked in the logs)
+        run: |
+          for name in CLEARCUT_WORKER_TOKEN DB_OWNER_PASSWORD DB_APP_PASSWORD; do
+            value=$(openssl rand -hex 24)
+            echo "::add-mask::$value"
+            echo "$name=$value" >> .env
+          done
+          echo "CLEARCUT_DOMAIN=clearcut.example.test" >> .env
+      - name: The compose files are valid, with and without HTTPS
+        run: |
+          docker compose config -q
+          docker compose --profile https config -q
+      - name: Build and start
+        run: docker compose up --build -d
+      - name: The server answers
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8099/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://127.0.0.1:8099/health
+          curl -sf -o /dev/null http://127.0.0.1:8099/
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8099/v1/documents)" = 401
+      - name: A document goes in and is analysed, then waits for a key
+        run: |
+          TENANT=$(docker compose run --rm -T admin create-tenant ci </dev/null 2>/dev/null | grep -o '^[0-9a-f-]\{36\}' | head -1)
+          KEY=$(docker compose run --rm -T admin create-key --tenant "$TENANT" --name ci --scopes documents:write,documents:read </dev/null 2>/dev/null | head -1)
+          echo "::add-mask::$KEY"
+          python3 deploy/make-test-pdf.py > ci.pdf
+          ID=$(curl -sf -X POST "http://127.0.0.1:8099/v1/documents?filename=ci.pdf" -H "Authorization: Bearer $KEY" -H "Content-Type: application/pdf" --data-binary @ci.pdf | grep -o '"document_id":"[^"]*"' | cut -d'"' -f4)
+          test -n "$ID"
+          for i in $(seq 1 30); do
+            JOBS=$(curl -sf "http://127.0.0.1:8099/v1/documents/$ID/jobs" -H "Authorization: Bearer $KEY")
+            echo "$JOBS" | grep -q 'waiting for an Anthropic key' && exit 0
+            sleep 2
+          done
+          echo "the document was not analysed and held for a key: $JOBS"; exit 1
+      - name: What the containers said, if anything failed
+        if: failure()
+        run: docker compose logs --no-color --tail 80
+      - name: Clean up
+        if: always()
+        run: docker compose down -v
   contract:
     # The Rust client against the real Python worker (ADR-0009): proves the two
     # sides still understand each other. The token is made fresh for each run and

@@ -46,6 +46,8 @@ The agent can read uploads **only** from that one folder, and only real PDF, PNG
 
 To read several accounts' documents at once, set `CLEARCUT_RUNNER_CONCURRENCY=4` (1 to 16) in `.env`: never two documents of the same account together, so nobody's budget can race.
 
+To put ClearCut on a server for other people: [DEPLOY.md](DEPLOY.md).
+
 ## The manual way
 (What compose does, by hand; useful when working on the code.)
 

@@ -12,6 +12,7 @@
 #   db_net      the database, and the things that may talk to it: migrate, roles, admin, the server
 #   worker_net  the document worker and the server only
 #   outside     the server only (it must reach Anthropic); it also publishes the page, on this computer
+#   edge        the server and, with `--profile https`, Caddy (HTTPS for a deployment: docs/DEPLOY.md)
 # The worker reads untrusted files, so it has no route to the database and no password for it.
 name: clearcut
 
@@ -105,14 +106,39 @@ services:
     security_opt: ["no-new-privileges:true"]
     ports:
       - "127.0.0.1:8099:8080"
-    networks: [db_net, worker_net, outside]
+    networks: [db_net, worker_net, outside, edge]
     depends_on:
       roles: { condition: service_completed_successfully }
       worker: { condition: service_started }
 
+  caddy:
+    # HTTPS for a deployment: a free certificate that renews itself. Only with `--profile https`, and only
+    # after CLEARCUT_DOMAIN points at this machine (docs/DEPLOY.md). It reaches the server and nothing else.
+    profiles: ["https"]
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    environment:
+      # Without a real domain Caddy serves only https://localhost (not reachable from outside).
+      CLEARCUT_DOMAIN: ${CLEARCUT_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    networks: [edge]
+    depends_on:
+      server: { condition: service_started }
+
 volumes:
   db:
   files:
+  caddy_data:
+  caddy_config:
 
 networks:
   db_net:
@@ -120,3 +146,4 @@ networks:
   worker_net:
     internal: true
   outside: {}
+  edge: {}
