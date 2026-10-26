@@ -470,6 +470,14 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
         }
         Ok(Completion {
             events: derived.events.len(),
+            injection_pages: ended
+                .iter()
+                .filter(|page| !page.details.injection_suspected.is_empty())
+                .count(),
+            unconfirmed_pages: ended
+                .iter()
+                .filter(|page| !page.details.unconfirmed.is_empty())
+                .count(),
             blocking: derived
                 .validation
                 .findings
@@ -484,6 +492,12 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
 /// What came of putting a document's pages together.
 struct Completion {
     events: usize,
+    /// Pages whose text tried to give the model orders (flagged, never obeyed, and a person
+    /// looks before the document is called done).
+    injection_pages: usize,
+    /// Pages with a figure the page's own text did not show (a text layer that may lie, or an
+    /// invented figure): a person looks too.
+    unconfirmed_pages: usize,
     /// How many of the checks' findings stop the document being called done.
     blocking: usize,
     /// What the pages printed differently, by fixed name.
@@ -492,18 +506,31 @@ struct Completion {
 
 impl Completion {
     fn is_done(&self) -> bool {
-        self.blocking == 0 && self.conflicts.is_empty()
+        self.blocking == 0
+            && self.conflicts.is_empty()
+            && self.injection_pages == 0
+            && self.unconfirmed_pages == 0
     }
 
     /// Why the document goes to a person. Counts and fixed names only.
     fn reason(&self) -> String {
-        if self.conflicts.is_empty() {
+        if !self.conflicts.is_empty() {
+            format!("the pages disagree about: {}", self.conflicts.join(", "))
+        } else if self.blocking > 0 {
             format!(
                 "the checks found {} problem(s) in the whole document; the events say which",
                 self.blocking
             )
+        } else if self.injection_pages > 0 {
+            format!(
+                "{} page(s) contain text that tries to give orders to the reader; it was not obeyed",
+                self.injection_pages
+            )
         } else {
-            format!("the pages disagree about: {}", self.conflicts.join(", "))
+            format!(
+                "{} page(s) have figures that the page's own text does not show",
+                self.unconfirmed_pages
+            )
         }
     }
 }
@@ -526,6 +553,8 @@ fn audit_detail(pages: u32, tally: &Tally, calls: u32, cost: Cost, completion: O
         "rungs": rungs,
         "events": completion.map_or(0, |c| c.events),
         "blocking_findings": completion.map_or(0, |c| c.blocking),
+        "pages_with_orders_in_the_text": completion.map_or(0, |c| c.injection_pages),
+        "pages_with_unconfirmed_figures": completion.map_or(0, |c| c.unconfirmed_pages),
         "conflicts": completion.map(|c| c.conflicts.clone()).unwrap_or_default(),
         "outcome": match completion {
             Some(c) if c.is_done() => "done",
