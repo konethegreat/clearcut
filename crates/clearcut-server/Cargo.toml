@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 clearcut-anthropic = { path = "../clearcut-anthropic" }
-clearcut-core = { path = "../clearcut-core" }
+clearcut-core = { path = "../clearcut-core", features = ["schemars"] }
 clearcut-docproc = { path = "../clearcut-docproc" }
 clearcut-intake = { path = "../clearcut-intake" }
 clearcut-keys = { path = "../clearcut-keys" }
@@ -22,6 +22,7 @@ clearcut-objects = { path = "../clearcut-objects" }
 clearcut-pipeline = { path = "../clearcut-pipeline" }
 clearcut-store = { path = "../clearcut-store" }
 axum = "0.8.9"
+schemars = "1"
 futures-util = "0.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 55) — the OpenAPI file
+**Done**
+- `contracts/openapi.json` (OpenAPI 3.1, 13 paths): every REST route with its scope (`x-required-scope`), status codes and bodies. The core types' shapes come from `schemars`. **Generated from the code** (`clearcut-server/src/openapi.rs`); the test `the_checked_in_openapi_file_is_what_the_code_describes` fails when it is stale (rewrite with `CLEARCUT_UPDATE_CONTRACTS=1 cargo test -p clearcut-server openapi`), another sends a request to every documented route and fails if the server does not know it (and checks every one but `/health` refuses a caller with no key), another checks every `$ref` resolves.
+- Found by checking the file by hand: the core types' references still pointed at `#/$defs/...` after their definitions moved under `components`; fixed and guarded by the new test.
+- Known gap: the route list is hand-written, so a route added to the router and not documented is not caught.
+- Not done: idempotency keys, `contracts/examples/`, a tenant-creation endpoint.
+
 ## 2026-10-26 (part 54) — `line_total` as given (TimeLex request A)
 **Done**
 - `LineItem` takes an optional `line_total`: used as given (and checked to be in the line's currency) instead of quantity times unit price; absent means the old behaviour, so existing callers see no change. VAT stays per category on the category subtotal. The test pair promised in `docs/integration/timelex.md` (R499.995 computed as R500.00 versus R499.99 given, totals R575.00 versus R574.99) is a core test and an endpoint test; the SDK type has the optional field.

@@ -8,6 +8,7 @@ mod anthropic_key;
 mod auth;
 mod documents;
 mod jobs;
+pub mod openapi;
 mod results;
 mod review;
 mod web;
