@@ -8,6 +8,7 @@ let key = null;
 let timer = null;
 const main = document.getElementById("main");
 const signoutButton = document.getElementById("signout");
+const settingsLink = document.getElementById("settings-link");
 
 // ---------------------------------------------------------------- helpers ----
 
@@ -85,6 +86,7 @@ function signIn(message) {
   stopPolling();
   key = null;
   signoutButton.hidden = true;
+  settingsLink.hidden = true;
   const input = h("input", { type: "password", id: "key", autocomplete: "off", spellcheck: "false", required: true });
   const error = h("p", { class: "error small", role: "alert" }, message || "");
   const form = h(
@@ -99,6 +101,7 @@ function signIn(message) {
           const response = await api("/v1/whoami");
           if (!response.ok) throw new AuthError("The key was not accepted.");
           signoutButton.hidden = false;
+          settingsLink.hidden = false;
           location.hash = "#/";
           route();
         } catch (e) {
@@ -242,6 +245,7 @@ async function documentPage(id) {
         if (e instanceof AuthError) return signIn(e.message);
       }
     }
+    const waitingForKey = Boolean(job && job.state === "queued" && job.last_error && /Anthropic key/.test(job.last_error));
     const parts = [
       h("div", { class: "row" }, h("h1", {}, info.original_filename), badge(info.status)),
       h("p", { class: "muted small" }, info.page_count ? info.page_count + (info.page_count === 1 ? " page" : " pages") : "Pages not counted yet"),
@@ -252,9 +256,11 @@ async function documentPage(id) {
         h(
           "div",
           { class: "card", role: "status" },
-          h("p", {}, job && job.progress_note ? "Working: " + job.progress_note : "Waiting to be read…"),
-          p && p.total ? h("progress", { max: p.total, value: p.done }) : h("progress", {}),
-          p && p.total ? h("p", { class: "small muted" }, "Step " + p.done + " of " + p.total) : null,
+          waitingForKey
+            ? h("p", {}, h("strong", {}, "Waiting for your Anthropic key. "), "Add it in ", h("a", { href: "#/settings" }, "Settings"), "; this document starts within a minute.")
+            : h("p", {}, job && job.progress_note ? "Working: " + job.progress_note : "Waiting to be read…"),
+          waitingForKey ? null : p && p.total ? h("progress", { max: p.total, value: p.done }) : h("progress", {}),
+          waitingForKey ? null : p && p.total ? h("p", { class: "small muted" }, "Step " + p.done + " of " + p.total) : null,
         ),
       );
     }
@@ -629,6 +635,105 @@ function pageForm(id, waiting, saved) {
   );
 }
 
+// ---------------------------------------------------------------- settings: your Anthropic key ----
+// ClearCut has no Anthropic key of its own: each account brings its own (ADR-0019). It is sent once
+// in the body of a PUT, kept encrypted on the server, and never shown again: only its last four
+// characters. This page never keeps it.
+
+async function settingsPage() {
+  stopPolling();
+  const body = h("div", {}, h("div", { class: "states" }, "Loading…"));
+  show(h("p", {}, h("a", { href: "#/" }, "← All documents")), h("h1", {}, "Your Anthropic key"), body);
+
+  async function draw(savedNote) {
+    let view;
+    try {
+      view = await json("/v1/anthropic-key");
+    } catch (e) {
+      const shown = failure(e, draw);
+      if (shown instanceof Node) body.replaceChildren(shown);
+      return;
+    }
+    const input = h("input", { type: "password", id: "anthropic-key", autocomplete: "off", spellcheck: "false" });
+    const message = h("p", { class: "small", role: "status" });
+    const save = h("button", { type: "button" }, view.configured ? "Replace key" : "Save key");
+    save.addEventListener("click", async () => {
+      const text = input.value.trim();
+      input.value = "";
+      if (!text) { message.className = "small error"; message.textContent = "Paste your key first."; return; }
+      save.disabled = true;
+      message.className = "small muted";
+      message.textContent = "Checking the key with Anthropic (this costs nothing)…";
+      try {
+        const response = await api("/v1/anthropic-key", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: text }) });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "The key was not saved (" + response.status + ").");
+        await draw("Saved. This key can use: " + (result.models.length ? result.models.join(", ") : "no models ClearCut knows") + ".");
+      } catch (e) {
+        if (e instanceof AuthError) return signIn(e.message);
+        message.className = "small error";
+        message.textContent = e.message;
+        save.disabled = false;
+      }
+    });
+
+    let status;
+    if (!view.tenant_keys_enabled) {
+      status = view.source === "server"
+        ? "This server cannot store a key for you. Your documents are read with the server's own key."
+        : "This server cannot store a key for you, and has none of its own, so documents are not read by a model.";
+    } else if (view.configured && view.check_ok === false) {
+      status = "A key ending " + view.last4 + " is saved, but Anthropic refused it. Paste a new one.";
+    } else if (view.configured) {
+      status = "A key ending " + view.last4 + " is saved" + (view.checked_at ? " (checked " + when(view.checked_at) + ")" : "") + ". It cannot be shown again.";
+    } else if (view.source === "server") {
+      status = "No key saved. Until you add one, documents are read with the server's own key.";
+    } else {
+      status = "No key saved. Documents wait until you add your own.";
+    }
+
+    const remove = view.configured
+      ? h("button", {
+          type: "button", class: "secondary danger",
+          onclick: async (e) => {
+            if (!confirm("Remove your saved Anthropic key? Documents will wait until you add one again.")) return;
+            const button = e.currentTarget;
+            button.disabled = true;
+            try {
+              const response = await api("/v1/anthropic-key", { method: "DELETE" });
+              if (!response.ok) throw new Error("The key was not removed (" + response.status + ").");
+              await draw();
+            } catch (err) {
+              if (err instanceof AuthError) return signIn(err.message);
+              alert(err.message);
+              button.disabled = false;
+            }
+          },
+        }, "Remove my key")
+      : null;
+
+    body.replaceChildren(
+      h("div", { class: "card" },
+        h("p", {}, status),
+        savedNote ? h("p", { class: "small" }, savedNote) : null,
+        view.tenant_keys_enabled
+          ? h("div", {},
+              h("div", { class: "field" }, h("label", { for: "anthropic-key" }, view.configured ? "New Anthropic key" : "Anthropic key"), input),
+              h("div", { class: "row" }, save, remove),
+              message)
+          : null),
+      h("h2", {}, "Before you paste a key"),
+      h("ul", { class: "small" },
+        h("li", {}, "Every page read is billed to this key, so it is your money. Use a dedicated key made for ClearCut in the Anthropic Console."),
+        h("li", {}, "Set a monthly spend limit on it there, and an expiry if you can. ClearCut also stops at R5 a document and R100 a month, but your own limit is the one that cannot be bypassed."),
+        h("li", {}, "ClearCut stores it encrypted, uses it only to read your documents, never shows it again and never sends it anywhere except Anthropic. You can remove it here at any time."),
+        h("li", {}, "Only a regular API key works. An admin key or a subscription login token is refused."),
+        h("li", {}, "Your documents are sent to Anthropic, outside South Africa, to be read. Do not upload other people's personal information unless you are entitled to.")),
+    );
+  }
+  draw();
+}
+
 // ---------------------------------------------------------------- routing ----
 
 function route() {
@@ -636,6 +741,7 @@ function route() {
   const hash = location.hash || "#/";
   const match = hash.match(/^#\/d\/([0-9a-f-]{36})$/i);
   if (match) documentPage(match[1]);
+  else if (hash === "#/settings") settingsPage();
   else documents();
 }
 

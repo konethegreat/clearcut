@@ -354,7 +354,32 @@ impl Store {
         policy: &RetryPolicy,
         unit_bp: u32,
     ) -> Result<FailureResult> {
-        match policy.decide(kind, claimed.job.attempts, unit_bp) {
+        self.fail_job_after(claimed, kind, error, policy, unit_bp, None)
+            .await
+    }
+
+    /// As [`Store::fail_job`], with a wait of the handler's own choosing in place of the policy's
+    /// when the policy would retry (at least a second, at most a day).
+    pub async fn fail_job_after(
+        &self,
+        claimed: &ClaimedJob,
+        kind: FailureKind,
+        error: &str,
+        policy: &RetryPolicy,
+        unit_bp: u32,
+        wait: Option<std::time::Duration>,
+    ) -> Result<FailureResult> {
+        let decision = match (policy.decide(kind, claimed.job.attempts, unit_bp), wait) {
+            (Decision::Retry { counts, .. }, Some(wait)) => Decision::Retry {
+                after: wait.clamp(
+                    std::time::Duration::from_secs(1),
+                    std::time::Duration::from_secs(86_400),
+                ),
+                counts,
+            },
+            (decision, _) => decision,
+        };
+        match decision {
             Decision::NeedsReview => {
                 self.complete_job(claimed, Outcome::NeedsReview, Some(error))
                     .await?;

@@ -2,7 +2,9 @@
 mod local_env;
 mod runner;
 
+use clearcut_anthropic::{load_from, AnthropicConfig, LoadError, MasterKey};
 use clearcut_intake::Intake;
+use clearcut_keys::{AnthropicChecker, KeyMode, TenantKeys};
 use clearcut_objects::LocalDisk;
 use clearcut_server::{app, AppState};
 use clearcut_store::Store;
@@ -82,6 +84,16 @@ async fn main() -> ExitCode {
     let objects = LocalDisk::new(storage_dir);
     let intake = Intake::new(store.clone(), objects.clone(), max_upload_bytes);
 
+    // Each tenant's own Anthropic key (ADR-0019): sealed with a master key from the settings, and
+    // `CLEARCUT_KEY_MODE=tenant-only` makes sure the server's own key is never used.
+    let tenant_keys = match tenant_keys(&env, &store) {
+        Ok(keys) => keys,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::from(2);
+        }
+    };
+
     // Stop both the server and the job runner on Ctrl+C.
     let (stop, stopped) = tokio::sync::watch::channel(false);
     tokio::spawn(async move {
@@ -91,7 +103,7 @@ async fn main() -> ExitCode {
 
     // The job runner reads documents in the background (the document worker, and a model if a
     // key is set). Without a worker URL documents are stored but not read.
-    let runner = match runner::start(&env, &store, objects, stopped.clone()) {
+    let runner = match runner::start(&env, &store, objects, tenant_keys.clone(), stopped.clone()) {
         Ok(handle) => handle,
         Err(message) => {
             eprintln!("error: {message}");
@@ -117,6 +129,7 @@ async fn main() -> ExitCode {
             .with_ingest(intake)
             .with_jobs(store.clone())
             .with_reviews(store.clone())
+            .with_keys(tenant_keys)
             .with_results(store)),
     )
     .with_graceful_shutdown(async move {
@@ -133,4 +146,44 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The tenant keys: the master key (none means tenant keys are off), the mode, and the server's
+/// own key if there is one. `Err` is a message for the person starting the server (never a secret).
+fn tenant_keys(env: &LocalEnv, store: &Store) -> Result<TenantKeys, String> {
+    let mode = KeyMode::parse(env.get("CLEARCUT_KEY_MODE").as_deref()).map_err(str::to_string)?;
+    let master = MasterKey::load_from(|name| env.os(name))
+        .map_err(|e| format!("the master key cannot be used: {e}"))?;
+    let server_key = match load_from(|name| env.os(name)) {
+        Ok(key) => Some(key),
+        Err(LoadError::NotConfigured) => None,
+        Err(other) => return Err(format!("the Anthropic key cannot be used: {other}")),
+    };
+    let anthropic = AnthropicConfig::from_env(|name| env.os(name)).map_err(|e| e.to_string())?;
+    match (mode, master.is_some(), server_key.is_some()) {
+        (KeyMode::TenantOnly, false, _) => {
+            return Err("CLEARCUT_KEY_MODE=tenant-only needs a master key (CLEARCUT_MASTER_KEY or CLEARCUT_MASTER_KEY_FILE): without one no tenant can bring a key".into());
+        }
+        (KeyMode::TenantOnly, true, true) => {
+            tracing::warn!("tenant-only mode: the server's own Anthropic key is set but will never be used");
+        }
+        (KeyMode::Shared, false, false) => {
+            tracing::warn!(
+                "no Anthropic key and no master key: documents will be analysed but no model will read them"
+            );
+        }
+        _ => {}
+    }
+    tracing::info!(
+        mode = mode.as_str(),
+        tenant_keys = master.is_some(),
+        "tenant Anthropic keys"
+    );
+    Ok(TenantKeys::new(
+        store.clone(),
+        master,
+        mode,
+        server_key,
+        AnthropicChecker(anthropic),
+    ))
 }

@@ -24,6 +24,12 @@ the **ClearCut server** (the API and the job runner), and your **Anthropic key**
 
 Stop with `docker compose down` (your documents stay); `docker compose down -v` also deletes them. The database and the document worker are on **separate** private networks with no internet, so the worker (which reads untrusted files) has no route to the database; the database needs passwords; only the server reaches Anthropic, and only this computer can reach the page.
 
+## Your own Anthropic key, per account
+For yourself on your own computer the `ANTHROPIC_API_KEY` line in `.env` is enough. To try the deployment behaviour
+(each account brings its own key), add `CLEARCUT_MASTER_KEY` (from `docker compose run --rm admin generate-master-key`)
+and `CLEARCUT_KEY_MODE=tenant-only` to `.env`, restart (`docker compose up -d --force-recreate server`), and use
+**Settings** in the web page. Full explanation: [BYOK.md](BYOK.md) section 3b.
+
 ## The manual way
 (What compose does, by hand; useful when working on the code.)
 

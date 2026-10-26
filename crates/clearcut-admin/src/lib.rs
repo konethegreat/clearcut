@@ -61,6 +61,10 @@ pub enum Command {
         #[arg(long, value_parser = clap::value_parser!(u32).range(1..=365))]
         days: Option<u32>,
     },
+    /// Make a master key for sealing each tenant's own Anthropic key (ADR-0019) and print it once.
+    /// Needs no database. Put it in `.env` as CLEARCUT_MASTER_KEY, and keep a copy somewhere safe:
+    /// without it every stored tenant key is unreadable.
+    GenerateMasterKey,
     /// Revoke a tenant's key at once (for example one that has leaked).
     RevokeKey {
         #[arg(long)]
@@ -92,6 +96,8 @@ pub enum AdminError {
          check that DATABASE_URL is the owner's"
     )]
     NeedsOwnerConnection,
+    #[error("the computer could not provide random bytes")]
+    NoRandomness,
     #[error(transparent)]
     Store(#[from] clearcut_store::Error),
     #[error("could not write output: {0}")]
@@ -118,6 +124,21 @@ fn explain(error: clearcut_store::Error) -> AdminError {
         }
         _ => AdminError::Store(error),
     }
+}
+
+/// Writes a fresh master key (32 random bytes, base64) to `out` alone, with the notes to `err`.
+pub fn generate_master_key(out: &mut impl Write, err: &mut impl Write) -> Result<(), AdminError> {
+    use base64::Engine;
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|_| AdminError::NoRandomness)?;
+    writeln!(out, "{}", base64::engine::general_purpose::STANDARD.encode(bytes))?;
+    writeln!(
+        err,
+        "This is your master key. Put it in .env as CLEARCUT_MASTER_KEY=<the line above>.
+         It is shown only now. Keep a copy somewhere safe: without it every tenant's stored Anthropic
+         key is unreadable and has to be entered again. Anyone holding it AND the database can read them."
+    )?;
+    Ok(())
 }
 
 /// Runs one command. `out` gets only the machine-readable result; `err` gets
@@ -183,6 +204,7 @@ pub async fn run(
                 scope_names.join(", "),
             )?;
         }
+        Command::GenerateMasterKey => generate_master_key(out, err)?,
         Command::RevokeKey { tenant, key } => {
             store
                 .revoke_api_key_as_operator(TenantId(tenant), key)

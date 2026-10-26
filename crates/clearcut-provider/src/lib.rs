@@ -709,6 +709,19 @@ impl ProviderError {
         }
     }
 
+    /// Whether the user's key itself was refused (wrong, revoked or expired), as opposed to an
+    /// account matter (billing, a spend cap) that setting the same key again would not fix.
+    pub fn key_rejected(&self) -> bool {
+        matches!(
+            self,
+            ProviderError::Auth
+                | ProviderError::KeyProblem {
+                    problem: KeyProblem::Rejected,
+                    ..
+                }
+        )
+    }
+
     /// How long the provider asked us to wait, when it said.
     pub fn retry_after(&self) -> Option<Duration> {
         match self {

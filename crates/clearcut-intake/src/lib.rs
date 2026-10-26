@@ -295,8 +295,8 @@ impl<O: ObjectStore> Intake<O> {
     /// Erases a document for good (POPIA): its events, readings, jobs and row, through the vetted
     /// `erase_document` database function, and then its file. Needs `documents:write`.
     ///
-    /// Refused while a job is queued or running on it ([`IntakeError::Busy`]): the job would be
-    /// writing what is being removed. The file is removed **after** the rows, and only when no
+    /// A job that is only waiting is cancelled first; one that is **running** refuses
+    /// ([`IntakeError::Busy`]): it would be writing what is being removed. The file is removed **after** the rows, and only when no
     /// document of the tenant still points at it (a file is named by its content, and one upload
     /// of the same bytes reuses it). If removing the file fails the rows are already gone; that is
     /// reported, and the file is left for a sweep. What stays by design: the audit entry naming the
@@ -306,9 +306,22 @@ impl<O: ObjectStore> Intake<O> {
             .map_err(|_| IntakeError::Forbidden(Scope::DocumentsWrite))?;
         let tenant = TenantId(by.tenant());
         let file = self.store.document_file(tenant, document).await?;
+        // A job that is only waiting (for a key, a retry, its turn) is stopped first; one that is
+        // running is not interrupted: the person is told to try again when it has finished.
+        let actor = serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() });
         let jobs = self.store.jobs_for_document(tenant, document).await?;
-        if jobs.iter().any(|job| !job.state.is_terminal()) {
-            return Err(IntakeError::Busy);
+        for job in jobs.iter().filter(|job| !job.state.is_terminal()) {
+            if job.state == clearcut_core::jobs::JobState::Running {
+                return Err(IntakeError::Busy);
+            }
+            if !self
+                .store
+                .request_cancel(tenant, job.id, &actor)
+                .await?
+                .is_terminal()
+            {
+                return Err(IntakeError::Busy);
+            }
         }
         // Who asked is recorded first (the database function can only say "system"). No content.
         self.store
