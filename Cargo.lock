@@ -494,6 +494,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "clearcut-router"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "clearcut-core",
+ "clearcut-docproc",
+ "clearcut-pack",
+ "clearcut-provider",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "clearcut-server"
 version = "0.1.0"
 dependencies = [

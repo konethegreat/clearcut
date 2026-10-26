@@ -139,6 +139,10 @@ pub struct PageReader {
     cap_override: Option<u32>,
     /// The attempt with the fewest blocking issues so far, and how many it had.
     best: Option<(u32, u32)>,
+    /// The call handed out and not yet answered. A page that is not finished always has one,
+    /// and a page that is finished never does: after a failure of the transport (nothing came
+    /// back) a stored page makes the same call again.
+    pending: Option<CallPlan>,
     finished: Option<PageOutcome>,
 }
 
@@ -154,6 +158,7 @@ struct UncheckedReader {
     invalid_retried: bool,
     cap_override: Option<u32>,
     best: Option<(u32, u32)>,
+    pending: Option<CallPlan>,
     finished: Option<PageOutcome>,
 }
 
@@ -189,6 +194,20 @@ impl TryFrom<UncheckedReader> for PageReader {
         {
             return Err(broken("the best attempt was never planned"));
         }
+        match (&raw.finished, &raw.pending) {
+            (Some(_), Some(_)) => return Err(broken("a finished page is waiting for a call")),
+            (None, None) => return Err(broken("an unfinished page is waiting for no call")),
+            (None, Some(plan)) => {
+                let current = &raw.rungs[raw.position];
+                if plan.attempt != raw.issued
+                    || plan.rung != current.index
+                    || plan.model != current.rung.model
+                {
+                    return Err(broken("the waiting call is not the current rung's call"));
+                }
+            }
+            (Some(_), None) => {}
+        }
         Ok(PageReader {
             rungs: raw.rungs,
             ceiling: raw.ceiling,
@@ -199,6 +218,7 @@ impl TryFrom<UncheckedReader> for PageReader {
             invalid_retried: raw.invalid_retried,
             cap_override: raw.cap_override,
             best: raw.best,
+            pending: raw.pending,
             finished: raw.finished,
         })
     }
@@ -228,6 +248,7 @@ impl PageReader {
             invalid_retried: false,
             cap_override: None,
             best: None,
+            pending: None,
             finished: None,
         };
         let step = if reader.rungs.is_empty() {
@@ -249,12 +270,28 @@ impl PageReader {
         self.finished.is_some()
     }
 
+    /// The call that has been handed out and not yet answered; `None` once the page is done.
+    pub fn pending(&self) -> Option<&CallPlan> {
+        self.pending.as_ref()
+    }
+
+    /// How the page ended, once it has.
+    pub fn outcome(&self) -> Option<&PageOutcome> {
+        self.finished.as_ref()
+    }
+
+    /// The attempt with the fewest blocking issues so far (ties to the later one).
+    pub fn best_attempt(&self) -> Option<u32> {
+        self.best.map(|(attempt, _)| attempt)
+    }
+
     /// Takes what happened to the last call and says what to do next. Once the page is done,
     /// it keeps saying so.
     pub fn on_outcome(&mut self, outcome: Outcome) -> Step {
         if let Some(done) = &self.finished {
             return Step::Done(done.clone());
         }
+        self.pending = None;
         if !matches!(outcome, Outcome::BudgetRefused | Outcome::CannotBeSentSafely) {
             self.calls_made += 1;
         }
@@ -349,7 +386,7 @@ impl PageReader {
     fn issue(&mut self, kind: CallKind) -> Step {
         self.issued += 1;
         let planned = self.current();
-        Step::Call(CallPlan {
+        let plan = CallPlan {
             attempt: self.issued,
             rung: planned.index,
             model: planned.rung.model.clone(),
@@ -357,7 +394,9 @@ impl PageReader {
             max_output_tokens: self.current_cap(),
             picture: planned.rung.picture,
             kind,
-        })
+        };
+        self.pending = Some(plan.clone());
+        Step::Call(plan)
     }
 
     fn review(&mut self, reason: ReviewReason) -> Step {

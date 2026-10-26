@@ -795,3 +795,101 @@ fn a_page_that_ended_exactly_at_its_limit_with_its_last_attempt_as_the_draft_rea
     let back: PageReader = serde_json::from_str(&serde_json::to_string(&raised).unwrap()).unwrap();
     assert_eq!(back, raised);
 }
+
+// ---------- the call that is waiting for an answer ----------
+
+#[test]
+fn the_plan_waiting_for_an_answer_is_the_one_last_handed_out() {
+    let (mut reader, step) = default_start();
+    assert_eq!(reader.pending(), Some(call(&step)));
+    let step = reader.on_outcome(escalate(1));
+    assert_eq!(reader.pending(), Some(call(&step)));
+    assert_eq!(reader.pending().unwrap().attempt, 2);
+    let step = reader.on_outcome(Outcome::InvalidOutput);
+    assert_eq!(reader.pending(), Some(call(&step)));
+    assert_eq!(reader.pending().unwrap().kind, CallKind::RetryInvalid);
+}
+
+#[test]
+fn a_finished_page_waits_for_nothing() {
+    let (mut reader, _) = default_start();
+    reader.on_outcome(accept());
+    assert_eq!(reader.pending(), None);
+    let (reader, _) = PageReader::start(&RouterPolicy::default_ladder(), 0);
+    assert_eq!(reader.pending(), None, "a page that never started");
+}
+
+#[test]
+fn a_stored_page_resumes_with_the_same_plan() {
+    // A transport failure interrupted the call: nothing came back, so the plan is still pending.
+    let (mut reader, _) = default_start();
+    reader.on_outcome(escalate(2));
+    let json = serde_json::to_string(&reader).unwrap();
+    let restored: PageReader = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.pending(), reader.pending());
+    assert_eq!(restored.calls_made(), 1, "the interrupted call was not counted");
+}
+
+#[test]
+fn the_best_attempt_so_far_is_known_without_finishing() {
+    let (mut reader, _) = default_start();
+    assert_eq!(reader.best_attempt(), None);
+    reader.on_outcome(escalate(3));
+    assert_eq!(reader.best_attempt(), Some(1));
+    reader.on_outcome(escalate(1));
+    assert_eq!(reader.best_attempt(), Some(2));
+    reader.on_outcome(Outcome::NotConverted);
+    assert_eq!(
+        reader.best_attempt(),
+        Some(2),
+        "an answer that could not be read is no draft"
+    );
+}
+
+#[test]
+fn a_stored_reader_must_wait_for_exactly_one_plan_while_unfinished_and_none_when_finished() {
+    use serde_json::json;
+    let (mut reader, _) = default_start();
+    reader.on_outcome(escalate(1));
+    let cases: Vec<(&str, Tamper)> = vec![
+        (
+            "no pending plan on an unfinished page",
+            Box::new(|v| v["pending"] = json!(null)),
+        ),
+        (
+            "a plan for the wrong attempt",
+            Box::new(|v| v["pending"]["attempt"] = json!(7)),
+        ),
+        (
+            "a plan for a rung that is not the current one",
+            Box::new(|v| v["pending"]["rung"] = json!(0)),
+        ),
+        (
+            "a plan for another model",
+            Box::new(|v| v["pending"]["model"] = json!("claude-opus-5-5")),
+        ),
+    ];
+    for (case, change) in cases {
+        assert!(tampered_reader(&reader, change).is_err(), "{case}");
+    }
+    // A finished page with a plan still pending.
+    let (mut done, _) = default_start();
+    done.on_outcome(accept());
+    let value = serde_json::to_value(&done).unwrap();
+    let mut with_plan = value.clone();
+    let plan = serde_json::to_value(reader.pending().unwrap()).unwrap();
+    with_plan["pending"] = plan;
+    assert!(serde_json::from_value::<PageReader>(with_plan).is_err());
+    assert!(serde_json::from_value::<PageReader>(value).is_ok());
+}
+
+#[test]
+fn the_outcome_is_known_once_the_page_is_done_and_not_before() {
+    let (mut reader, _) = default_start();
+    assert_eq!(reader.outcome(), None);
+    let step = reader.on_outcome(accept());
+    let Step::Done(done) = step else {
+        panic!("an accepted page is done")
+    };
+    assert_eq!(reader.outcome(), Some(&done));
+}
