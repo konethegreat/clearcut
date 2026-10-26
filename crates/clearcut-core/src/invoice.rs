@@ -14,6 +14,13 @@ pub struct LineItem {
     /// Unit price excluding VAT.
     pub unit_price: Money,
     pub tax: TaxCategory,
+    /// The line amount **as the caller has already worked it out** (excluding VAT, in minor units).
+    /// When given it is used as it is, and `quantity_milli` and `unit_price` are only informational:
+    /// a caller that prices its own lines (for example a time entry) is not rounded a second time.
+    /// When absent the line is `quantity_milli` times `unit_price`, rounded half away from zero.
+    /// Must be in the same currency as `unit_price`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_total: Option<Money>,
 }
 
 impl LineItem {
@@ -21,7 +28,11 @@ impl LineItem {
         if self.quantity_milli <= 0 {
             return Err(Error::InvalidQuantity);
         }
-        self.unit_price.mul_milli(self.quantity_milli)
+        match self.line_total {
+            // Adding it to zero in the line's currency is the currency check.
+            Some(given) => Money::zero(self.unit_price.currency).checked_add(given),
+            None => self.unit_price.mul_milli(self.quantity_milli),
+        }
     }
 }
 
@@ -96,6 +107,7 @@ mod tests {
             quantity_milli: qty,
             unit_price: Money::zar(price),
             tax,
+            line_total: None,
         }
     }
 
@@ -113,6 +125,46 @@ mod tests {
         assert_eq!(t.net, Money::zar(1_600_000));
         assert_eq!(t.vat, Money::zar(225_000));
         assert_eq!(t.gross, Money::zar(1_825_000));
+    }
+
+    /// The pair TimeLex asked for (docs/integration/timelex.md): 1.5 hours at R333.33 is R499.995,
+    /// which is worked out as R500.00; a caller that has priced the line at R499.99 is not rounded
+    /// again. VAT (15%) is then R75.00 either way (R74.9985 rounds up), the totals differ by a cent.
+    #[test]
+    fn a_line_total_given_by_the_caller_is_used_as_it_is() {
+        let computed = Invoice::new(
+            "T-1",
+            Currency::Zar,
+            vec![line("Advice", 1_500, 33_333, TaxCategory::Standard)],
+        );
+        let t = computed.totals().unwrap();
+        assert_eq!(
+            (t.net, t.vat, t.gross),
+            (Money::zar(50_000), Money::zar(7_500), Money::zar(57_500))
+        );
+
+        let mut given = line("Advice", 1_500, 33_333, TaxCategory::Standard);
+        given.line_total = Some(Money::zar(49_999));
+        let t = Invoice::new("T-2", Currency::Zar, vec![given]).totals().unwrap();
+        assert_eq!(
+            (t.net, t.vat, t.gross),
+            (Money::zar(49_999), Money::zar(7_500), Money::zar(57_499))
+        );
+    }
+
+    #[test]
+    fn a_given_line_total_in_another_currency_is_refused_and_absent_means_computed() {
+        let mut odd = line("a", 1_000, 100, TaxCategory::Standard);
+        odd.line_total = Some(Money::new(100, Currency::Usd));
+        assert!(matches!(
+            Invoice::new("X", Currency::Zar, vec![odd]).totals(),
+            Err(Error::CurrencyMismatch { .. })
+        ));
+        // Old callers send no line_total and get the same answer as before.
+        let json = r#"{"description":"a","quantity_milli":1000,"unit_price":{"minor":100,"currency":"ZAR"},"tax":"standard"}"#;
+        let parsed: LineItem = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.line_total, None);
+        assert_eq!(parsed.net().unwrap(), Money::zar(100));
     }
 
     #[test]

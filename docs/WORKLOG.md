@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 54) — `line_total` as given (TimeLex request A)
+**Done**
+- `LineItem` takes an optional `line_total`: used as given (and checked to be in the line's currency) instead of quantity times unit price; absent means the old behaviour, so existing callers see no change. VAT stays per category on the category subtotal. The test pair promised in `docs/integration/timelex.md` (R499.995 computed as R500.00 versus R499.99 given, totals R575.00 versus R574.99) is a core test and an endpoint test; the SDK type has the optional field.
+- #85 and #86 (ADR-0019, users' own keys) are merged; all of LAUNCH item 1 is built.
+- Not done: the OpenAPI file with its staleness test, idempotency keys on mutating calls, a tenant-creation endpoint (all in LAUNCH item 2; the last needs TimeLex to say what it needs).
+
 ## 2026-10-26 (part 53) — users' own keys, steps 2 to 4 (ADR-0019)
 **Done**
 - `clearcut-keys` (new crate): the rules for a tenant's key. `set` needs `keys:admin`, refuses an admin key or a login token locally, asks Anthropic (the free models call) and stores nothing unless it accepts, seals with the tenant bound in, audits without the value. `resolve` gives a job the tenant's key; the server's own key only in `shared` mode; a key Anthropic refused is **not** quietly replaced by the server's. `remove`, `status`, `mark_rejected`. 5 tests against a real database and a fake Anthropic.

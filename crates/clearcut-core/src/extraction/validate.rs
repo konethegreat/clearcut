@@ -127,6 +127,7 @@ pub fn validate(extraction: &Extraction) -> Validation {
                     quantity_milli: l.quantity_milli,
                     unit_price: l.unit_price,
                     tax: l.tax,
+                    line_total: None,
                 });
             }
         }

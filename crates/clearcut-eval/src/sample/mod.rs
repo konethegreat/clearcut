@@ -524,6 +524,7 @@ fn build(spec: &Spec) -> SampleCase {
                 quantity_milli: r.quantity_milli,
                 unit_price: money(r.unit_price),
                 tax: r.tax,
+                line_total: None,
             })
             .collect(),
     )
