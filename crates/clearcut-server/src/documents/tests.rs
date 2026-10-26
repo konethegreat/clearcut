@@ -75,6 +75,7 @@ fn stored(duplicate: bool) -> Uploaded {
         byte_size: 7,
         filename: "March invoice.pdf".into(),
         media_type: MediaType::Pdf,
+        job: Some(Uuid::from_u128(0x70B)),
     }
 }
 
@@ -172,6 +173,7 @@ async fn a_new_document_is_201_with_its_details_and_nothing_internal() {
         json(&body),
         serde_json::json!({
             "document_id": Uuid::from_u128(0xD0C).to_string(),
+            "job_id": Uuid::from_u128(0x70B).to_string(),
             "duplicate": false,
             "sha256": "ab".repeat(32),
             "byte_size": 7,

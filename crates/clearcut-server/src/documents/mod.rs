@@ -68,6 +68,8 @@ pub(crate) struct UploadParams {
 #[derive(Serialize)]
 pub(crate) struct UploadedBody {
     document_id: String,
+    /// The job that reads the document (absent for a repeat upload of one already worked on).
+    job_id: Option<String>,
     duplicate: bool,
     sha256: String,
     byte_size: u64,
@@ -107,6 +109,7 @@ pub(crate) async fn upload_document(
             },
             Json(UploadedBody {
                 document_id: done.document.0.to_string(),
+                job_id: done.job.map(|job| job.to_string()),
                 duplicate: done.duplicate,
                 sha256: done.sha256_hex,
                 byte_size: done.byte_size,

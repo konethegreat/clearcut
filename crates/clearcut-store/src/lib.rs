@@ -143,6 +143,14 @@ fn parse_status(text: &str) -> Result<DocumentStatus> {
     DocumentStatus::parse(text).ok_or_else(|| Error::UnknownStatus(text.to_string()))
 }
 
+/// What is known about a stored document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentInfo {
+    pub status: DocumentStatus,
+    pub page_count: Option<i32>,
+    pub original_filename: String,
+}
+
 /// What is known about an uploaded file.
 #[derive(Debug, Clone)]
 pub struct NewDocument {
@@ -365,6 +373,26 @@ impl Store {
             content_type,
             byte_size: u64::try_from(byte_size).map_err(|_| Error::DocumentNotFound)?,
             sha256: sha256.try_into().map_err(|_| Error::DocumentNotFound)?,
+        })
+    }
+
+    /// What is known about a document: its status, page count and file name. A document of
+    /// another tenant is not found.
+    pub async fn document_info(&self, tenant: TenantId, document: DocId) -> Result<DocumentInfo> {
+        let mut tx = self.begin(tenant).await?;
+        let row: Option<(String, Option<i32>, String)> = sqlx::query_as(
+            "select status, page_count, original_filename from documents where tenant_id = $1 and id = $2",
+        )
+        .bind(tenant.0)
+        .bind(document.0)
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let (status, page_count, original_filename) = row.ok_or(Error::DocumentNotFound)?;
+        Ok(DocumentInfo {
+            status: parse_status(&status)?,
+            page_count,
+            original_filename,
         })
     }
 

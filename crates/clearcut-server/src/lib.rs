@@ -7,10 +7,12 @@
 mod auth;
 mod documents;
 mod jobs;
+mod results;
 
 pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
 pub use documents::{Ingest, IngestFuture, UploadBody};
 pub use jobs::{JobQueue, QueueFuture};
+pub use results::{Results, ResultsFuture};
 
 use axum::{
     http::{header, StatusCode},
@@ -28,6 +30,10 @@ pub fn routes() -> Router<AppState> {
         .route("/health", get(health))
         .route("/v1/whoami", get(whoami))
         .route("/v1/documents", post(documents::upload_document))
+        .route("/v1/documents/{id}", get(results::get_document))
+        .route("/v1/documents/{id}/events", get(results::get_events))
+        .route("/v1/documents/{id}/report", get(results::get_report))
+        .route("/v1/documents/{id}/export", get(results::export_document))
         .route("/v1/documents/{id}/jobs", get(jobs::list_for_document))
         .route("/v1/jobs/{id}/cancel", post(jobs::cancel))
         .route("/v1/invoices/calculate", post(calculate))

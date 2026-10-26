@@ -25,8 +25,10 @@
 //! that the bytes really are what the media type claims is P2-02.)
 
 use clearcut_core::auth::{Principal, Scope};
+use clearcut_core::document::DocumentStatus;
+use clearcut_core::jobs::JobKind;
 use clearcut_objects::{ObjectStore, PutLimits};
-use clearcut_store::{AuditEntry, DocId, NewDocument, Store, TenantId};
+use clearcut_store::{AuditEntry, DocId, NewDocument, NewJob, Store, TenantId};
 use std::io::ErrorKind;
 use tokio::io::AsyncRead;
 
@@ -151,6 +153,9 @@ pub struct Uploaded {
     /// the name it was first uploaded with.
     pub filename: String,
     pub media_type: MediaType,
+    /// The job that reads the document, queued by this upload (or the one already queued). `None`
+    /// for a repeat upload of a document that has already been worked on.
+    pub job: Option<uuid::Uuid>,
 }
 
 /// Why an upload was refused or failed.
@@ -253,6 +258,26 @@ impl<O: ObjectStore> Intake<O> {
         };
         self.store.record_audit(tenant, &entry).await?;
 
+        // A new document is queued to be read. So is a repeat upload of one that was never
+        // started (an earlier upload that stopped before its job was queued); a document that
+        // has been worked on is left as it is. Asking again while a job is queued or running
+        // returns that job.
+        let job = if !added.duplicate
+            || self.store.document_status(tenant, added.id).await? == DocumentStatus::Received
+        {
+            let queued = self
+                .store
+                .enqueue_job(
+                    tenant,
+                    &NewJob::new(added.id, JobKind::ProcessDocument),
+                    &serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() }),
+                )
+                .await?;
+            Some(queued.id)
+        } else {
+            None
+        };
+
         Ok(Uploaded {
             document: added.id,
             duplicate: added.duplicate,
@@ -260,6 +285,7 @@ impl<O: ObjectStore> Intake<O> {
             byte_size: stored.byte_size,
             filename,
             media_type,
+            job,
         })
     }
 

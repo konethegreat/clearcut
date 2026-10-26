@@ -648,3 +648,45 @@ async fn the_recorded_type_is_the_canonical_one_and_the_page_count_is_unknown(po
     // Counting pages means opening the file, which is the extractor's job later.
     assert_eq!(pages, None);
 }
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_new_document_is_queued_to_be_read_once(pool: PgPool) {
+    let f = fixture(&pool, 1_000_000).await;
+    let first = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", Some("a.pdf")))
+        .await
+        .unwrap();
+    assert!(first.job.is_some());
+    // The same file again while its job waits is the same job, not a second one.
+    let second = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", Some("b.pdf")))
+        .await
+        .unwrap();
+    assert!(second.duplicate);
+    assert_eq!(second.job, first.job);
+    assert_eq!(count(&pool, "select count(*) from jobs").await, 1);
+    assert_eq!(
+        count(&pool, "select count(*) from jobs where kind = 'process_document'").await,
+        1
+    );
+
+    // Once the document has been worked on, a repeat upload leaves it alone.
+    sqlx::query("update jobs set state = 'succeeded', finished_at = now()")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("update documents set status = 'done'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let third = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", Some("c.pdf")))
+        .await
+        .unwrap();
+    assert!(third.duplicate);
+    assert_eq!(third.job, None);
+    assert_eq!(count(&pool, "select count(*) from jobs").await, 1);
+}
