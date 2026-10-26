@@ -35,6 +35,7 @@ fn review_reasons_have_exactly_the_agreed_names() {
             "request_rejected",
             "no_rung_available",
             "amounts_include_vat",
+            "tax_not_shown",
         ]
     );
 }

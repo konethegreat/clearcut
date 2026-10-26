@@ -365,6 +365,24 @@ fn a_review_problem_counts_as_blocking() {
 }
 
 #[test]
+fn a_tax_that_is_not_printed_goes_to_a_person_not_to_a_stronger_model() {
+    let tax = problem("lines/1/tax", ProblemKind::TaxNotShown);
+    let only_tax = std::slice::from_ref(&tax);
+    let a = assess(&evidence(only_tax, &[], TextCheck::Passed, true));
+    assert_eq!(a.verdict, Verdict::Review(ReviewReason::TaxNotShown));
+    assert_eq!(a.blocking, 1);
+
+    // Printed totals that the dropped line leaves short are not a reason to try again.
+    let a = assess(&evidence(only_tax, &[totals_mismatch()], TextCheck::Passed, true));
+    assert_eq!(a.verdict, Verdict::Review(ReviewReason::TaxNotShown));
+
+    // While something else is wrong that a stronger model could fix, that comes first.
+    let bad = problem("lines/2/line_total", ProblemKind::BadAmount);
+    let a = assess(&evidence(&[tax, bad], &[], TextCheck::Passed, true));
+    assert_eq!(a.verdict, Verdict::Escalate(EscalationReason::ReadingProblems));
+}
+
+#[test]
 fn amounts_that_include_vat_win_whatever_order_the_problems_come_in() {
     let vat = problem("amounts_include_vat", ProblemKind::AmountsIncludeVat);
     let many = problem("lines", ProblemKind::TooManyLines);

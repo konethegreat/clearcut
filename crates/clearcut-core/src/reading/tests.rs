@@ -702,6 +702,42 @@ fn each_tax_category_is_read_and_not_shown_is_a_problem() {
     );
 }
 
+/// Three lines with no tax shown, adding up to 1 000.00.
+fn untaxed_reading(vat: &str, gross: &str) -> PageReading {
+    PageReading {
+        lines: vec![
+            line("A", "1", "400.00", "400.00", ReadTax::NotShown),
+            line("B", "1", "600.00", "600.00", ReadTax::NotShown),
+        ],
+        totals: ReadTotals {
+            net: "1000.00".into(),
+            vat: vat.into(),
+            gross: gross.into(),
+        },
+        ..clean_reading()
+    }
+}
+
+#[test]
+fn tax_not_shown_is_derived_only_when_the_totals_prove_it() {
+    // VAT is exactly 15% of the net, which the lines add up to: every line is standard-rated.
+    let proven = convert(&untaxed_reading("150.00", "1150.00"));
+    assert_eq!(proven.problems, vec![]);
+    assert!(proven
+        .extraction
+        .lines
+        .iter()
+        .all(|l| l.value.tax == TaxCategory::Standard));
+
+    // No VAT at all fits exempt, zero-rated and out-of-scope alike: nothing is guessed.
+    // Neither is a VAT figure that is not 15% of the net.
+    for (vat, gross) in [("0.00", "1000.00"), ("100.00", "1100.00"), ("150.00", "1000.00")] {
+        let conversion = convert(&untaxed_reading(vat, gross));
+        assert!(conversion.extraction.lines.is_empty(), "{vat}");
+        assert_eq!(conversion.problems.len(), 2, "{vat}");
+    }
+}
+
 #[test]
 fn a_line_with_a_bad_description_is_left_out() {
     let mut reading = clean_reading();

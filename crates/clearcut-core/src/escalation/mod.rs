@@ -122,10 +122,13 @@ pub enum ReviewReason {
     NoRungAvailable,
     /// The line amounts include VAT, which is not backed out (ADR-0014 section 6).
     AmountsIncludeVat,
+    /// No line says how it is taxed and the page's totals do not settle it. A stronger model
+    /// cannot read what is not printed, and pressed to answer it would guess.
+    TaxNotShown,
 }
 
 impl ReviewReason {
-    pub const ALL: [ReviewReason; 9] = [
+    pub const ALL: [ReviewReason; 10] = [
         ReviewReason::TopRungFailed,
         ReviewReason::TooLong,
         ReviewReason::Refused,
@@ -135,6 +138,7 @@ impl ReviewReason {
         ReviewReason::RequestRejected,
         ReviewReason::NoRungAvailable,
         ReviewReason::AmountsIncludeVat,
+        ReviewReason::TaxNotShown,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -148,6 +152,7 @@ impl ReviewReason {
             ReviewReason::RequestRejected => "request_rejected",
             ReviewReason::NoRungAvailable => "no_rung_available",
             ReviewReason::AmountsIncludeVat => "amounts_include_vat",
+            ReviewReason::TaxNotShown => "tax_not_shown",
         }
     }
 

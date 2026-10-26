@@ -81,6 +81,7 @@ pub fn assess(evidence: &ReadingEvidence<'_>) -> Assessment {
     let mut notes = Vec::new();
     let mut critical_problems = 0u32;
     let mut review = None;
+    let mut tax_not_shown = false;
 
     for problem in evidence.problems {
         match problem.kind {
@@ -91,6 +92,11 @@ pub fn assess(evidence: &ReadingEvidence<'_>) -> Assessment {
             }
             ProblemKind::TooManyLines => {
                 review = review.or(Some(ReviewReason::TooLong));
+                blocking += 1;
+            }
+            // What is not printed cannot be read by a stronger model; it can only guess.
+            ProblemKind::TaxNotShown => {
+                tax_not_shown = true;
                 blocking += 1;
             }
             _ if is_critical(&problem.path) => {
@@ -113,7 +119,8 @@ pub fn assess(evidence: &ReadingEvidence<'_>) -> Assessment {
             | Finding::AmountOutOfRange { .. }
             | Finding::CurrencyMismatch { .. } => line_findings += 1,
             Finding::TotalsMismatch { .. } | Finding::TotalsOutOfRange => {
-                if evidence.whole_document {
+                // A line left out for its missing tax makes the sum short for that reason alone.
+                if evidence.whole_document && !tax_not_shown {
                     totals_findings += 1;
                 }
             }
@@ -145,6 +152,12 @@ pub fn assess(evidence: &ReadingEvidence<'_>) -> Assessment {
     }
     if text_failed {
         reasons.push(EscalationReason::TextCheckFailed);
+    }
+
+    // Only once everything a stronger model could fix is fixed: then the missing tax is all
+    // that is left, and a person decides it.
+    if review.is_none() && reasons.is_empty() && tax_not_shown {
+        review = Some(ReviewReason::TaxNotShown);
     }
 
     let verdict = match (review, reasons.first()) {
