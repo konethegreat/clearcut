@@ -1,0 +1,103 @@
+# Written by Kone Tshivhinda & Claude
+# ClearCut on your own computer: one command.   docker compose up --build
+#
+# Put your settings in a file called .env next to this one (see docs/RUN-LOCALLY.md):
+#   ANTHROPIC_API_KEY=sk-ant-...          your own key (optional: without it documents are only analysed)
+#   CLEARCUT_WORKER_TOKEN=some-long-random-text
+# The web page is then at http://127.0.0.1:8099 (only this computer can reach it).
+#
+# Networks: the database and the document worker live on an internal network with NO internet.
+# Only the server is also on the outside network (it must reach Anthropic) and publishes a port,
+# on this computer only.
+name: clearcut
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clearcut
+      POSTGRES_DB: clearcut
+      # Only the server, the worker's neighbour on the internal network, can reach it: no password
+      # is needed and none is stored. It publishes no port.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - db:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clearcut -d clearcut"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    # Makes the tables (safe to repeat). Needs the owner login, which the server never has.
+    build: .
+    image: clearcut-server
+    command: ["clearcut-admin", "migrate"]
+    environment:
+      DATABASE_URL: postgres://clearcut@db:5432/clearcut
+    networks: [backend]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  admin:
+    # The operator's command, for making your first login (see docs/RUN-LOCALLY.md):
+    #   docker compose run --rm admin create-tenant "My firm"
+    profiles: ["tools"]
+    build: .
+    image: clearcut-server
+    entrypoint: ["clearcut-admin"]
+    environment:
+      DATABASE_URL: postgres://clearcut@db:5432/clearcut
+    networks: [backend]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    build:
+      context: services/worker
+    image: clearcut-worker
+    restart: unless-stopped
+    environment:
+      CLEARCUT_WORKER_TOKEN: ${CLEARCUT_WORKER_TOKEN:?put CLEARCUT_WORKER_TOKEN=some-long-random-text in the .env file}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend]
+
+  server:
+    build: .
+    image: clearcut-server
+    restart: unless-stopped
+    environment:
+      # The restricted login: row-level security applies to it, and it cannot change the tables.
+      DATABASE_URL: postgres://clearcut_app@db:5432/clearcut
+      CLEARCUT_WORKER_URL: http://worker:8090
+      CLEARCUT_WORKER_TOKEN: ${CLEARCUT_WORKER_TOKEN:?put CLEARCUT_WORKER_TOKEN=some-long-random-text in the .env file}
+      CLEARCUT_ENV_FILE: /run/clearcut.env
+    volumes:
+      - files:/data
+      # Your settings, read-only (the key is read from here; it is not copied into the image).
+      - ./.env:/run/clearcut.env:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "127.0.0.1:8099:8080"
+    networks: [backend, outside]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      worker: { condition: service_started }
+
+volumes:
+  db:
+  files:
+
+networks:
+  backend:
+    internal: true
+  outside: {}

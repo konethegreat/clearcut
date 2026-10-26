@@ -5,6 +5,26 @@ _Kone Tshivhinda & Claude, 27 Oct 2026. This is the manual way; a one-command `d
 You need four things running: **Postgres** (the database), the **document worker** (reads PDFs; Python),
 the **ClearCut server** (the API and the job runner), and your **Anthropic key** in a file.
 
+## The easy way: `docker compose` (needs Docker Desktop)
+1. In the project folder, make a file called `.env` with two lines (your Anthropic key is optional: without it documents are only analysed):
+   ```text
+   ANTHROPIC_API_KEY=sk-ant-...your key...
+   CLEARCUT_WORKER_TOKEN=any-long-random-text-you-make-up
+   ```
+2. Start everything (the first time it builds, which takes several minutes): `docker compose up --build -d`
+3. Make your first login, once:
+   ```text
+   docker compose run --rm admin create-tenant "My firm"
+   docker compose run --rm admin create-key --tenant <the id it printed> --name me --scopes documents:write,documents:read,keys:admin
+   ```
+   The second command prints a key **once**: keep it somewhere safe. It is your ClearCut login, not the Anthropic key.
+4. Open **http://127.0.0.1:8099**, paste that key, and upload an invoice.
+
+Stop with `docker compose down` (your documents stay); `docker compose down -v` also deletes them. The database and the document worker are on a private network with no internet; only the server reaches Anthropic, and only this computer can reach the page.
+
+## The manual way
+(What compose does, by hand; useful when working on the code.)
+
 ## 1. Settings: one file, `.env`
 Create a file called `.env` in the project folder (it is git-ignored, so it is never committed):
 

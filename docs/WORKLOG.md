@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 48) — one command: `docker compose up`
+**Done**
+- `docker-compose.yml`, `Dockerfile` (server, web page and operator command; non-root, read-only file system, no capabilities) and `services/worker/Dockerfile` (with Tesseract in English and Afrikaans). Services: `db` (Postgres, no published port, no password needed on the private network), `migrate` (makes the tables with the owner login, once), `worker` and `server`; `admin` is a helper for making the first login. The database and the worker are on an **internal network with no internet**; only the server is also on the outside network (it must reach Anthropic) and publishes a port, on this computer only (127.0.0.1:8099).
+- Settings come from a git-ignored `.env`, mounted read-only into the server; the key is not baked into any image.
+- **Tested from scratch** with the real key: `docker compose up`, make a tenant and key with the `admin` helper, upload a PDF to the page's address, the worker ran OCR in its container, the document ended `done` with 9 events.
+- `docs/RUN-LOCALLY.md` now leads with the compose way.
+- Not done: CI does not build the images yet; the images are not published anywhere; no HTTPS (it is for one computer).
+
 ## 2026-10-27 (part 47) — the web page
 **Done** (Kone approved the three screens)
 - Served by the server itself, no build step: **sign in** (paste the ClearCut key; kept in the page's memory only, never in storage or a cookie), **documents** (upload box, table of file / status / pages / date, refreshing while anything is being read, empty and error states), **one document** (status and progress, a banner with the reason when it needs review, the report with Summary / Timeline / By group tabs, a table of everything read with page and how sure, and JSON / CSV / Markdown downloads).

@@ -1,0 +1,12 @@
+target
+node_modules
+.git
+.env
+.env.*
+clearcut.tar.gz
+packages
+plugin
+gold
+gold-*
+*.log
+secrets
