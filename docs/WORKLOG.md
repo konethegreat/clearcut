@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 46) — it runs: upload, read in the background, read the result back
+**Done**
+- **The missing link:** an upload never queued a job, so nothing ever started. Uploading a new document (or re-uploading one that was never started) now queues its `process_document` job; the answer carries `job_id`.
+- **The server runs the job runner** next to the API (`clearcut-server`): with a document worker configured it reads documents in the background, one at a time (the spend gate is not built); with the Anthropic key too it reads them with the model. Settings come from the environment or a git-ignored `.env`.
+- **Reading a document back:** `GET /v1/documents/{id}` (status, pages, events), `/events`, `/report?mode=summary|timeline|grouped`, `/export?format=json|csv|md`, all from the stored events; the CSV defuses cells that a spreadsheet would run as formulas.
+- **Real run through the real server:** a PDF uploaded over HTTP, read in the background by the real model, ended `done` with 9 events (supplier, two lines, VAT, totals and four compliance notes the rules require above R5 000), the report and the CSV came back, for R0.021.
+- Security review finding fixed on #71: a page whose text tries to give orders, or whose figures its own text does not show, no longer ends `done`; it goes to a person.
+- `docs/RUN-LOCALLY.md` says how to run it, step by step.
+
 ## 2026-10-27 (part 45) — pages become a document: assemble, check, events, done
 **Done** (PR #70 merged first; faster pace by Kone's request: fewer tests, no ADR gate for this step)
 - `clearcut_core::assemble`: puts the pages' extractions together. Lines go in page order; everything printed once per document (invoice number, date, supplier, recipient, due date, credit-note reference, printed totals) comes from the first page that has it; a page that disagrees is a `Conflict` named from a fixed list and the document goes to a person (nothing is merged quietly). `Finding::is_blocking` says which checks stop a document being `done` (a wrong sum, an impossible quantity, no lines) and which are only facts shown to the reader (a due date before the invoice date, a tax-invoice rule).
