@@ -862,6 +862,14 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             | ProviderError::KeyProblem { .. } => {
                 let failure = error.failure_kind();
                 record.label = CallLabel::Interrupted(failure);
+                // A refusal before any work (overloaded, bad key, billing) is not billed. A
+                // timeout may have been processed, and the provider cannot say, so the budget
+                // is charged the most the call could have cost: a loop of timeouts cannot
+                // spend past the cap unseen.
+                if matches!(error, ProviderError::Timeout) {
+                    Self::book(run, budget, sent.worst);
+                    record.cost = sent.worst;
+                }
                 run.calls.push(record);
                 return Err(Trouble {
                     failure,
@@ -891,9 +899,14 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             .prices
             .cost(&plan.model, &usage, self.config.rate)
             .unwrap_or(worst);
+        Self::book(run, budget, cost);
+        (usage, cost)
+    }
+
+    /// Adds an amount to the document's budget and to this run's spending.
+    fn book(run: &mut Run, budget: &mut BudgetCheck, cost: Cost) {
         budget.record(cost);
         run.spent = run.spent.saturating_add(cost);
-        (usage, cost)
     }
 
     /// The page's text as it will be sent and how far it can be believed.

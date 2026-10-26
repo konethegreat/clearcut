@@ -54,7 +54,9 @@ fn a_call_is_the_page_the_prefix_the_schema_and_the_answer_cap() {
     assert_eq!(estimate.prefix_tokens, 1_334);
     // After the breakpoint: the text, the schema (counted as input on every call, to be safe)
     // and the picture.
-    assert_eq!(estimate.page_input_tokens, 1_000 + 200 + 2_835);
+    // The page's own text is the document's, so it is counted at a token a byte; the schema is
+    // ours and is counted at three bytes to a token.
+    assert_eq!(estimate.page_input_tokens, 3_000 + 200 + 2_835);
     assert_eq!(estimate.max_output_tokens, 8_000);
 }
 
@@ -86,4 +88,15 @@ fn only_the_uncached_text_counts_not_the_prefix_and_not_the_picture() {
     ];
     assert_eq!(uncached_text_bytes(&sections), 2_450);
     assert_eq!(uncached_text_bytes(&[]), 0);
+}
+
+#[test]
+fn text_from_the_document_is_counted_a_token_a_byte() {
+    // Digits, symbols and non-Latin text can cost a token for each byte, and the page's text is
+    // the document's to write: a reservation must hold whatever it says.
+    assert_eq!(untrusted_text_tokens(0), 0);
+    assert_eq!(untrusted_text_tokens(1), 1);
+    assert_eq!(untrusted_text_tokens(200_000), 200_000);
+    // Our own text (the rules, the schema) is ordinary English and stays at three bytes.
+    assert_eq!(text_tokens(3_000), 1_000);
 }

@@ -2,8 +2,10 @@
 //! How big a call will be, worked out before it is sent (ADR-0018 section 6).
 //!
 //! The estimate is a **reservation against a budget**, not a forecast, so every figure here
-//! errs high: text is counted at three bytes to a token (real text is nearer four), the schema
-//! is counted as input on every call, and a picture is counted by the 28 by 28 pixel patches it
+//! errs high: our own text (the rules, the schema) is counted at three bytes to a token (real
+//! English is nearer four), **the document's text at a token a byte** (digits, symbols and
+//! non-Latin text can cost that much, and the page is the document's to write), the schema is
+//! counted as input on every call, and a picture is counted by the 28 by 28 pixel patches it
 //! holds, up to the most the models take. A call whose worst case fits the budget can never
 //! cost more than it.
 
@@ -21,6 +23,12 @@ pub(crate) fn text_tokens(bytes: usize) -> u64 {
     (bytes as u64).div_ceil(BYTES_PER_TOKEN)
 }
 
+/// Tokens in text that came from the document: a token for every byte, the most any text can
+/// cost, so no page can make a call dearer than its reservation.
+pub(crate) fn untrusted_text_tokens(bytes: usize) -> u64 {
+    bytes as u64
+}
+
 /// Tokens in a picture of `width` by `height` pixels: one for every 28 by 28 patch, at most
 /// what the models take. Saturating, so no size can overflow.
 pub(crate) fn image_tokens(width: u32, height: u32) -> u64 {
@@ -35,7 +43,7 @@ pub(crate) struct Sizes {
     /// The cached system blocks (the rules, the examples, any tenant rules).
     pub prefix_bytes: usize,
     /// Every text block after the cache breakpoint: the page text, the document context, the
-    /// report of the previous attempt and the instruction.
+    /// report of the previous attempt and the instruction. Counted a token a byte.
     pub page_text_bytes: usize,
     pub schema_bytes: usize,
     /// The picture, in pixels.
@@ -45,7 +53,7 @@ pub(crate) struct Sizes {
 }
 
 pub(crate) fn call_estimate(sizes: &Sizes) -> CallEstimate {
-    let page_input_tokens = text_tokens(sizes.page_text_bytes)
+    let page_input_tokens = untrusted_text_tokens(sizes.page_text_bytes)
         .saturating_add(text_tokens(sizes.schema_bytes))
         .saturating_add(image_tokens(sizes.width, sizes.height));
     CallEstimate {

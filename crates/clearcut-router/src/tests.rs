@@ -1605,3 +1605,66 @@ async fn an_ocr_answer_that_is_not_ocr_is_not_taken_for_it() {
     assert_eq!(i.failure, FailureKind::Transient);
     assert_eq!(provider.call_count(), 0);
 }
+
+#[tokio::test]
+async fn a_timeout_may_have_been_billed_so_it_is_counted_at_its_worst_case() {
+    // The request may have been processed before the connection gave up, and the provider cannot
+    // say. The budget is charged what the call could have cost, never nothing.
+    let provider = FakeProvider::scripted(vec![Err(ProviderError::Timeout)]);
+    let worker = worker(PAGE_TEXT, 1);
+    let mut budget = budget();
+    let i = interrupted(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget, 100, None)
+            .await,
+    );
+    assert!(i.spent > Cost::ZERO);
+    assert_eq!(budget.document_spent(), i.spent);
+    assert_eq!(i.calls[0].cost, i.spent);
+}
+
+#[tokio::test]
+async fn failures_that_were_refused_before_any_work_cost_nothing() {
+    for error in [
+        ProviderError::Unavailable { retry_after: None },
+        ProviderError::Auth,
+        ProviderError::KeyProblem {
+            problem: KeyProblem::Billing,
+            retry_after: None,
+        },
+    ] {
+        let provider = FakeProvider::scripted(vec![Err(error)]);
+        let worker = worker(PAGE_TEXT, 1);
+        let mut budget = budget();
+        let i = interrupted(
+            router(&provider, &worker, config())
+                .read_page(&trusted_page(), &mut budget, 100, None)
+                .await,
+        );
+        assert_eq!(i.spent, Cost::ZERO);
+        assert_eq!(budget.document_spent(), Cost::ZERO);
+    }
+}
+
+#[tokio::test]
+async fn a_page_of_text_that_costs_a_token_a_byte_is_still_held_to_the_budget() {
+    // 150 000 bytes of text (under the 200 000 that are sent): at a token a byte this is far
+    // more than the document's cap on Haiku, so the call is refused rather than made.
+    let text = "7".repeat(150_000);
+    let provider = FakeProvider::scripted(vec![]);
+    let worker = worker(&text, 1);
+    let policy = BudgetPolicy::new(
+        Cost::from_rand_cents(10),
+        Cost::from_rand_cents(10),
+        Cost::from_rand_cents(100_000),
+    )
+    .unwrap();
+    let mut tight = BudgetCheck::new(&policy, 1, Cost::ZERO);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut tight, 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::Budget, None));
+    assert_eq!(provider.call_count(), 0);
+}
