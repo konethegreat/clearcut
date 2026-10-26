@@ -16,7 +16,7 @@ name = "clearcut-admin"
 path = "src/main.rs"
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 clap = { version = "4", features = ["derive"] }
 clearcut-core = { path = "../clearcut-core" }
 clearcut-store = { path = "../clearcut-store" }
