@@ -37,7 +37,9 @@ CLEARCUT_BIND=127.0.0.1:8099
    which key it uses (last four characters).
 
 ## 3. Use it
-Upload a PDF (or PNG/JPEG). Replace `<KEY>` with the ClearCut key from step 2:
+**The easy way:** open `http://127.0.0.1:8099/` in your browser (the address you set in `CLEARCUT_BIND`), paste your ClearCut key, choose an invoice, and watch it get read. The page shows the status, the report (summary, timeline, by group), everything that was read with the page and how sure it is, and download buttons for JSON, CSV and Markdown.
+
+**With a command line:** upload a PDF (or PNG/JPEG). Replace `<KEY>` with the ClearCut key from step 2:
 
 ```text
 curl -X POST "http://127.0.0.1:8099/v1/documents?filename=invoice.pdf" -H "Authorization: Bearer <KEY>" -H "Content-Type: application/pdf" --data-binary @invoice.pdf
@@ -58,6 +60,6 @@ orders); otherwise it ends **`needs_review`** with the reason in the job's `last
 
 ## Limits to know about (an honest list)
 - One document at a time, on purpose: the shared monthly budget gate is not built (P2-12). The budget (R5 a document, R100 a month) is still enforced.
-- No web page yet: this is the API. A simple upload and results page is the next thing to build.
+- The web page is plain on purpose: sign in, upload, a list of documents and one document's report. No review screen yet (a document that needs review shows why and what was read); no accounts, the key is pasted each visit.
 - Nothing is encrypted at rest; run it on your own computer, not on a shared one.
 - The first measurements: one invented page costs about R0.02 on Haiku. Real invoices will tell us more.

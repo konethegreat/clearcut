@@ -406,10 +406,10 @@ async fn uploads_with_no_intake_configured_are_a_503() {
 }
 
 #[tokio::test]
-async fn the_route_only_answers_post() {
+async fn uploading_is_only_by_post() {
     let ingest = FakeIngest::replying(|| Ok(stored(false)));
     let (app, _) = app_with(&ingest);
-    let request = Request::get("/v1/documents")
+    let request = Request::put("/v1/documents")
         .header(header::AUTHORIZATION, bearer(WRITER))
         .body(Body::empty())
         .unwrap();

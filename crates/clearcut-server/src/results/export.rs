@@ -61,6 +61,26 @@ fn name_of<T: serde::Serialize>(value: &T) -> String {
         .unwrap_or_default()
 }
 
+/// One line per event, for a table: what it is, when, where it was read and how sure, and the
+/// sentence that tells it.
+pub(crate) fn rows(events: &[Event]) -> Vec<Value> {
+    events
+        .iter()
+        .map(|event| {
+            json!({
+                "id": event.id().as_str(),
+                "date": event.date().map(|d| d.to_string()),
+                "group": name_of(&event.group()),
+                "type": name_of(&event.event_type()),
+                "severity": name_of(&event.severity()),
+                "confidence_per_mille": event.confidence().get(),
+                "page": event.citation().page.get(),
+                "text": narrate_event(event).text(),
+            })
+        })
+        .collect()
+}
+
 /// One row per event: what it is, when, where it was read and the sentence that tells it.
 pub(crate) fn csv(events: &[Event]) -> String {
     let mut out = String::from("event_id,date,group,type,severity,confidence_per_mille,page,text\n");

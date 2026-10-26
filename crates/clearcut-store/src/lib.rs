@@ -143,6 +143,16 @@ fn parse_status(text: &str) -> Result<DocumentStatus> {
     DocumentStatus::parse(text).ok_or_else(|| Error::UnknownStatus(text.to_string()))
 }
 
+/// One line of a tenant's list of documents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentSummary {
+    pub id: DocId,
+    pub status: DocumentStatus,
+    pub page_count: Option<i32>,
+    pub original_filename: String,
+    pub created_at: OffsetDateTime,
+}
+
 /// What is known about a stored document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentInfo {
@@ -374,6 +384,32 @@ impl Store {
             byte_size: u64::try_from(byte_size).map_err(|_| Error::DocumentNotFound)?,
             sha256: sha256.try_into().map_err(|_| Error::DocumentNotFound)?,
         })
+    }
+
+    /// The tenant's most recent documents, newest first (at most `limit`, never more than 500).
+    pub async fn list_documents(&self, tenant: TenantId, limit: u32) -> Result<Vec<DocumentSummary>> {
+        let limit = i64::from(limit.clamp(1, 500));
+        let mut tx = self.begin(tenant).await?;
+        let rows: Vec<(Uuid, String, Option<i32>, String, OffsetDateTime)> = sqlx::query_as(
+            "select id, status, page_count, original_filename, created_at from documents \
+             where tenant_id = $1 order by created_at desc, id limit $2",
+        )
+        .bind(tenant.0)
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        rows.into_iter()
+            .map(|(id, status, page_count, original_filename, created_at)| {
+                Ok(DocumentSummary {
+                    id: DocId(id),
+                    status: parse_status(&status)?,
+                    page_count,
+                    original_filename,
+                    created_at,
+                })
+            })
+            .collect()
     }
 
     /// What is known about a document: its status, page count and file name. A document of

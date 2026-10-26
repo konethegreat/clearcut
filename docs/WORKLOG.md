@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 47) — the web page
+**Done** (Kone approved the three screens)
+- Served by the server itself, no build step: **sign in** (paste the ClearCut key; kept in the page's memory only, never in storage or a cookie), **documents** (upload box, table of file / status / pages / date, refreshing while anything is being read, empty and error states), **one document** (status and progress, a banner with the reason when it needs review, the report with Summary / Timeline / By group tabs, a table of everything read with page and how sure, and JSON / CSV / Markdown downloads).
+- Safety: a strict content security policy (scripts and styles from this server only, no inline script, nothing embedded), and text from a document goes into the page with `textContent` only; a test fails if the script ever uses `innerHTML` or writes the key anywhere.
+- New API pieces for it: `GET /v1/documents` (the list) and a one-line-per-event `table` in `/events`.
+- Looked at in a browser against the real server and a real document.
+
 ## 2026-10-27 (part 46) — it runs: upload, read in the background, read the result back
 **Done**
 - **The missing link:** an upload never queued a job, so nothing ever started. Uploading a new document (or re-uploading one that was never started) now queues its `process_document` job; the answer carries `job_id`.
