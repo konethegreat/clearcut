@@ -1565,3 +1565,47 @@ async fn a_page_that_tries_to_give_orders_is_read_but_a_person_looks_before_it_i
     );
     assert!(!w.store.load_events(w.tenant, doc).await.unwrap().is_empty());
 }
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_page_a_person_confirmed_finishes_the_document_without_asking_a_model(pool: PgPool) {
+    use clearcut_core::event::Extractor;
+    use clearcut_store::page_readings::KeptReading;
+
+    let w = world(&pool).await;
+    let worker = worker_for(&[PAGE_ONE]);
+    // The model never gets this page right, so it goes to a person.
+    let provider = FakeProvider::scripted(vec![
+        answer(HAIKU, &wrong_total()),
+        answer(SONNET, &wrong_total()),
+        answer(OPUS, &wrong_total()),
+    ]);
+    let (doc, _job, report) = w.read(&worker, &provider, settings()).await;
+    assert_eq!(report.ended, Ended::NeedsReview);
+
+    // A person corrects it and confirms.
+    let mine = KeptReading {
+        rung: 0,
+        attempt: 1,
+        confidence: ConfidenceBasis::PersonConfirmed,
+        model: "api_key:test".to_string(),
+        reading: serde_json::to_value(whole_invoice()).unwrap(),
+    };
+    w.store
+        .confirm_page_reading(w.tenant, doc, 1, &mine, &serde_json::json!([]))
+        .await
+        .unwrap();
+
+    // Finishing the document needs no model: an empty script would fail on any call.
+    let nobody = FakeProvider::scripted(vec![]);
+    let worker = worker_for(&[PAGE_ONE]);
+    w.enqueue(doc).await;
+    let report = w.run(w.read_handler(&worker, &nobody, settings())).await;
+    assert_eq!(report.ended, Ended::Succeeded);
+    assert_eq!(w.status(doc).await, DocumentStatus::Done);
+    let events = w.store.load_events(w.tenant, doc).await.unwrap();
+    assert!(!events.is_empty());
+    assert!(events
+        .iter()
+        .filter(|e| matches!(e.extractor(), Extractor::Human { .. } | Extractor::Model { .. }))
+        .all(|e| matches!(e.extractor(), Extractor::Human { user } if user == "api_key:test")));
+}

@@ -897,3 +897,55 @@ async fn json_that_is_small_as_text_but_large_in_the_table_is_a_clear_refusal(po
     );
     assert_eq!(stored_count(&pool, doc).await, 0);
 }
+
+// ---------- a person's confirmation ----------
+
+#[sqlx::test]
+async fn a_person_confirms_a_page_that_waits_for_review_once_and_only_then(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let waiting = PageState::NeedsReview {
+        reason: ReviewReason::TaxNotShown,
+        draft: Some(kept(0, 1, ConfidenceBasis::Unresolved)),
+    };
+    store
+        .save_page_reading(tenant, doc, 1, &waiting, &details())
+        .await
+        .unwrap();
+    store
+        .save_page_reading(
+            tenant,
+            doc,
+            2,
+            &PageState::Read(kept(0, 1, ConfidenceBasis::TextConfirmed)),
+            &PageDetails::default(),
+        )
+        .await
+        .unwrap();
+
+    let mine = kept(0, 1, ConfidenceBasis::PersonConfirmed);
+    let notes = json!([{ "type": "confirmed_by_person" }]);
+    store
+        .confirm_page_reading(tenant, doc, 1, &mine, &notes)
+        .await
+        .unwrap();
+
+    let loaded = store.load_page_readings(tenant, doc).await.unwrap();
+    assert_eq!(loaded[0].state, PageState::Read(mine.clone()));
+    // What stopped the page was dealt with by the person: it is not carried over.
+    assert_eq!(loaded[0].details.problems, json!([]));
+    assert!(loaded[0].details.unconfirmed.is_empty() && loaded[0].details.injection_suspected.is_empty());
+    assert_eq!(loaded[0].details.notes, notes);
+
+    // Not twice, not a page the model read, and not as anything but the person's.
+    for page in [1, 2, 3] {
+        let again = store.confirm_page_reading(tenant, doc, page, &mine, &notes).await;
+        assert!(matches!(again, Err(Error::PageNotAwaitingReview)), "page {page}");
+    }
+    let by_model = kept(0, 1, ConfidenceBasis::TextConfirmed);
+    assert!(matches!(
+        store
+            .confirm_page_reading(tenant, doc, 1, &by_model, &notes)
+            .await,
+        Err(Error::InvalidPageReading(_))
+    ));
+}

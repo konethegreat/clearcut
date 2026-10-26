@@ -2,6 +2,16 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 50) — the review screen
+**Done**
+- A person can now finish a page the reader could not settle. The document screen shows each page that is waiting, why it stopped in plain words, what could not be read and where, and a form of the model's best draft (or a blank form). The person corrects it and presses *Confirm this page*.
+- **Same rules as a model.** The person's reading is the same shape a model returns and goes through the same conversion and checks (`clearcut_core::review::check_confirmed`): amounts exact, lines add up, totals agree, currency given. Anything still wrong is refused (`422`) with the fixed names and places, which the page words as plain sentences. A person can fill in what was not printed (a tax category) but cannot get a page past the arithmetic.
+- **Recorded as theirs.** The page is stored as `person_confirmed` (confidence 990 per mille, above any model, below what ClearCut computes exactly), the events carry `Extractor::Human` with the key that confirmed, and `page.reviewed` is in the audit log. What stopped the page (problems, findings, unconfirmed figures, instruction flags) is cleared because a person dealt with it.
+- Confirming queues a `process_document` job, which skips the ended pages, puts the document together, checks it and stores its events: **no model call, no cost** (checked: same 6 calls and R0.126 before and after). Only a page still waiting can be confirmed (`409` otherwise), and not while a job runs on the document.
+- Endpoints `GET /v1/documents/{id}/review` (`documents:read`) and `POST /v1/documents/{id}/pages/{page}/review` (`documents:write`). Migration `0009` widens two checks for the new evidence name.
+- **Tried for real** in the browser pane on invoice 005 (the corrupted text layer): refused while the tax was unset, then confirmed, then Done with its report and events.
+- **Found and fixed:** a Windows checkout turned the migration files into CRLF, so a database that had applied them refused to start (`migration 8 was previously applied but has been modified`). `.gitattributes` now pins migrations to LF on every platform; the local compose database's recorded checksums were updated to match (no data touched). Anyone with an older local database may need the same one-off update.
+- Not done: no way to *reject* or re-read a page, no screen showing the page image next to the form, a person can confirm only what the form holds (no add-a-page), the same key both confirms and is audited (no second-person approval), and if saving succeeds but queuing the finishing job fails the page is confirmed but the document waits until someone uploads again or a job is queued by hand.
 ## 2026-10-26 (part 49) — first six invoices of Kone's test suite, and the tax-not-shown fix
 **Found (real key, six synthetic PDFs: plain, barcodes, signed, odd fonts, a corrupted text layer, a mix)**
 - Three ended `done` (001, 002, 003); three ended `needs_review` (004, 005, 006). The corrupted text layer (005) was caught: the text was judged unusable and the page was read as a picture.

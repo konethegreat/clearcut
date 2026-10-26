@@ -22,6 +22,7 @@ pub mod narration;
 pub mod page_read;
 pub mod reading;
 pub mod redact;
+pub mod review;
 pub mod status;
 pub mod tax;
 pub mod text_check;

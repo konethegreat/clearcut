@@ -176,6 +176,9 @@ pub enum ConfidenceBasis {
     ArithmeticOnly,
     /// The page ended with open problems.
     Unresolved,
+    /// A person looked at the page, corrected it where needed and confirmed it. Nothing a model
+    /// said counts for more than that.
+    PersonConfirmed,
 }
 
 impl ConfidenceBasis {
@@ -185,6 +188,7 @@ impl ConfidenceBasis {
             ConfidenceBasis::TextConfirmed => "text_confirmed",
             ConfidenceBasis::ArithmeticOnly => "arithmetic_only",
             ConfidenceBasis::Unresolved => "unresolved",
+            ConfidenceBasis::PersonConfirmed => "person_confirmed",
         }
     }
 
@@ -194,6 +198,7 @@ impl ConfidenceBasis {
             ConfidenceBasis::TextConfirmed,
             ConfidenceBasis::ArithmeticOnly,
             ConfidenceBasis::Unresolved,
+            ConfidenceBasis::PersonConfirmed,
         ]
         .into_iter()
         .find(|basis| basis.as_str() == name)
@@ -206,6 +211,8 @@ impl ConfidenceBasis {
             ConfidenceBasis::TextConfirmed => 950,
             ConfidenceBasis::ArithmeticOnly => 850,
             ConfidenceBasis::Unresolved => 500,
+            // Above anything read by a model, below what ClearCut computes exactly (1000).
+            ConfidenceBasis::PersonConfirmed => 990,
         }
     }
 }
