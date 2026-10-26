@@ -85,6 +85,7 @@ button, .button {
   background: var(--accent); color: var(--accent-ink); text-decoration: none; display: inline-block;
 }
 button.secondary { background: transparent; color: var(--accent); }
+button.secondary.danger { color: var(--bad); border-color: var(--bad); }
 button.link { background: none; border: none; color: var(--accent); padding: 4px 0; text-decoration: underline; }
 button:disabled { opacity: 0.6; cursor: default; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }

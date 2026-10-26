@@ -31,6 +31,8 @@ struct Call {
 /// whatever it was told to.
 struct FakeIngest {
     calls: Mutex<Vec<Call>>,
+    erased: Mutex<Vec<(Uuid, Uuid)>>,
+    erase_reply: Mutex<Option<IntakeError>>,
     reply: fn() -> Result<Uploaded, IntakeError>,
 }
 
@@ -38,6 +40,8 @@ impl FakeIngest {
     fn replying(reply: fn() -> Result<Uploaded, IntakeError>) -> Arc<Self> {
         Arc::new(Self {
             calls: Mutex::new(Vec::new()),
+            erased: Mutex::new(Vec::new()),
+            erase_reply: Mutex::new(None),
             reply,
         })
     }
@@ -63,6 +67,16 @@ impl Ingest for Arc<FakeIngest> {
                 body,
             });
             (self.reply)()
+        })
+    }
+
+    fn erase<'a>(&'a self, by: &'a Principal, document: DocId) -> EraseFuture<'a> {
+        Box::pin(async move {
+            self.erased.lock().unwrap().push((by.tenant(), document.0));
+            match self.erase_reply.lock().unwrap().take() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
         })
     }
 }
@@ -507,5 +521,43 @@ mod with_postgres {
             .await
             .unwrap();
         assert_eq!(documents, 0);
+    }
+}
+
+// ---------- erasing ----------
+
+fn delete(token: Option<&str>) -> Request<Body> {
+    let mut builder = Request::delete(format!("/v1/documents/{}", Uuid::from_u128(0xD0C)));
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, bearer(token));
+    }
+    builder.body(Body::empty()).unwrap()
+}
+
+#[tokio::test]
+async fn erasing_needs_documents_write_and_says_what_went_wrong() {
+    let ingest = FakeIngest::replying(|| Ok(stored(false)));
+    let (app, _) = app_with(&ingest);
+    assert_eq!(send(&app, delete(None)).await.0, StatusCode::UNAUTHORIZED);
+    for token in [READER, ADMIN_ONLY] {
+        assert_eq!(send(&app, delete(Some(token))).await.0, StatusCode::FORBIDDEN);
+    }
+    assert!(
+        ingest.erased.lock().unwrap().is_empty(),
+        "nothing is erased without the scope"
+    );
+
+    assert_eq!(send(&app, delete(Some(WRITER))).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(ingest.erased.lock().unwrap()[0].1, Uuid::from_u128(0xD0C));
+
+    for (error, expected) in [
+        (IntakeError::Busy, StatusCode::CONFLICT),
+        (
+            IntakeError::Database(clearcut_store::Error::DocumentNotFound),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        *ingest.erase_reply.lock().unwrap() = Some(error);
+        assert_eq!(send(&app, delete(Some(WRITER))).await.0, expected);
     }
 }

@@ -390,6 +390,20 @@ impl Store {
         })
     }
 
+    /// Whether any of the tenant's documents still keeps its file at `storage_key`.
+    pub async fn storage_key_in_use(&self, tenant: TenantId, storage_key: &str) -> Result<bool> {
+        let mut tx = self.begin(tenant).await?;
+        let used: bool = sqlx::query_scalar(
+            "select exists (select 1 from documents where tenant_id = $1 and storage_key = $2)",
+        )
+        .bind(tenant.0)
+        .bind(storage_key)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(used)
+    }
+
     /// The tenant's most recent documents, newest first (at most `limit`, never more than 500).
     pub async fn list_documents(&self, tenant: TenantId, limit: u32) -> Result<Vec<DocumentSummary>> {
         let limit = i64::from(limit.clamp(1, 500));

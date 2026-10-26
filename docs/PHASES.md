@@ -106,6 +106,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P8-06 POPIA review, retention and deletion tooling; v1.0 criteria
 
 ## Where we are on the way to a first real run (27 Oct 2026)
+> **Superseded by [LAUNCH.md](LAUNCH.md)**, which is kept current: what works, what is being built in order, what only Kone can do, what is later. The text below is the 27 Oct snapshot.
+
 **What exists and is tested** (against stand-ins; no model has ever been called): upload and storage, tenants and API keys with row-level security, the durable job queue, the Python worker (page text, OCR, page pictures, painting over personal data), the analysis of every page (how it will be read), the context pack, the Anthropic adapter, the model router (escalation Haiku to Sonnet to Opus, budgets in rand, resuming after a failure), the stored readings and the call log with what each call cost, deterministic validation, the event model, grouping and the narration with its number guard. A document today goes upload, store, analyse, read every page, and then **stops at `needs_review`**, because nothing comes after the reading.
 
 **What does not exist yet** (what a first live run needs, in the order I would build it):

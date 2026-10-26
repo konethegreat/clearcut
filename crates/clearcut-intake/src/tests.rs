@@ -690,3 +690,61 @@ async fn a_new_document_is_queued_to_be_read_once(pool: PgPool) {
     assert_eq!(third.job, None);
     assert_eq!(count(&pool, "select count(*) from jobs").await, 1);
 }
+
+// ---------- erasing ----------
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_document_is_erased_with_its_file_but_not_while_a_job_works_on_it(pool: PgPool) {
+    let f = fixture(&pool, 1_000_000).await;
+    let other = principal(
+        Store::new(pool.clone()).create_tenant("Other").await.unwrap(),
+        &[Scope::DocumentsWrite],
+    );
+    let done = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", Some("a.pdf")))
+        .await
+        .unwrap();
+    assert_eq!(stored_files(&f.dir), 1);
+
+    // Queued: refused, nothing removed. Another tenant cannot see it exists.
+    assert!(matches!(
+        f.intake.erase(&f.writer, done.document).await,
+        Err(IntakeError::Busy)
+    ));
+    assert_eq!(stored_files(&f.dir), 1);
+    assert!(matches!(
+        f.intake.erase(&other, done.document).await,
+        Err(IntakeError::Database(clearcut_store::Error::DocumentNotFound))
+    ));
+    // A key without the scope is refused before anything is looked up.
+    let reader = principal(f.tenant, &[Scope::DocumentsRead]);
+    assert!(matches!(
+        f.intake.erase(&reader, done.document).await,
+        Err(IntakeError::Forbidden(_))
+    ));
+
+    // Once the job has ended it is erased: the row, the job and the file go; the audit entry
+    // that names it (and holds no content) stays.
+    sqlx::query("update jobs set state = 'needs_review', finished_at = now()")
+        .execute(&pool)
+        .await
+        .unwrap();
+    f.intake.erase(&f.writer, done.document).await.unwrap();
+    assert_eq!(count(&pool, "select count(*) from documents").await, 0);
+    assert_eq!(count(&pool, "select count(*) from jobs").await, 0);
+    assert_eq!(stored_files(&f.dir), 0);
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from audit_log where action = 'document.erased'"
+        )
+        .await,
+        1
+    );
+    // Gone is gone.
+    assert!(matches!(
+        f.intake.erase(&f.writer, done.document).await,
+        Err(IntakeError::Database(clearcut_store::Error::DocumentNotFound))
+    ));
+}

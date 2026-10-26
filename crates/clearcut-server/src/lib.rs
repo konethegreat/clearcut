@@ -12,7 +12,7 @@ mod review;
 mod web;
 
 pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
-pub use documents::{Ingest, IngestFuture, UploadBody};
+pub use documents::{EraseFuture, Ingest, IngestFuture, UploadBody};
 pub use jobs::{JobQueue, QueueFuture};
 pub use results::{Results, ResultsFuture};
 pub use review::{ReviewError, ReviewFuture, Reviewer, Reviews, WaitingPage};
@@ -39,7 +39,10 @@ pub fn routes() -> Router<AppState> {
             "/v1/documents",
             post(documents::upload_document).get(results::list_documents),
         )
-        .route("/v1/documents/{id}", get(results::get_document))
+        .route(
+            "/v1/documents/{id}",
+            get(results::get_document).delete(documents::erase_document),
+        )
         .route("/v1/documents/{id}/events", get(results::get_events))
         .route("/v1/documents/{id}/report", get(results::get_report))
         .route("/v1/documents/{id}/export", get(results::export_document))
