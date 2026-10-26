@@ -1,0 +1,1673 @@
+{
+  "components": {
+    "schemas": {
+      "Currency": {
+        "enum": [
+          "ZAR",
+          "USD",
+          "EUR",
+          "GBP"
+        ],
+        "type": "string"
+      },
+      "Error": {
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "Invoice": {
+        "properties": {
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LineItem"
+            },
+            "type": "array"
+          },
+          "number": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InvoiceStatus"
+          }
+        },
+        "required": [
+          "number",
+          "currency",
+          "status",
+          "lines"
+        ],
+        "title": "Invoice",
+        "type": "object"
+      },
+      "InvoiceStatus": {
+        "description": "Invoice lifecycle. Transitions are explicit so every change is auditable.\n\n```text\nDraft -> PendingApproval -> Approved -> Sent -> PartiallyPaid -> Paid\n  |            |              |         |  \\________^            \n  +------------+--------------+---------+--> Void   Sent -> Overdue -> (Paid | PartiallyPaid | Void)\n```",
+        "enum": [
+          "draft",
+          "pending_approval",
+          "approved",
+          "sent",
+          "partially_paid",
+          "overdue",
+          "paid",
+          "void"
+        ],
+        "type": "string"
+      },
+      "InvoiceTotals": {
+        "properties": {
+          "gross": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "net": {
+            "$ref": "#/components/schemas/Money"
+          },
+          "vat": {
+            "$ref": "#/components/schemas/Money"
+          }
+        },
+        "required": [
+          "net",
+          "vat",
+          "gross"
+        ],
+        "title": "InvoiceTotals",
+        "type": "object"
+      },
+      "LineItem": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "line_total": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The line amount **as the caller has already worked it out** (excluding VAT, in minor units).\nWhen given it is used as it is, and `quantity_milli` and `unit_price` are only informational:\na caller that prices its own lines (for example a time entry) is not rounded a second time.\nWhen absent the line is `quantity_milli` times `unit_price`, rounded half away from zero.\nMust be in the same currency as `unit_price`."
+          },
+          "quantity_milli": {
+            "description": "Quantity in thousandths (1000 = 1 unit, 2500 = 2.5 units).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tax": {
+            "$ref": "#/components/schemas/TaxCategory"
+          },
+          "unit_price": {
+            "$ref": "#/components/schemas/Money",
+            "description": "Unit price excluding VAT."
+          }
+        },
+        "required": [
+          "description",
+          "quantity_milli",
+          "unit_price",
+          "tax"
+        ],
+        "type": "object"
+      },
+      "Money": {
+        "properties": {
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "minor": {
+            "description": "Amount in minor units (e.g. cents). 1 050 = R10.50.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "minor",
+          "currency"
+        ],
+        "type": "object"
+      },
+      "PageReading": {
+        "additionalProperties": false,
+        "description": "Everything printed on one page of a document, as text. Empty text or an\nempty list means \"not shown on this page\". Never guess a value that is not\nprinted, and copy numbers exactly.",
+        "properties": {
+          "amounts_include_vat": {
+            "description": "Whether the line amounts on this page include VAT.",
+            "enum": [
+              "yes",
+              "no",
+              "not_shown"
+            ],
+            "type": "string"
+          },
+          "credit_note": {
+            "additionalProperties": false,
+            "description": "The credited invoice, if this is a credit note.",
+            "properties": {
+              "amount": {
+                "description": "The credited amount, written like a unit price.",
+                "type": "string"
+              },
+              "original_invoice_number": {
+                "description": "The number of the invoice being credited, as printed.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "original_invoice_number",
+              "amount"
+            ],
+            "type": "object"
+          },
+          "currency": {
+            "description": "The currency of the amounts on this page.",
+            "enum": [
+              "ZAR",
+              "USD",
+              "EUR",
+              "GBP",
+              "not_shown"
+            ],
+            "type": "string"
+          },
+          "due": {
+            "additionalProperties": false,
+            "description": "The due date and terms, if printed on this page.",
+            "properties": {
+              "date": {
+                "description": "The due date as YYYY-MM-DD (South African dates are day/month/year).\nEmpty if no due date is printed.",
+                "type": "string"
+              },
+              "terms": {
+                "description": "The payment terms as printed, such as \"30 days\". Empty if none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "date",
+              "terms"
+            ],
+            "type": "object"
+          },
+          "invoice_date": {
+            "description": "The invoice date as YYYY-MM-DD (South African dates are day/month/year).\nEmpty if not on this page.",
+            "type": "string"
+          },
+          "invoice_number": {
+            "description": "The invoice or credit note number as printed. Empty if not on this page.",
+            "type": "string"
+          },
+          "lines": {
+            "description": "The line items on this page, in order. Empty if none.",
+            "items": {
+              "additionalProperties": false,
+              "description": "One line item as printed.",
+              "properties": {
+                "description": {
+                  "description": "The description as printed.",
+                  "type": "string"
+                },
+                "line_total": {
+                  "description": "The line amount exactly as printed, written the same way.",
+                  "type": "string"
+                },
+                "quantity": {
+                  "description": "The quantity: digits and at most one dot, at most 3 decimals, such as 2 or 1.5.\nIf the line shows only an amount and no quantity, write 1.",
+                  "type": "string"
+                },
+                "tax": {
+                  "description": "How the page shows this line is taxed.",
+                  "enum": [
+                    "standard",
+                    "zero_rated",
+                    "exempt",
+                    "out_of_scope",
+                    "not_shown"
+                  ],
+                  "type": "string"
+                },
+                "unit_price": {
+                  "description": "The price of one unit exactly as printed: digits and at most one dot, at most 2\ndecimals, no thousands separators, no currency symbol, a leading minus for\na negative amount, such as 1500.00. Do not add or remove VAT. If only a line\namount is printed, repeat it here.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "description",
+                "quantity",
+                "unit_price",
+                "line_total",
+                "tax"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "recipient": {
+            "additionalProperties": false,
+            "description": "Who the document is addressed to.",
+            "properties": {
+              "address": {
+                "description": "The address as printed. Empty if none.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The name as printed. Empty if no party is shown.",
+                "type": "string"
+              },
+              "vat_number": {
+                "description": "The VAT registration number as printed. Empty if none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "address",
+              "vat_number"
+            ],
+            "type": "object"
+          },
+          "supplier": {
+            "additionalProperties": false,
+            "description": "Who issued the document.",
+            "properties": {
+              "address": {
+                "description": "The address as printed. Empty if none.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The name as printed. Empty if no party is shown.",
+                "type": "string"
+              },
+              "vat_number": {
+                "description": "The VAT registration number as printed. Empty if none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "address",
+              "vat_number"
+            ],
+            "type": "object"
+          },
+          "totals": {
+            "additionalProperties": false,
+            "description": "The totals, if printed on this page.",
+            "properties": {
+              "gross": {
+                "description": "The total including VAT, written like a unit price. Empty if not printed.",
+                "type": "string"
+              },
+              "net": {
+                "description": "The total excluding VAT, written like a unit price. Empty if not printed.",
+                "type": "string"
+              },
+              "vat": {
+                "description": "The VAT amount, written like a unit price. Empty if not printed.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "net",
+              "vat",
+              "gross"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "currency",
+          "amounts_include_vat",
+          "invoice_number",
+          "invoice_date",
+          "supplier",
+          "recipient",
+          "lines",
+          "totals",
+          "due",
+          "credit_note"
+        ],
+        "title": "PageReading",
+        "type": "object"
+      },
+      "Refusal": {
+        "description": "Why a page cannot be confirmed yet: fixed names and places, never text from the document.",
+        "properties": {
+          "currency_missing": {
+            "type": "boolean"
+          },
+          "findings": {
+            "items": {
+              "description": "A check that failed; has a `type` and, for some, amounts.",
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "problems": {
+            "items": {
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "TaxCategory": {
+        "description": "South African VAT categories (VAT Act 89 of 1991). Rate is in basis points.",
+        "oneOf": [
+          {
+            "const": "standard",
+            "description": "Standard-rated, 15%.",
+            "type": "string"
+          },
+          {
+            "const": "zero_rated",
+            "description": "Zero-rated supply (e.g. exports): VAT charged at 0% but still reportable.",
+            "type": "string"
+          },
+          {
+            "const": "exempt",
+            "description": "Exempt supply: no VAT, not claimable as input tax.",
+            "type": "string"
+          },
+          {
+            "const": "out_of_scope",
+            "description": "Outside the scope of VAT.",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "description": "A ClearCut API key (ccut_...), never an Anthropic key. Created with clearcut-admin or by a key with keys:admin.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Upload an invoice, have it read and checked, get cited events, narration and exports. Money is integer minor units (cents), quantities are thousandths. Everything under /v1/ only gains optional fields; a breaking change is a new /v2/ path. Generated from the code; do not edit by hand.",
+    "license": {
+      "identifier": "Apache-2.0",
+      "name": "Apache-2.0"
+    },
+    "title": "ClearCut API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Up"
+          }
+        },
+        "summary": "Is the server up (no key needed)"
+      }
+    },
+    "/v1/anthropic-key": {
+      "delete": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "removed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Whether there was one"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          }
+        },
+        "summary": "Remove the tenant's own Anthropic key",
+        "x-required-scope": "keys:admin"
+      },
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "check_ok": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "checked_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "configured": {
+                      "type": "boolean"
+                    },
+                    "last4": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "mode": {
+                      "enum": [
+                        "shared",
+                        "tenant-only"
+                      ],
+                      "type": "string"
+                    },
+                    "set_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source": {
+                      "enum": [
+                        "tenant",
+                        "server",
+                        "none"
+                      ],
+                      "type": "string"
+                    },
+                    "tenant_keys_enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Status"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          }
+        },
+        "summary": "Whether this tenant has its own Anthropic key (never the key), and whose key the next job would use",
+        "x-required-scope": "keys:admin"
+      },
+      "put": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "checked_at": {
+                      "type": "string"
+                    },
+                    "last4": {
+                      "type": "string"
+                    },
+                    "models": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Stored"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a JSON object with one text field called key"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An admin key, a login token, or a key Anthropic does not accept"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Anthropic could not be reached to check it; nothing was stored"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The server has no master key, so tenant keys are off"
+          }
+        },
+        "summary": "Set the tenant's own Anthropic key: checked with Anthropic for free, then stored encrypted; never shown again",
+        "x-required-scope": "keys:admin"
+      }
+    },
+    "/v1/documents": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "documents": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          }
+        },
+        "summary": "The tenant's most recent documents, newest first",
+        "x-required-scope": "documents:read"
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "filename",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/pdf": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "This tenant had uploaded exactly these bytes before; the existing document is returned"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "byte_size": {
+                      "type": "integer"
+                    },
+                    "document_id": {
+                      "type": "string"
+                    },
+                    "duplicate": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "job_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "media_type": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Stored and queued to be read"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Over the size limit"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a PDF, PNG, JPEG, TIFF or XML"
+          }
+        },
+        "summary": "Upload one document (the request body is the file itself)",
+        "x-required-scope": "documents:write"
+      }
+    },
+    "/v1/documents/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Gone"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document, or it belongs to another tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A job is running on it; try again when it has finished"
+          }
+        },
+        "summary": "Erase the document, everything read from it and its file for good (POPIA)",
+        "x-required-scope": "documents:write"
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "events": {
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "original_filename": {
+                      "type": "string"
+                    },
+                    "page_count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "received",
+                        "processing",
+                        "needs_review",
+                        "done"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The document"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such document, or it belongs to another tenant"
+          }
+        },
+        "summary": "A document's status, page count, file name and number of events",
+        "x-required-scope": "documents:read"
+      }
+    },
+    "/v1/documents/{id}/events": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "events": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "table": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Events and a one-line-each table"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "The events as stored: the source of truth",
+        "x-required-scope": "documents:read"
+      }
+    },
+    "/v1/documents/{id}/export": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "enum": [
+                "json",
+                "csv",
+                "md"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {},
+              "text/csv": {},
+              "text/markdown": {}
+            },
+            "description": "The file"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unknown format"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "The events as a file to download",
+        "x-required-scope": "documents:read"
+      }
+    },
+    "/v1/documents/{id}/jobs": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "jobs": {
+                      "items": {
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Jobs"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "What is happening to a document: its jobs, newest first",
+        "x-required-scope": "documents:read"
+      }
+    },
+    "/v1/documents/{id}/pages/{page}/review": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PageReading"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "job_id": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Confirmed; the document is queued to be finished"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not a complete reading"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The page is not waiting for review, or the document is being worked on"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not good enough yet: see `refusal`"
+          }
+        },
+        "summary": "A person's reading of a page, checked by the same rules as a model's; if it passes the page is confirmed and the document finished with no model call",
+        "x-required-scope": "documents:write"
+      }
+    },
+    "/v1/documents/{id}/report": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "schema": {
+              "enum": [
+                "summary",
+                "timeline",
+                "grouped"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "A report"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unknown mode"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "The cited narration; every sentence names the events it comes from",
+        "x-required-scope": "documents:read"
+      }
+    },
+    "/v1/documents/{id}/review": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "pages": {
+                      "items": {
+                        "properties": {
+                          "findings": {
+                            "type": "array"
+                          },
+                          "page": {
+                            "type": "integer"
+                          },
+                          "problems": {
+                            "type": "array"
+                          },
+                          "reading": {
+                            "oneOf": [
+                              {
+                                "$ref": "#/components/schemas/PageReading"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Pages"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "The pages waiting for a person, each with the reason it stopped and the reader's best draft",
+        "x-required-scope": "documents:read"
+      }
+    },
+    "/v1/invoices/calculate": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Invoice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "display_gross": {
+                      "type": "string"
+                    },
+                    "required_document": {
+                      "type": "string"
+                    },
+                    "totals": {
+                      "$ref": "#/components/schemas/InvoiceTotals"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Totals in integer minor units"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The invoice cannot be calculated (no lines, a bad quantity, mixed currencies)"
+          }
+        },
+        "summary": "Net, VAT and gross of an invoice: pure arithmetic, nothing stored. VAT is taken per tax category on the category subtotal. A line may carry `line_total`, used as given."
+      }
+    },
+    "/v1/jobs/{id}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled, or already finished"
+          },
+          "202": {
+            "description": "Running; it has been asked to stop"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Cancel a job (a running one is asked to stop)",
+        "x-required-scope": "documents:write"
+      }
+    },
+    "/v1/whoami": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "key_id": {
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "tenant": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The caller"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          }
+        },
+        "summary": "Which tenant, key and scopes these credentials carry"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "A ClearCut server on your own computer (the port is CLEARCUT_BIND)",
+      "url": "http://127.0.0.1:8080"
+    }
+  ]
+}

@@ -12,3 +12,6 @@
 # endings into CRLF made a database that had applied them refuse to start ("previously applied but
 # has been modified"). Always Unix line endings, on every platform.
 crates/clearcut-store/migrations/*.sql text eol=lf
+
+# Generated contract files are compared byte for byte by a test.
+contracts/*.json text eol=lf

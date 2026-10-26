@@ -595,6 +595,7 @@ dependencies = [
  "clearcut-store",
  "futures-util",
  "http-body-util",
+ "schemars",
  "serde",
  "serde_json",
  "sqlx",
