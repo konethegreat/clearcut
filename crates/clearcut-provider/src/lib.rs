@@ -646,6 +646,9 @@ pub enum ProviderError {
     /// Overloaded, rate-limited, or unreachable. Not the document's fault.
     #[error("the model provider is unavailable")]
     Unavailable { retry_after: Option<Duration> },
+    /// No answer came back after the request was sent: a deadline passed, or the connection
+    /// broke part-way. The request may have been processed and billed, which the provider cannot
+    /// say, so a caller that keeps a budget counts it at its worst case.
     #[error("the model provider timed out")]
     Timeout,
     /// The answer hit the output cap and was cut off. Billed.

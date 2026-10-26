@@ -1668,3 +1668,23 @@ async fn a_page_of_text_that_costs_a_token_a_byte_is_still_held_to_the_budget() 
     assert_eq!(review_outcome(&result), (ReviewReason::Budget, None));
     assert_eq!(provider.call_count(), 0);
 }
+
+#[tokio::test]
+async fn a_billed_failure_that_reports_no_usage_is_counted_at_its_worst_case() {
+    // An answer too large to read (or any billed failure whose usage is unknown) cannot be
+    // costed from tokens; counting it as free would let such answers spend past the cap.
+    let provider = FakeProvider::scripted(vec![Err(ProviderError::InvalidOutput {
+        usage: Usage::default(),
+        reason: "the answer was larger than the size that is read".into(),
+    })]);
+    let worker = worker(PAGE_TEXT, 1);
+    let mut budget = budget();
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget, 100, None)
+            .await,
+    );
+    assert!(result.calls[0].cost > Cost::ZERO);
+    assert_eq!(budget.document_spent(), result.calls[0].cost);
+    assert_eq!(result.spent, result.calls[0].cost);
+}

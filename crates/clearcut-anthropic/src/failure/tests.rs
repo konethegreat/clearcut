@@ -289,12 +289,18 @@ fn transport_failures_map_to_fixed_errors() {
         from_transport(TransportError::Timeout),
         ProviderError::Timeout
     ));
-    for failure in [TransportError::Unreachable, TransportError::Interrupted] {
-        assert!(matches!(
-            from_transport(failure),
-            ProviderError::Unavailable { retry_after: None }
-        ));
-    }
+    // Nothing was sent: free, and worth a quick retry.
+    assert!(matches!(
+        from_transport(TransportError::Unreachable),
+        ProviderError::Unavailable { retry_after: None }
+    ));
+    // The connection broke after the request was sent: it may have been processed and billed,
+    // so it is a timeout (no answer, outcome unknown), never "unavailable" (refused, free), and
+    // never retried inline where the budget cannot see it.
+    assert!(matches!(
+        from_transport(TransportError::Interrupted),
+        ProviderError::Timeout
+    ));
     assert!(matches!(
         from_transport(TransportError::TooLarge { max_bytes: 5 }),
         ProviderError::InvalidOutput { .. }

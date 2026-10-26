@@ -817,6 +817,12 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         // Billed failures are charged what they were billed.
         let billed = error.usage();
         let (usage, cost) = match billed {
+            // A billed failure that reports no tokens at all (an answer too large to read) cannot
+            // be costed from them, so it counts at the most the call could have cost.
+            Some(usage) if usage == Usage::default() => {
+                Self::book(run, budget, sent.worst);
+                (TokenUsage::default(), sent.worst)
+            }
             Some(usage) => self.charge(run, budget, plan, usage, sent.worst),
             None => (TokenUsage::default(), Cost::ZERO),
         };

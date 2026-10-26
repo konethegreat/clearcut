@@ -67,10 +67,11 @@ pub fn map_error(
 /// What a transport failure means.
 pub fn from_transport(failure: TransportError) -> ProviderError {
     match failure {
-        TransportError::Timeout => ProviderError::Timeout,
-        TransportError::Unreachable | TransportError::Interrupted => {
-            ProviderError::Unavailable { retry_after: None }
-        }
+        // No answer after the request was sent: a deadline passed, or the connection broke
+        // part-way. Either way it may have been processed and billed.
+        TransportError::Timeout | TransportError::Interrupted => ProviderError::Timeout,
+        // Nothing reached the provider.
+        TransportError::Unreachable => ProviderError::Unavailable { retry_after: None },
         TransportError::TooLarge { .. } => ProviderError::InvalidOutput {
             usage: Default::default(),
             reason: "the answer was larger than the size that is read".to_string(),
