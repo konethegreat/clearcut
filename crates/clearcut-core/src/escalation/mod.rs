@@ -25,6 +25,8 @@ mod reader;
 #[cfg(test)]
 mod tests_assess;
 #[cfg(test)]
+mod tests_names;
+#[cfg(test)]
 mod tests_policy;
 #[cfg(test)]
 mod tests_reader;
@@ -45,6 +47,17 @@ pub enum ThinkingEffort {
     Low,
     Medium,
     High,
+}
+
+impl ThinkingEffort {
+    /// The name that is stored (the same as the serialised form).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ThinkingEffort::Low => "low",
+            ThinkingEffort::Medium => "medium",
+            ThinkingEffort::High => "high",
+        }
+    }
 }
 
 /// Why a page goes to the next rung. The names are stored in the call log.
@@ -137,6 +150,13 @@ impl ReviewReason {
             ReviewReason::AmountsIncludeVat => "amounts_include_vat",
         }
     }
+
+    /// Parses exactly one name: no trimming, no case folding.
+    pub fn parse(name: &str) -> Option<ReviewReason> {
+        ReviewReason::ALL
+            .into_iter()
+            .find(|reason| reason.as_str() == name)
+    }
 }
 
 /// What a value's confidence rests on. It comes from **evidence**, not from which model read
@@ -154,6 +174,26 @@ pub enum ConfidenceBasis {
 }
 
 impl ConfidenceBasis {
+    /// The name that is stored (the same as the serialised form).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfidenceBasis::TextConfirmed => "text_confirmed",
+            ConfidenceBasis::ArithmeticOnly => "arithmetic_only",
+            ConfidenceBasis::Unresolved => "unresolved",
+        }
+    }
+
+    /// Parses exactly one name: no trimming, no case folding.
+    pub fn parse(name: &str) -> Option<ConfidenceBasis> {
+        [
+            ConfidenceBasis::TextConfirmed,
+            ConfidenceBasis::ArithmeticOnly,
+            ConfidenceBasis::Unresolved,
+        ]
+        .into_iter()
+        .find(|basis| basis.as_str() == name)
+    }
+
     /// Per mille, as [`crate::event::Confidence`] takes it. Under 800 is flagged for review
     /// by the gold set's gate (ADR-0010).
     pub fn per_mille(self) -> u16 {
