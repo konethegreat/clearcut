@@ -1,5 +1,6 @@
 // Written by Kone Tshivhinda & Claude
-//! The `process_document` job handler and its first stage, the analysis (ADR-0017).
+//! The `process_document` job handler and its stages: the analysis (ADR-0017) and the
+//! reading of the pages by the model router (ADR-0018).
 //!
 //! A document is a stored file. The analysis finds out **how each page should be read** and
 //! records it, so every later stage knows whether to trust a page's text layer, read its
@@ -20,6 +21,12 @@
 //! calls and records, and asks the core what to do. Nothing the document says is kept,
 //! logged or put in an error: only counts, names from fixed lists and page numbers.
 //!
+//! **The read stage** ([`read`]) runs only when the handler is given a model provider
+//! ([`PipelineHandler::with_models`]); without one the job ends after the analysis, as before,
+//! and no model is ever asked. It reads the pages in order with the router, stores each page's
+//! reading (or its best draft), logs every call and what it was charged, and resumes a page
+//! that was stopped by a failure of the service.
+//!
 //! **What the handler returns.** The stages after the analysis (classify, extract, validate,
 //! events) do not exist yet, and a document must never be marked `done` for work that was not
 //! done (ADR-0005: every job ends `done` or `needs_review`). So, for now, the job ends
@@ -31,10 +38,18 @@
 //! job taken over after the analysis does not do it again; one taken over before it does it
 //! again from the start, with the same result.
 
+mod call_log;
+mod month;
+mod read;
+
+pub use month::{month_start, SOUTH_AFRICA_OFFSET_SECONDS};
+pub use read::{AFTER_READING, READ_STAGE};
+
 #[cfg(test)]
 mod tests;
 
 use bytes::Bytes;
+use clearcut_core::cost::BudgetPolicy;
 use clearcut_core::jobs::Progress;
 use clearcut_core::page_read::{
     first_ocr_round, second_ocr_round, OcrRun, PageEvidence, PageRead, ReadRoute, DEFAULT_OCR_PAGE_CAP,
@@ -44,12 +59,15 @@ use clearcut_core::text_quality::TextVerdict;
 use clearcut_docproc::{DocumentProcessor, PageContent, PageRange, PageSource, ProcessError};
 use clearcut_jobs::{Failure, Finished, Handler, HandlerResult, JobContext, ReportError};
 use clearcut_objects::{ObjectKey, ObjectStore};
+use clearcut_provider::{ModelProvider, ModelRequest, ModelResponse, ProviderError};
+use clearcut_router::RouterConfig;
 use clearcut_store::{AuditEntry, DocId, Job, Store, StoredFile, TenantId};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
+use time::UtcOffset;
 use tokio::io::AsyncReadExt;
 
 /// Why a job ends `needs_review` once the analysis is done: nothing comes after it yet.
@@ -97,6 +115,72 @@ impl PipelineConfig {
     pub fn max_document_bytes(&self) -> u64 {
         self.max_document_bytes
     }
+}
+
+/// What the read stage needs beyond the router's own settings.
+#[derive(Debug, Clone)]
+pub struct ReadSettings {
+    router: RouterConfig,
+    budget: BudgetPolicy,
+    month_offset: UtcOffset,
+}
+
+impl ReadSettings {
+    /// The router's settings with the default budget (R5 a document, R0.50 a page for longer
+    /// ones, R100 a month) and the South African time zone for the month.
+    pub fn new(router: RouterConfig) -> Self {
+        ReadSettings {
+            router,
+            budget: BudgetPolicy::default(),
+            month_offset: UtcOffset::from_whole_seconds(SOUTH_AFRICA_OFFSET_SECONDS)
+                .unwrap_or(UtcOffset::UTC),
+        }
+    }
+
+    /// The defaults of ADR-0018 with the real reading schema.
+    pub fn standard() -> Self {
+        let schema =
+            serde_json::to_value(clearcut_core::reading::reading_schema()).expect("a JSON schema is JSON");
+        ReadSettings::new(RouterConfig::new(schema))
+    }
+
+    pub fn with_budget(mut self, budget: BudgetPolicy) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// The time zone whose calendar month the monthly budget counts.
+    pub fn with_month_offset(mut self, offset: UtcOffset) -> Self {
+        self.month_offset = offset;
+        self
+    }
+
+    pub fn router(&self) -> &RouterConfig {
+        &self.router
+    }
+
+    pub fn budget(&self) -> &BudgetPolicy {
+        &self.budget
+    }
+
+    pub fn month_offset(&self) -> UtcOffset {
+        self.month_offset
+    }
+}
+
+/// The provider of a handler that has none: it cannot be built, so it cannot be asked.
+pub enum NoModel {}
+
+impl ModelProvider for NoModel {
+    async fn complete(&self, _request: ModelRequest) -> Result<ModelResponse, ProviderError> {
+        match *self {}
+    }
+}
+
+/// A provider and the settings for reading with it.
+struct Models<M> {
+    provider: Arc<M>,
+    settings: ReadSettings,
 }
 
 /// Why a run stopped before the end: cancelled, or failed in a way the queue decides on.
@@ -151,31 +235,75 @@ fn report_failure(error: &ReportError) -> Stop {
     }
 }
 
-/// Reads the document's file and analyses it, as the `process_document` job.
-pub struct PipelineHandler<O, P> {
+/// Reads the document's file, analyses it and, if it has a model provider, reads its pages,
+/// as the `process_document` job.
+pub struct PipelineHandler<O, P, M = NoModel> {
     store: Store,
     objects: O,
     worker: Arc<P>,
     config: PipelineConfig,
+    models: Option<Models<M>>,
 }
 
-impl<O: ObjectStore + 'static, P: DocumentProcessor> PipelineHandler<O, P> {
+impl<O, P> PipelineHandler<O, P, NoModel> {
+    /// A handler that analyses documents and asks no model.
     pub fn new(store: Store, objects: O, worker: Arc<P>, config: PipelineConfig) -> Self {
         PipelineHandler {
             store,
             objects,
             worker,
             config,
+            models: None,
         }
     }
+}
 
+impl<O, P, M> PipelineHandler<O, P, M> {
+    /// Gives the handler a model provider: it then reads the pages after the analysis.
+    ///
+    /// **Nothing may run against a real key until the monthly ledger and the spend gate of
+    /// P2-12 exist** (two documents running at once do not yet see each other's spending).
+    pub fn with_models<M2: ModelProvider>(
+        self,
+        provider: Arc<M2>,
+        settings: ReadSettings,
+    ) -> PipelineHandler<O, P, M2> {
+        PipelineHandler {
+            store: self.store,
+            objects: self.objects,
+            worker: self.worker,
+            config: self.config,
+            models: Some(Models { provider, settings }),
+        }
+    }
+}
+
+impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineHandler<O, P, M> {
     async fn run(&self, job: &Job, ctx: &JobContext) -> Step<Finished> {
         let (tenant, document) = (job.tenant, job.document);
-        if self.already_analysed(ctx, tenant, document).await? {
+        let analysed = self.already_analysed(ctx, tenant, document).await?;
+        let Some(models) = &self.models else {
+            if !analysed {
+                let bytes = self.load_file(tenant, document).await?;
+                self.analyse(ctx, tenant, document, &bytes).await?;
+            }
             return Ok(Finished::NeedsReview(AFTER_ANALYSIS.to_string()));
+        };
+        let bytes = self.load_file(tenant, document).await?;
+        if !analysed {
+            self.analyse(ctx, tenant, document, &bytes).await?;
         }
-        self.analyse(ctx, tenant, document).await?;
-        Ok(Finished::NeedsReview(AFTER_ANALYSIS.to_string()))
+        self.read_pages(ctx, job, &bytes, models).await
+    }
+
+    /// The document's file, read out of storage and checked against its record.
+    async fn load_file(&self, tenant: TenantId, document: DocId) -> Step<Bytes> {
+        let file = self
+            .store
+            .document_file(tenant, document)
+            .await
+            .map_err(|e| store_failure(&e))?;
+        self.read_file(&file).await
     }
 
     /// Whether an earlier run saved the end of the analysis and its rows are still there.
@@ -184,7 +312,9 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor> PipelineHandler<O, P> {
             return Ok(false);
         };
         let pages = saved.get("pages").and_then(Value::as_u64);
-        let current = saved.get("stage").and_then(Value::as_str) == Some(CHECKPOINT_STAGE)
+        // The analysis is done once its own stage, or a later one, was saved.
+        let stage = saved.get("stage").and_then(Value::as_str);
+        let current = matches!(stage, Some(CHECKPOINT_STAGE | READ_STAGE))
             && saved.get("rules").and_then(Value::as_str) == Some(ROUTING_VERSION);
         let Some(pages) = pages.filter(|pages| current && *pages > 0) else {
             return Ok(false);
@@ -266,14 +396,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor> PipelineHandler<O, P> {
     }
 
     /// Analyses the document: reads it, decides how each page is read, saves all of it.
-    async fn analyse(&self, ctx: &JobContext, tenant: TenantId, document: DocId) -> Step<()> {
-        let file = self
-            .store
-            .document_file(tenant, document)
-            .await
-            .map_err(|e| store_failure(&e))?;
-        let bytes = self.read_file(&file).await?;
-
+    async fn analyse(&self, ctx: &JobContext, tenant: TenantId, document: DocId, bytes: &Bytes) -> Step<()> {
         let inspection = self
             .worker
             .inspect(bytes.clone())
@@ -284,7 +407,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor> PipelineHandler<O, P> {
             return Err(needs_review("the document has no pages"));
         }
         self.progress(ctx, 0, pages, "reading the text").await?;
-        let contents = self.read_texts(ctx, &bytes, pages).await?;
+        let contents = self.read_texts(ctx, bytes, pages).await?;
 
         // The verdict from the text alone says which pages OCR is asked about.
         let verdicts: Vec<TextVerdict> = contents
@@ -294,11 +417,11 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor> PipelineHandler<O, P> {
         let mut ocr = Ocr::default();
         let cap = self.config.ocr_page_cap;
         let first_round = first_ocr_round(&verdicts, cap);
-        self.ocr_pages(ctx, &bytes, &contents, &first_round, &mut ocr)
+        self.ocr_pages(ctx, bytes, &contents, &first_round, &mut ocr)
             .await?;
         let page_one = ocr.read.get(&1).copied().flatten();
         let second_round = second_ocr_round(&verdicts, &first_round, page_one, cap);
-        self.ocr_pages(ctx, &bytes, &contents, &second_round, &mut ocr)
+        self.ocr_pages(ctx, bytes, &contents, &second_round, &mut ocr)
             .await?;
 
         let reads: Vec<PageRead> = contents
@@ -378,7 +501,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor> PipelineHandler<O, P> {
     }
 }
 
-impl<O: ObjectStore + 'static, P: DocumentProcessor> Handler for PipelineHandler<O, P> {
+impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> Handler for PipelineHandler<O, P, M> {
     async fn handle(&self, job: Job, ctx: JobContext) -> HandlerResult {
         match self.run(&job, &ctx).await {
             Ok(finished) => Ok(finished),

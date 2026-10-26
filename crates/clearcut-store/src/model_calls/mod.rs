@@ -38,6 +38,16 @@ const LABELS: [&str; 10] = [
     "interrupted",
 ];
 
+/// What one document has cost so far, from the call log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentSpend {
+    /// Everything the budget was charged for this document's calls.
+    pub cost: Cost,
+    /// The calls the page state machines counted: every call except one refused before it was
+    /// sent (`not_sent`) and one the service did not answer (`interrupted`).
+    pub calls: u32,
+}
+
 /// One call, to be logged. Everything here is a size, a name, a count or an amount.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewModelCall {
@@ -193,6 +203,28 @@ impl Store {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    /// What `document` has cost so far, and how many of the calls it was allowed it has used.
+    /// Read from the call log, so it is the same after a restart, and it is still there after the
+    /// document is erased.
+    pub async fn document_spend(&self, tenant: TenantId, document: DocId) -> Result<DocumentSpend> {
+        let mut tx = self.begin(tenant).await?;
+        // The sum is taken as text, as in `spend_since`.
+        let (total, calls): (String, i64) = sqlx::query_as(
+            "select coalesce(sum(cost_nano_rand), 0)::text, \
+                    count(*) filter (where label not in ('not_sent', 'interrupted')) \
+             from model_calls where tenant_id = $1 and document_id = $2",
+        )
+        .bind(tenant.0)
+        .bind(document.0)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(DocumentSpend {
+            cost: Cost::from_nano_rand(total.parse::<u64>().unwrap_or(u64::MAX)),
+            calls: u32::try_from(calls).unwrap_or(u32::MAX),
+        })
     }
 
     /// What this tenant's calls were charged, in all, from `since` (inclusive) to now. The

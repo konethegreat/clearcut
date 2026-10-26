@@ -187,6 +187,17 @@ pub enum BudgetStop {
     NoPrice,
 }
 
+/// Where a reading came from: the rung and attempt that made it, and the model that answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadingOrigin {
+    pub rung: usize,
+    pub attempt: u32,
+    pub model: String,
+}
+
+/// The highest rung number a ladder can have (the store keeps it in a column that holds 0 to 7).
+const MAX_RUNG: usize = 7;
+
 /// A page, finished: read, or handed to a person.
 #[derive(Debug, Clone)]
 pub struct PageResult {
@@ -196,6 +207,8 @@ pub struct PageResult {
     pub extraction: Option<Extraction>,
     /// The reading as the model gave it (re-serialised from the checked shape), to store.
     pub reading: Option<Value>,
+    /// Which rung, attempt and model gave `reading`.
+    pub reading_from: Option<ReadingOrigin>,
     /// What could not be read exactly in `extraction`'s reading, and was left out.
     pub problems: Vec<ReadingProblem>,
     pub findings: Vec<Finding>,
@@ -217,6 +230,8 @@ pub struct PageResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Kept {
     pub attempt: u32,
+    /// The rung that made it (a position in the policy's rungs).
+    pub rung: usize,
     /// The model that gave it, as the provider named it.
     pub model: String,
     pub reading: Value,
@@ -248,6 +263,9 @@ impl TryFrom<UncheckedCarry> for Carry {
         for kept in [&raw.best, &raw.last].into_iter().flatten() {
             if kept.attempt == 0 {
                 return Err("a kept reading has no attempt number");
+            }
+            if kept.rung > MAX_RUNG {
+                return Err("a kept reading is from a rung outside the ladder");
             }
             if serde_json::from_value::<PageReading>(kept.reading.clone()).is_err() {
                 return Err("a kept reading is not a reading");
@@ -799,6 +817,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             outcome: Outcome::Read(evaluation.assessment),
             kept: Some(Kept {
                 attempt: plan.attempt,
+                rung: plan.rung,
                 model,
                 reading: serde_json::to_value(&reading).unwrap_or(Value::Null),
             }),
@@ -1017,7 +1036,17 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 .and_then(|reading| evaluate(task, material, &reading, &kept.model, basis).ok()),
             _ => None,
         };
-        let reading = evaluated.as_ref().and(kept.map(|kept| kept.reading));
+        let (reading, reading_from) = match (evaluated.as_ref(), kept) {
+            (Some(_), Some(kept)) => (
+                Some(kept.reading),
+                Some(ReadingOrigin {
+                    rung: kept.rung,
+                    attempt: kept.attempt,
+                    model: kept.model,
+                }),
+            ),
+            _ => (None, None),
+        };
         let (extraction, problems, findings, unconfirmed) = match evaluated {
             Some(e) => (Some(e.extraction), e.problems, e.findings, e.report.unconfirmed),
             None => (None, Vec::new(), Vec::new(), Vec::new()),
@@ -1028,6 +1057,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             outcome,
             extraction,
             reading,
+            reading_from,
             problems,
             findings,
             unconfirmed,

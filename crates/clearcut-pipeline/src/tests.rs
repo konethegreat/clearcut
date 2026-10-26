@@ -216,7 +216,10 @@ impl World {
         PipelineHandler::new(self.store.clone(), self.objects.clone(), worker.clone(), config)
     }
 
-    async fn run<P: DocumentProcessor>(&self, handler: PipelineHandler<LocalDisk, P>) -> RunReport {
+    async fn run<P: DocumentProcessor, M: clearcut_provider::ModelProvider>(
+        &self,
+        handler: PipelineHandler<LocalDisk, P, M>,
+    ) -> RunReport {
         Runner::new(self.store.clone(), handler, fast())
             .run_once()
             .await
@@ -271,6 +274,8 @@ fn range(first: u32, last: u32) -> PageRange {
 }
 
 const FILE: &[u8] = b"%PDF-1.7 a stand-in for a file; the fake worker never parses it";
+
+mod read;
 
 // ---------- the normal case ----------
 

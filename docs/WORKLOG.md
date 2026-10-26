@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 42) — ADR-0018 step 7: the read stage
+**Done** (PR #67, step 6, merged first with CI green; tests first, no key)
+- `clearcut-pipeline`: with `with_models(provider, ReadSettings)` the job now reads the pages after the analysis, one after the other, with the router; without it nothing changes and no model can be asked. Each page's reading (or best draft) is stored, every call is logged with what it was charged, and the audit says what happened in counts and fixed names. Pages that ended in an earlier run are skipped, a page stopped by a failure of the service resumes from its stored carry, and what earlier pages established (currency, invoice number, supplier, totals seen, lines) is carried to the next one.
+- Money survives a restart because it is rebuilt from the call log: the month's spending since the start of the South African calendar month, this document's own spending (counted once), and the calls it has used. New in the store: `document_spend`. New in the router: where a reading came from (rung, attempt, model), so a draft from an earlier run keeps its rung.
+- The job still ends `needs_review`, honestly: `read; the later stages are not built yet`, or how many pages need a person.
+- Pipeline 81 tests (was 34), router 71, store 212. Hand mutation check of 54 breakages; the first run left 12 alive (five missing tests, five pieces of code the loop made unnecessary, now removed, one that did not compile); two equivalent survivors recorded. Full workspace tests and clippy green.
+- **Known limits written into the ADR:** concurrent documents do not see each other's spending until it is logged (the spend gate of P2-12), the calls of a page whose job dies mid-page are not logged, the queue's `Failure` has no delay so the long wait after a monthly spend cap is not honoured, and a spent budget refuses the remaining pages one by one.
+**Next**: step 8, the `#[ignore]`d live test for the day there is a key and the closing docs. Then P2-07 (putting the pages together) or P1-07 (the container and wiring the handler into the server). The docs PR answering the TimeLex request list is still queued.
+
 ## 2026-10-27 (part 41) — ADR-0018 step 6: the tables for readings and the call log
 **Done** (PR #66, step 5, merged first with CI green; the SQL was shown to Kone and approved before anything was applied; tests first, no key)
 - Migration `0007`: `page_readings` (a page in progress holds the router's carry; an ended page holds its reading or best draft; a page that ended is final) and `model_calls` (append-only, no content, kept when a document is erased, so the month's spending survives). Erasure takes the readings and keeps the calls.

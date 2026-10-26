@@ -341,6 +341,14 @@ async fn a_clean_page_is_accepted_at_the_first_rung() {
         result.reading,
         Some(serde_json::to_value(clean_reading()).unwrap())
     );
+    assert_eq!(
+        result.reading_from,
+        Some(ReadingOrigin {
+            rung: 0,
+            attempt: 1,
+            model: HAIKU.to_string()
+        })
+    );
     // (The invented page has no recipient, so it has tax-invoice findings; none about the sums.)
     assert!(result.problems.is_empty() && result.unconfirmed.is_empty());
     assert!(!result.findings.iter().any(|f| matches!(
@@ -600,6 +608,15 @@ async fn failing_every_rung_sends_the_page_to_a_person_with_the_best_draft() {
     assert_eq!(provider.call_count(), 3, "Fable is off");
     // The draft is attempt 2, flagged as unresolved.
     assert_eq!(result.reading, Some(serde_json::to_value(bad_date()).unwrap()));
+    // The draft is from the second attempt, which was made by the second rung.
+    assert_eq!(
+        result.reading_from,
+        Some(ReadingOrigin {
+            rung: 1,
+            attempt: 2,
+            model: SONNET.to_string()
+        })
+    );
     let draft = result.extraction.expect("a draft to start a reviewer from");
     assert!(
         draft.invoice_date.is_none(),
@@ -1687,4 +1704,54 @@ async fn a_billed_failure_that_reports_no_usage_is_counted_at_its_worst_case() {
     assert!(result.calls[0].cost > Cost::ZERO);
     assert_eq!(budget.document_spent(), result.calls[0].cost);
     assert_eq!(result.spent, result.calls[0].cost);
+}
+
+#[tokio::test]
+async fn a_page_with_no_reading_has_no_origin() {
+    let provider = FakeProvider::scripted(vec![Err(ProviderError::Refused { usage: usage() })]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert_eq!(result.reading, None);
+    assert_eq!(result.reading_from, None);
+}
+
+#[tokio::test]
+async fn the_origin_of_a_draft_survives_an_interruption() {
+    // Attempt 1 (rung 0) is the better draft; attempt 2 is worse; attempt 3 is interrupted
+    // and then fails after the resume. The draft is still attempt 1, from rung 0.
+    let mut worse = bad_date();
+    worse.totals.gross = "17251.00".into();
+    let provider = FakeProvider::scripted(vec![
+        answer(&bad_date()),
+        answer_from(SONNET, &worse),
+        Err(ProviderError::Timeout),
+    ]);
+    let worker1 = worker(PAGE_TEXT, 1);
+    let i = interrupted(
+        router(&provider, &worker1, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    let provider2 = FakeProvider::scripted(vec![answer_from(OPUS, &worse)]);
+    let worker2 = worker(PAGE_TEXT, 2);
+    let result = finished(
+        router(&provider2, &worker2, config())
+            .read_page(&trusted_page(), &mut budget(), 100, Some(i.carry))
+            .await,
+    );
+    assert_eq!(
+        result.reading_from,
+        Some(ReadingOrigin {
+            rung: 0,
+            attempt: 1,
+            model: HAIKU.to_string()
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_kept_reading_from_a_rung_outside_the_ladder_is_refused_when_read_back() {
+    let mut value = stored_carry().await;
+    value["last"]["rung"] = json!(8);
+    assert!(serde_json::from_value::<Carry>(value).is_err());
 }
