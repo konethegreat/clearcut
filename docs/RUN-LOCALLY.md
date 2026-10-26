@@ -30,6 +30,20 @@ For yourself on your own computer the `ANTHROPIC_API_KEY` line in `.env` is enou
 and `CLEARCUT_KEY_MODE=tenant-only` to `.env`, restart (`docker compose up -d --force-recreate server`), and use
 **Settings** in the web page. Full explanation: [BYOK.md](BYOK.md) section 3b.
 
+## Using ClearCut from an AI agent (MCP)
+The MCP server lets an agent upload an invoice, wait for it, read the facts and the narration, fetch an export and, with your approval, confirm a reviewed page or delete a document. It talks to your ClearCut server with a **ClearCut** key (made as in step 3 above; not your Anthropic key). For Claude Desktop or Claude Code add it as an MCP server (`cargo build -p clearcut-mcp` makes `target/debug/clearcut-mcp`):
+```json
+{ "mcpServers": { "clearcut": {
+  "command": "C:\\Users\\You\\ClearCut\\target\\debug\\clearcut-mcp.exe",
+  "env": {
+    "CLEARCUT_URL": "http://127.0.0.1:8099",
+    "CLEARCUT_API_KEY_FILE": "C:\\Users\\You\\clearcut-agent.key",
+    "CLEARCUT_MCP_UPLOAD_DIR": "C:\\Users\\You\\invoices-to-read",
+    "CLEARCUT_MCP_OUTPUT_DIR": "C:\\Users\\You\\clearcut-exports"
+  } } } }
+```
+The agent can read uploads **only** from that one folder, and only real PDF, PNG or JPEG files. Give the agent a key with only the scopes it needs (`documents:read` to look, `documents:write` to upload, confirm and delete). Why it is built this way: [ADR-0020](adr/0020-mcp-server-as-a-rest-client.md).
+
 ## The manual way
 (What compose does, by hand; useful when working on the code.)
 

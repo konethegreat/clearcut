@@ -678,12 +678,17 @@ dependencies = [
 name = "clearcut-mcp"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "base64 0.22.1",
  "clearcut-core",
+ "reqwest",
  "rmcp",
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
