@@ -227,6 +227,9 @@ pub enum ProblemKind {
     Incomplete,
     /// The line amounts include VAT, which is not backed out here (ADR-0014 §6).
     AmountsIncludeVat,
+    /// A figure that does not occur in the page's own text. The conversion never produces
+    /// this: it is named to the next model in a failure report (ADR-0018 section 3).
+    NotOnPage,
 }
 
 /// A value that could not be read exactly. `path` names where

@@ -1116,3 +1116,13 @@ fn the_vat_basis_problem_comes_before_the_line_problems_it_replaces() {
         vec![path("amounts_include_vat", ProblemKind::AmountsIncludeVat)]
     );
 }
+
+#[test]
+fn the_kind_used_only_in_failure_reports_has_its_own_name() {
+    // A figure that does not occur in the page's own text: never produced by the conversion,
+    // only named to the next model in a failure report (ADR-0018).
+    assert_eq!(
+        serde_json::to_string(&ProblemKind::NotOnPage).unwrap(),
+        "\"not_on_page\""
+    );
+}
