@@ -6,10 +6,12 @@ You need four things running: **Postgres** (the database), the **document worker
 the **ClearCut server** (the API and the job runner), and your **Anthropic key** in a file.
 
 ## The easy way: `docker compose` (needs Docker Desktop)
-1. In the project folder, make a file called `.env` with two lines (your Anthropic key is optional: without it documents are only analysed):
+1. In the project folder, make a file called `.env` with these lines (your Anthropic key is optional: without it documents are only analysed). The three made-up values must be **letters and digits only**, long, and different from each other:
    ```text
    ANTHROPIC_API_KEY=sk-ant-...your key...
-   CLEARCUT_WORKER_TOKEN=any-long-random-text-you-make-up
+   CLEARCUT_WORKER_TOKEN=any-long-random-letters-and-digits
+   DB_OWNER_PASSWORD=another-long-random-letters-and-digits
+   DB_APP_PASSWORD=a-third-long-random-letters-and-digits
    ```
 2. Start everything (the first time it builds, which takes several minutes): `docker compose up --build -d`
 3. Make your first login, once:
@@ -20,7 +22,7 @@ the **ClearCut server** (the API and the job runner), and your **Anthropic key**
    The second command prints a key **once**: keep it somewhere safe. It is your ClearCut login, not the Anthropic key.
 4. Open **http://127.0.0.1:8099**, paste that key, and upload an invoice.
 
-Stop with `docker compose down` (your documents stay); `docker compose down -v` also deletes them. The database and the document worker are on a private network with no internet; only the server reaches Anthropic, and only this computer can reach the page.
+Stop with `docker compose down` (your documents stay); `docker compose down -v` also deletes them. The database and the document worker are on **separate** private networks with no internet, so the worker (which reads untrusted files) has no route to the database; the database needs passwords; only the server reaches Anthropic, and only this computer can reach the page.
 
 ## The manual way
 (What compose does, by hand; useful when working on the code.)

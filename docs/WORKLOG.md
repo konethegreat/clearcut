@@ -8,6 +8,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - Settings come from a git-ignored `.env`, mounted read-only into the server; the key is not baked into any image.
 - **Tested from scratch** with the real key: `docker compose up`, make a tenant and key with the `admin` helper, upload a PDF to the page's address, the worker ran OCR in its container, the document ended `done` with 9 events.
 - `docs/RUN-LOCALLY.md` now leads with the compose way.
+- **Security review finding (valid), fixed:** the worker reads untrusted files yet shared a network with a Postgres that needed no password. Now the worker is alone with the server on `worker_net` (no route to the database: its name does not even resolve, and it has no internet), the database is on `db_net` with the server and the one-off tools, and the database needs passwords (`DB_OWNER_PASSWORD`, and a different `DB_APP_PASSWORD` for the restricted login, set by a one-off `roles` step). Checked by trying: worker to database fails, worker to internet fails, a login without a password is refused, and the full flow still ends done.
 - Not done: CI does not build the images yet; the images are not published anywhere; no HTTPS (it is for one computer).
 
 ## 2026-10-27 (part 47) — the web page

@@ -4,11 +4,15 @@
 # Put your settings in a file called .env next to this one (see docs/RUN-LOCALLY.md):
 #   ANTHROPIC_API_KEY=sk-ant-...          your own key (optional: without it documents are only analysed)
 #   CLEARCUT_WORKER_TOKEN=some-long-random-text
+#   DB_OWNER_PASSWORD=letters-and-digits  the database owner (makes the tables)
+#   DB_APP_PASSWORD=other-letters-digits  the restricted login the server uses
 # The web page is then at http://127.0.0.1:8099 (only this computer can reach it).
 #
-# Networks: the database and the document worker live on an internal network with NO internet.
-# Only the server is also on the outside network (it must reach Anthropic) and publishes a port,
-# on this computer only.
+# Networks (each internal one has NO internet):
+#   db_net      the database, and the things that may talk to it: migrate, roles, admin, the server
+#   worker_net  the document worker and the server only
+#   outside     the server only (it must reach Anthropic); it also publishes the page, on this computer
+# The worker reads untrusted files, so it has no route to the database and no password for it.
 name: clearcut
 
 services:
@@ -18,12 +22,10 @@ services:
     environment:
       POSTGRES_USER: clearcut
       POSTGRES_DB: clearcut
-      # Only the server, the worker's neighbour on the internal network, can reach it: no password
-      # is needed and none is stored. It publishes no port.
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?put DB_OWNER_PASSWORD=letters-and-digits in the .env file}
     volumes:
       - db:/var/lib/postgresql/data
-    networks: [backend]
+    networks: [db_net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U clearcut -d clearcut"]
       interval: 3s
@@ -36,10 +38,22 @@ services:
     image: clearcut-server
     command: ["clearcut-admin", "migrate"]
     environment:
-      DATABASE_URL: postgres://clearcut@db:5432/clearcut
-    networks: [backend]
+      DATABASE_URL: postgres://clearcut:${DB_OWNER_PASSWORD}@db:5432/clearcut
+    networks: [db_net]
     depends_on:
       db: { condition: service_healthy }
+    restart: "no"
+
+  roles:
+    # Gives the server's restricted login its password (the tables' migration cannot know it).
+    image: postgres:17
+    entrypoint: ["sh", "-c", "echo \"alter role clearcut_app with password :'p';\" | psql \"postgres://clearcut:$$DB_OWNER_PASSWORD@db:5432/clearcut\" -v ON_ERROR_STOP=1 -v p=\"$$DB_APP_PASSWORD\""]
+    environment:
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?put DB_APP_PASSWORD=other-letters-and-digits in the .env file}
+    networks: [db_net]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
     restart: "no"
 
   admin:
@@ -50,8 +64,8 @@ services:
     image: clearcut-server
     entrypoint: ["clearcut-admin"]
     environment:
-      DATABASE_URL: postgres://clearcut@db:5432/clearcut
-    networks: [backend]
+      DATABASE_URL: postgres://clearcut:${DB_OWNER_PASSWORD}@db:5432/clearcut
+    networks: [db_net]
     depends_on:
       migrate: { condition: service_completed_successfully }
 
@@ -66,7 +80,7 @@ services:
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    networks: [backend]
+    networks: [worker_net]
 
   server:
     build: .
@@ -74,7 +88,7 @@ services:
     restart: unless-stopped
     environment:
       # The restricted login: row-level security applies to it, and it cannot change the tables.
-      DATABASE_URL: postgres://clearcut_app@db:5432/clearcut
+      DATABASE_URL: postgres://clearcut_app:${DB_APP_PASSWORD}@db:5432/clearcut
       CLEARCUT_WORKER_URL: http://worker:8090
       CLEARCUT_WORKER_TOKEN: ${CLEARCUT_WORKER_TOKEN:?put CLEARCUT_WORKER_TOKEN=some-long-random-text in the .env file}
       CLEARCUT_ENV_FILE: /run/clearcut.env
@@ -88,9 +102,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     ports:
       - "127.0.0.1:8099:8080"
-    networks: [backend, outside]
+    networks: [db_net, worker_net, outside]
     depends_on:
-      migrate: { condition: service_completed_successfully }
+      roles: { condition: service_completed_successfully }
       worker: { condition: service_started }
 
 volumes:
@@ -98,6 +112,8 @@ volumes:
   files:
 
 networks:
-  backend:
+  db_net:
+    internal: true
+  worker_net:
     internal: true
   outside: {}
