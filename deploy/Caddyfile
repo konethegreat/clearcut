@@ -1,0 +1,22 @@
+# Written by Kone Tshivhinda & Claude
+# HTTPS in front of ClearCut (docker compose --profile https up -d). Caddy gets and renews a free
+# certificate by itself, so CLEARCUT_DOMAIN must already point at this machine and ports 80 and 443
+# must be reachable from the internet. See docs/DEPLOY.md.
+{$CLEARCUT_DOMAIN} {
+	encode zstd gzip
+
+	# A little above the server's own upload limit (64 MiB), so the server gives the clear answer.
+	request_body {
+		max_size 70MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# The ClearCut server (its own content security policy is added by the server).
+	reverse_proxy server:8080
+}
