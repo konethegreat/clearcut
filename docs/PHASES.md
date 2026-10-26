@@ -79,7 +79,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P4-09 MCP tool: `export_document`; SDK helpers
 
 ## Phase 5 — Dashboard and review UX (≈4 weeks)
-- ⬜ P5-01 TypeScript web app: upload, progress, review queue, side-by-side page + extracted fields
+- 🔄 P5-01 Web app — **first version built** (plain page served by the server: sign in, upload, documents list, one document with the report, events and downloads); the review queue and the side-by-side page view remain (it is plain JavaScript for now; a TypeScript build can come when it grows)
 - ⬜ P5-02 Timeline and grouped-event views with citation jump-to-source
 - ⬜ P5-03 Export menu and saved exports
 - ⬜ P5-04 Audit trail view

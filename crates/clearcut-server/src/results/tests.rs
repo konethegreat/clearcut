@@ -9,6 +9,7 @@ use axum::http::{header, Request, StatusCode};
 use axum::Router;
 use clearcut_core::document::DocumentStatus;
 use clearcut_core::event::{Citation, Confidence, DocumentId, EventId, EventParts, EventPayload, Extractor};
+use clearcut_store::DocumentSummary;
 use clearcut_store::Error;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -21,6 +22,18 @@ struct Fake {
 }
 
 impl Results for Arc<Fake> {
+    fn list<'a>(&'a self, _tenant: TenantId, _limit: u32) -> ResultsFuture<'a, Vec<DocumentSummary>> {
+        Box::pin(async move {
+            Ok(vec![DocumentSummary {
+                id: DocId(Uuid::from_u128(DOC)),
+                status: DocumentStatus::Done,
+                page_count: Some(2),
+                original_filename: "invoice.pdf".into(),
+                created_at: time::OffsetDateTime::UNIX_EPOCH,
+            }])
+        })
+    }
+
     fn info<'a>(&'a self, _tenant: TenantId, _document: DocId) -> ResultsFuture<'a, DocumentInfo> {
         Box::pin(async move {
             if self.missing {
@@ -199,4 +212,36 @@ async fn without_a_store_reading_is_unavailable() {
         send(&app, get(Some(READER), "")).await.0,
         StatusCode::SERVICE_UNAVAILABLE
     );
+}
+
+#[tokio::test]
+async fn the_list_is_for_documents_read_and_shows_what_a_table_needs() {
+    let app = app(&fake("Acme"));
+    let list = |token: Option<&str>| {
+        let mut builder = Request::get("/v1/documents");
+        if let Some(token) = token {
+            builder = builder.header(header::AUTHORIZATION, bearer(token));
+        }
+        builder.body(Body::empty()).unwrap()
+    };
+    assert_eq!(send(&app, list(None)).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send(&app, list(Some(ADMIN_ONLY))).await.0, StatusCode::FORBIDDEN);
+    let (status, _, body) = send(&app, list(Some(READER))).await;
+    assert_eq!(status, StatusCode::OK);
+    let first = &json(&body)["documents"][0];
+    assert_eq!(first["original_filename"], "invoice.pdf");
+    assert_eq!(first["status"], "done");
+    assert_eq!(first["created_at"], "1970-01-01T00:00:00Z");
+}
+
+#[tokio::test]
+async fn the_events_come_with_a_table_of_one_line_each() {
+    let app = app(&fake("Acme (Pty) Ltd"));
+    let (_, _, body) = send(&app, get(Some(READER), "/events")).await;
+    let row = &json(&body)["table"][0];
+    assert_eq!(row["id"], "doc_1:r1:supplier");
+    assert_eq!(row["group"], "parties");
+    assert_eq!(row["page"], 1);
+    assert_eq!(row["confidence_per_mille"], 950);
+    assert!(row["text"].as_str().unwrap().contains("Acme (Pty) Ltd"));
 }

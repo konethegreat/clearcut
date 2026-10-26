@@ -8,6 +8,7 @@ mod auth;
 mod documents;
 mod jobs;
 mod results;
+mod web;
 
 pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
 pub use documents::{Ingest, IngestFuture, UploadBody};
@@ -28,8 +29,14 @@ use tower_http::sensitive_headers::SetSensitiveRequestHeadersLayer;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
+        .route("/", get(web::index))
+        .route("/app.css", get(web::stylesheet))
+        .route("/app.js", get(web::script))
         .route("/v1/whoami", get(whoami))
-        .route("/v1/documents", post(documents::upload_document))
+        .route(
+            "/v1/documents",
+            post(documents::upload_document).get(results::list_documents),
+        )
         .route("/v1/documents/{id}", get(results::get_document))
         .route("/v1/documents/{id}/events", get(results::get_events))
         .route("/v1/documents/{id}/report", get(results::get_report))

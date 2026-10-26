@@ -22,7 +22,7 @@ use axum::Json;
 use clearcut_core::auth::Scope;
 use clearcut_core::event::Event;
 use clearcut_core::narration::report::{narrate, NarrationMode};
-use clearcut_store::{DocId, DocumentInfo, Store, TenantId};
+use clearcut_store::{DocId, DocumentInfo, DocumentSummary, Store, TenantId};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -34,6 +34,9 @@ pub type ResultsFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, clearcut_s
 
 /// What the HTTP layer needs to read a document back. The real one is the store; tests use a fake.
 pub trait Results: Send + Sync + 'static {
+    /// The tenant's most recent documents, newest first.
+    fn list<'a>(&'a self, tenant: TenantId, limit: u32) -> ResultsFuture<'a, Vec<DocumentSummary>>;
+
     /// [`clearcut_store::Error::DocumentNotFound`] if the tenant has no such document.
     fn info<'a>(&'a self, tenant: TenantId, document: DocId) -> ResultsFuture<'a, DocumentInfo>;
 
@@ -42,6 +45,10 @@ pub trait Results: Send + Sync + 'static {
 }
 
 impl Results for Store {
+    fn list<'a>(&'a self, tenant: TenantId, limit: u32) -> ResultsFuture<'a, Vec<DocumentSummary>> {
+        Box::pin(async move { self.list_documents(tenant, limit).await })
+    }
+
     fn info<'a>(&'a self, tenant: TenantId, document: DocId) -> ResultsFuture<'a, DocumentInfo> {
         Box::pin(async move { self.document_info(tenant, document).await })
     }
@@ -127,6 +134,39 @@ pub(crate) struct DocumentView {
     events: usize,
 }
 
+#[derive(Serialize)]
+struct SummaryView {
+    id: String,
+    status: &'static str,
+    page_count: Option<i32>,
+    original_filename: String,
+    created_at: String,
+}
+
+/// `GET /v1/documents`: the most recent documents, newest first.
+pub(crate) async fn list_documents(
+    State(state): State<AppState>,
+    auth: Authed,
+) -> Result<Json<serde_json::Value>, ResultsProblem> {
+    let principal = auth.require(Scope::DocumentsRead)?;
+    let results = state.results().ok_or(ResultsProblem::NotConfigured)?;
+    let documents = results.list(TenantId(principal.tenant()), 100).await?;
+    let documents: Vec<SummaryView> = documents
+        .into_iter()
+        .map(|d| SummaryView {
+            id: d.id.0.to_string(),
+            status: d.status.as_str(),
+            page_count: d.page_count,
+            original_filename: d.original_filename,
+            created_at: d
+                .created_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default(),
+        })
+        .collect();
+    Ok(Json(json!({ "documents": documents })))
+}
+
 /// `GET /v1/documents/{id}`
 pub(crate) async fn get_document(
     State(state): State<AppState>,
@@ -150,7 +190,9 @@ pub(crate) async fn get_events(
     id: Id,
 ) -> Result<Json<serde_json::Value>, ResultsProblem> {
     let (_, events, _) = load(&state, &auth, id).await?;
-    Ok(Json(json!({ "events": events })))
+    // `events` is what is stored; `table` is the same events, one line each, with the sentence that
+    // tells them (for showing in a table).
+    Ok(Json(json!({ "events": events, "table": export::rows(&events) })))
 }
 
 fn mode_of(query: &HashMap<String, String>) -> Result<NarrationMode, ResultsProblem> {
