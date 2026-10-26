@@ -13,18 +13,23 @@ workspace = true
 
 [dependencies]
 bytes = "1"
-clearcut-core = { path = "../clearcut-core" }
+clearcut-core = { path = "../clearcut-core", features = ["schemars"] }
 clearcut-docproc = { path = "../clearcut-docproc" }
 clearcut-jobs = { path = "../clearcut-jobs" }
 clearcut-objects = { path = "../clearcut-objects" }
+clearcut-pack = { path = "../clearcut-pack" }
+clearcut-provider = { path = "../clearcut-provider" }
+clearcut-router = { path = "../clearcut-router" }
 clearcut-store = { path = "../clearcut-store" }
 serde_json = "1.0.154"
 sha2 = "0.11"
 tokio = { version = "1.53.3", features = ["io-util"] }
+time = "0.3.55"
 tracing = "0.1.44"
+uuid = "1"
 
 [dev-dependencies]
+time = { version = "0.3.55", features = ["macros"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
 tempfile = "3"
 tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread"] }
-uuid = "1"

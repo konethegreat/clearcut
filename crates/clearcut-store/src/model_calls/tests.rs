@@ -796,3 +796,108 @@ async fn a_detail_is_lower_case_letters_and_underscores_only(pool: PgPool) {
     };
     store.record_model_calls(tenant, &[fine]).await.unwrap();
 }
+
+// ---------- what one document has cost ----------
+
+#[sqlx::test]
+async fn a_documents_spend_is_what_it_was_charged_and_the_calls_that_were_made(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let other_doc = store.add_document(tenant, &new_document(5)).await.unwrap().id;
+    let other_tenant = new_tenant(&pool, "Other Advisory").await.unwrap();
+    let theirs = store
+        .add_document(other_tenant, &new_document(9))
+        .await
+        .unwrap()
+        .id;
+    assert_eq!(
+        store.document_spend(tenant, doc).await.unwrap(),
+        DocumentSpend {
+            cost: Cost::ZERO,
+            calls: 0
+        }
+    );
+
+    let with = |document: DocId, attempt: u32, nano: u64, label: &str| NewModelCall {
+        cost: Cost::from_nano_rand(nano),
+        label: label.to_string(),
+        label_detail: matches!(label, "not_sent" | "interrupted" | "escalated").then(|| "budget".to_string()),
+        ..call(document, 1, attempt)
+    };
+    store
+        .record_model_calls(
+            tenant,
+            &[
+                with(doc, 1, 100, "escalated"),
+                with(doc, 2, 250, "accepted"),
+                with(doc, 3, 0, "rung_unavailable"),
+                // A call that was refused before it was sent, and one the service did not answer,
+                // are not calls the page was allowed (the state machine does not count them), but
+                // an interrupted one may have been charged.
+                with(doc, 4, 0, "not_sent"),
+                with(doc, 5, 40, "interrupted"),
+                with(other_doc, 1, 7_000, "accepted"),
+            ],
+        )
+        .await
+        .unwrap();
+    store
+        .record_model_calls(other_tenant, &[with(theirs, 1, 9_999, "accepted")])
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.document_spend(tenant, doc).await.unwrap(),
+        DocumentSpend {
+            cost: Cost::from_nano_rand(390),
+            calls: 3
+        }
+    );
+    assert_eq!(
+        store.document_spend(tenant, other_doc).await.unwrap(),
+        DocumentSpend {
+            cost: Cost::from_nano_rand(7_000),
+            calls: 1
+        }
+    );
+    // Another tenant's document is not visible, even by its id.
+    assert_eq!(
+        store.document_spend(tenant, theirs).await.unwrap(),
+        DocumentSpend {
+            cost: Cost::ZERO,
+            calls: 0
+        }
+    );
+}
+
+#[sqlx::test]
+async fn a_documents_spend_outlives_the_document(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    store
+        .record_model_calls(tenant, &[call(doc, 1, 1)])
+        .await
+        .unwrap();
+    store.erase_document(tenant, doc).await.unwrap();
+    assert_eq!(
+        store.document_spend(tenant, doc).await.unwrap(),
+        DocumentSpend {
+            cost: Cost::from_nano_rand(19_800_000),
+            calls: 1
+        }
+    );
+}
+
+#[sqlx::test]
+async fn a_documents_spend_saturates_instead_of_wrapping(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let huge = |attempt: u32| NewModelCall {
+        cost: Cost::from_nano_rand(u64::MAX),
+        ..call(doc, 1, attempt)
+    };
+    store
+        .record_model_calls(tenant, &[huge(1), huge(2), huge(3)])
+        .await
+        .unwrap();
+    let spend = store.document_spend(tenant, doc).await.unwrap();
+    assert_eq!(spend.cost, Cost::from_nano_rand(u64::MAX));
+    assert_eq!(spend.calls, 3);
+}
