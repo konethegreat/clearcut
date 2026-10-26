@@ -536,7 +536,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 name = "clearcut-admin"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "clap",
  "clearcut-core",
  "clearcut-store",
@@ -555,7 +555,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "clearcut-core",
  "clearcut-provider",
@@ -587,7 +587,7 @@ name = "clearcut-docproc"
 version = "0.1.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "clearcut-core",
  "clearcut-pack",
@@ -679,7 +679,7 @@ name = "clearcut-mcp"
 version = "0.1.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "clearcut-core",
  "reqwest",
  "rmcp",
