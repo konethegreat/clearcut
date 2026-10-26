@@ -8,7 +8,7 @@ API key, and Anthropic bills them directly. This page explains how to set that u
 **Status:** the key handling, the free key check and the adapter that talks to Anthropic with your key
 (sections 2 to 5) exist and are tested against a stand-in server. The adapter has **not yet been run
 against the real API**: section 4 has the one small, optional real call that does that, with your key.
-Nothing reads invoices end to end yet.
+The pages of a document are read by the model router and the whole path is tested against stand-ins; section 4 has the small real checks, the last of which reads one invented invoice page end to end. Nothing has been run against the real API yet.
 
 ## 1. What it costs
 
@@ -82,6 +82,17 @@ model, and prints the tokens used and a rough bill in rand):
 ```text
 ANTHROPIC_API_KEY=sk-ant-api03-... cargo test -p clearcut-anthropic --test live -- --ignored --nocapture one_tiny
 ```
+
+To read one invented invoice page **end to end** (the real worker, the real model, a real database; about
+R0.02, and the test caps the document at R1 and the month at R20). It needs the worker running (see its README,
+with OCR if you can) and a database:
+
+```text
+ANTHROPIC_API_KEY=sk-ant-api03-... CLEARCUT_LIVE_WORKER_URL=http://127.0.0.1:8090 CLEARCUT_LIVE_WORKER_TOKEN=... DATABASE_URL=postgres://clearcut@127.0.0.1:5432/clearcut cargo test -p clearcut-pipeline --test live_read -- --ignored --nocapture
+```
+
+It prints which model read the page, every call with its tokens and what it cost in rand, and the total. Please
+look at that output the first time: it is the first real measurement of the cost and the pass rate.
 
 ## 5. What ClearCut sends, and where
 

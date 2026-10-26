@@ -29,6 +29,7 @@ tracing = "0.1.44"
 uuid = "1"
 
 [dev-dependencies]
+clearcut-anthropic = { path = "../clearcut-anthropic" }
 time = { version = "0.3.55", features = ["macros"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
 tempfile = "3"
