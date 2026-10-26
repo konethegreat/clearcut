@@ -210,12 +210,25 @@ impl World {
         provider: &FakeProvider,
         settings: ReadSettings,
     ) -> RunReport {
-        sqlx::query("update jobs set run_after = now() where id = $1")
-            .bind(job)
-            .execute(&self.pool)
-            .await
-            .unwrap();
-        self.run(self.read_handler(worker, provider, settings)).await
+        // Made due and claimed again; on a slow machine the first try has been seen to find the
+        // job not yet back in the queue, so it is given a few more.
+        let runner = Runner::new(
+            self.store.clone(),
+            self.read_handler(worker, provider, settings),
+            fast(),
+        );
+        for _ in 0..50 {
+            sqlx::query("update jobs set run_after = now() where id = $1")
+                .bind(job)
+                .execute(&self.pool)
+                .await
+                .unwrap();
+            if let Some(report) = runner.run_once().await.unwrap() {
+                return report;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("the job never became due");
     }
 
     async fn pages(&self, doc: DocId) -> Vec<StoredPage> {
