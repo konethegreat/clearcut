@@ -28,6 +28,8 @@ use clearcut_core::event::{DocumentId as CoreDocumentId, Event};
 pub mod jobs;
 pub use jobs::{ClaimedJob, EnqueuedJob, FailureResult, Heartbeat, Job, LeaseToken, NewJob};
 pub mod keys;
+pub mod model_calls;
+pub mod page_readings;
 pub mod page_reads;
 use sqlx::postgres::PgPool;
 use std::num::NonZeroU32;
@@ -84,6 +86,19 @@ pub enum Error {
     /// A stored page row no longer passes the core's rules.
     #[error("a stored page read is invalid: {0}")]
     InvalidStoredPageRead(String),
+    /// A page reading handed in breaks the rules of its shape.
+    #[error("invalid page reading: {0}")]
+    InvalidPageReading(&'static str),
+    /// A stored page reading no longer passes the rules it had to meet to be written.
+    #[error("a stored page reading is invalid: {0}")]
+    InvalidStoredPageReading(String),
+    /// The page has ended, and an ended page is not replaced; delete the document's readings
+    /// to read it again.
+    #[error("the page has already ended")]
+    PageReadingFinished,
+    /// A model call handed in breaks the rules of its shape.
+    #[error("invalid model call: {0}")]
+    InvalidModelCall(&'static str),
     #[error("an API key needs a name")]
     BlankName,
     #[error("an API key needs at least one scope")]

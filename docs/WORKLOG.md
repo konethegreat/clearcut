@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 41) — ADR-0018 step 6: the tables for readings and the call log
+**Done** (PR #66, step 5, merged first with CI green; the SQL was shown to Kone and approved before anything was applied; tests first, no key)
+- Migration `0007`: `page_readings` (a page in progress holds the router's carry; an ended page holds its reading or best draft; a page that ended is final) and `model_calls` (append-only, no content, kept when a document is erased, so the month's spending survives). Erasure takes the readings and keeps the calls.
+- `clearcut-store`: `save_page_reading`, `load_page_readings`, `delete_page_readings`, `record_model_calls`, `spend_since`. The state's shape and sizes are checked in Rust before the database does, and every row again as it is read. A cost or count too large for its column is stored at the largest, never wrapped; a sum too large is the largest cost.
+- **Two findings from the tests:** the approved check on an escalation's origin and reason was weaker than meant (a `first` call could carry one of the two), so it is tightened; and the table's size limits count the stored binary form of JSON, which is larger than its text, so the Rust limits leave room and a leftover refusal is a clear error.
+- Core: `ReviewReason::parse`, `ConfidenceBasis::as_str` / `parse`, `ThinkingEffort::as_str` (587 tests). Store 209 tests (46 new). Hand mutation check of 58 breakages; the first run left 11 alive (missing boundary and stored-row tests), now caught; one equivalent survivor recorded. Full workspace tests and clippy green.
+**Next**: step 7, the read stage in `clearcut-pipeline`: runs the router over a document's pages one after the other, saves the carry on an interruption and the reading when a page ends, records the calls, keeps the document's budget, and ends the job. The docs PR answering the TimeLex request list is still queued.
+
 ## 2026-10-26 (part 40) — ADR-0018 step 5: the `clearcut-router` crate
 **Done** (PR #65, step 4, merged first with CI green; tests first, no key)
 - New crate `clearcut-router`: `Router::read_page` reads one page. It fetches the text the route calls for, draws the picture once per size, has the worker paint personal data out, builds the pack, checks the worst case of the call against the budget, calls the provider, and converts, validates, checks against the page's text and assesses the answer before telling the state machine. It has no database.
