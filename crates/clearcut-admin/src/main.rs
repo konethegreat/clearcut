@@ -11,6 +11,17 @@ use std::process::ExitCode;
 async fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    // Making a master key needs no database, so it is done first.
+    if matches!(cli.command, clearcut_admin::Command::GenerateMasterKey) {
+        return match clearcut_admin::generate_master_key(&mut io::stdout(), &mut io::stderr()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     let Ok(url) = std::env::var("DATABASE_URL") else {
         eprintln!("error: DATABASE_URL must be set to the OWNER database connection");
         return ExitCode::from(2);

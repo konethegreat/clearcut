@@ -205,14 +205,24 @@ pub struct Failure {
     /// A short machine-readable message, kept on the job. It must not contain
     /// invoice content. (Longer text is trimmed to fit.)
     pub message: String,
+    /// When to try again, if the handler knows better than the policy (a provider's own
+    /// `retry-after`, or a short wait for a key to be set). Only used for a kind that retries.
+    pub retry_after: Option<std::time::Duration>,
 }
 
 impl Failure {
+    /// Asks for this wait before the next run instead of the policy's.
+    pub fn with_retry_after(mut self, after: std::time::Duration) -> Self {
+        self.retry_after = Some(after);
+        self
+    }
+
     /// A hiccup worth retrying with backoff; counts against the attempts.
     pub fn transient(message: impl Into<String>) -> Self {
         Failure {
             kind: FailureKind::Transient,
             message: message.into(),
+            retry_after: None,
         }
     }
 
@@ -222,6 +232,7 @@ impl Failure {
         Failure {
             kind: FailureKind::ProviderUnavailable,
             message: message.into(),
+            retry_after: None,
         }
     }
 
@@ -231,6 +242,7 @@ impl Failure {
         Failure {
             kind: FailureKind::NeedsReview,
             message: message.into(),
+            retry_after: None,
         }
     }
 }
@@ -665,12 +677,13 @@ impl<H: Handler> Runner<H> {
         let result = self
             .inner
             .store
-            .fail_job(
+            .fail_job_after(
                 claimed,
                 failure.kind,
                 &failure.message,
                 &self.inner.config.retry(),
                 unit,
+                failure.retry_after,
             )
             .await;
         match result {

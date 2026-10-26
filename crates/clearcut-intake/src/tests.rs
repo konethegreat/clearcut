@@ -707,7 +707,13 @@ async fn a_document_is_erased_with_its_file_but_not_while_a_job_works_on_it(pool
         .unwrap();
     assert_eq!(stored_files(&f.dir), 1);
 
-    // Queued: refused, nothing removed. Another tenant cannot see it exists.
+    // Running: refused, nothing removed. Another tenant cannot see it exists.
+    sqlx::query(
+        "update jobs set state = 'running', started_at = now(), attempts = 1, lease_token = gen_random_uuid(),          leased_by = 'test', lease_expires_at = now() + interval '1 minute'",
+    )
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(matches!(
         f.intake.erase(&f.writer, done.document).await,
         Err(IntakeError::Busy)
@@ -724,9 +730,12 @@ async fn a_document_is_erased_with_its_file_but_not_while_a_job_works_on_it(pool
         Err(IntakeError::Forbidden(_))
     ));
 
-    // Once the job has ended it is erased: the row, the job and the file go; the audit entry
-    // that names it (and holds no content) stays.
-    sqlx::query("update jobs set state = 'needs_review', finished_at = now()")
+    // Merely waiting (queued): the job is cancelled and the document erased, so a document that
+    // waits for a key can be deleted. The row, the job and the file go; the audit entry that
+    // names it (and holds no content) stays.
+    sqlx::query(
+        "update jobs set state = 'queued', started_at = null, lease_token = null, leased_by = null,          lease_expires_at = null",
+    )
         .execute(&pool)
         .await
         .unwrap();

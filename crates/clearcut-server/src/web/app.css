@@ -59,6 +59,7 @@ body {
 }
 .brand { font-weight: 700; font-size: 18px; color: var(--ink); text-decoration: none; letter-spacing: 0.2px; }
 .bar-space { flex: 1; }
+.nav { color: var(--accent); }
 main { width: 100%; max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; flex: 1; }
 footer { padding: 16px 24px; color: var(--muted); font-size: 14px; text-align: center; border-top: 1px solid var(--line); }
 h1 { font-size: 24px; margin: 0 0 4px; overflow-wrap: anywhere; }

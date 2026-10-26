@@ -2,6 +2,17 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 53) — users' own keys, steps 2 to 4 (ADR-0019)
+**Done**
+- `clearcut-keys` (new crate): the rules for a tenant's key. `set` needs `keys:admin`, refuses an admin key or a login token locally, asks Anthropic (the free models call) and stores nothing unless it accepts, seals with the tenant bound in, audits without the value. `resolve` gives a job the tenant's key; the server's own key only in `shared` mode; a key Anthropic refused is **not** quietly replaced by the server's. `remove`, `status`, `mark_rejected`. 5 tests against a real database and a fake Anthropic.
+- REST: `PUT/GET/DELETE /v1/anthropic-key` (`keys:admin`); the key is in no response, header, log, audit row or error (sentinel tests); a body that does not parse is answered with a fixed sentence.
+- The runner is **per tenant**: `ProviderSource` in the pipeline; a tenant with no usable key has its document analysed and then waits (`provider unavailable`, no attempt used, retry in 60 s); a key Anthropic refuses at run time is marked refused and the job waits. `Failure` can now carry its own `retry_after` (closing the old gap: a provider's `retry-after` and the key wait are honoured), `Store::fail_job_after`.
+- `CLEARCUT_KEY_MODE` (`shared` default, `tenant-only` for deployments; the server refuses `tenant-only` without a master key), `CLEARCUT_MASTER_KEY` or `_FILE`, `clearcut-admin generate-master-key` (no database needed).
+- Settings screen (status, paste, save, remove, plain advice), a "waiting for your Anthropic key" message on the document, and `docs/BYOK.md` section 3b.
+- Found by trying it: a document waiting for a key has a queued job, which blocked deleting it. Deleting now cancels a **waiting** job first and refuses only a **running** one.
+- **Tried for real** on the running stack (tenant-only): the Settings page, a bogus key refused by Anthropic's own check (free), an admin key refused locally, and a document analysed then waiting with 0 attempts and 0 model calls.
+- Not done: automatic rotation of the master key, MCP tools for the key, and the shared month ledger (P2-12).
+
 ## 2026-10-26 (part 52) — users' own keys, step 1 (ADR-0019)
 **Done**
 - ADR-0019 accepted by Kone as written (default `shared`, `tenant-only` as the deployment setting, `keys:admin` only); #82, #83 (TimeLex answers) and #84 merged.

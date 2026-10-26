@@ -65,8 +65,11 @@ use clearcut_store::{AuditEntry, DocId, Job, Store, StoredFile, TenantId};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::num::NonZeroU32;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 use time::UtcOffset;
 use tokio::io::AsyncReadExt;
 
@@ -183,6 +186,52 @@ struct Models<M> {
     settings: ReadSettings,
 }
 
+impl<M> Clone for Models<M> {
+    fn clone(&self) -> Self {
+        Models {
+            provider: self.provider.clone(),
+            settings: self.settings.clone(),
+        }
+    }
+}
+
+/// Why a tenant has no model provider just now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoProvider {
+    /// No key this tenant may use: the job waits until one is set.
+    NoKey,
+    /// The tenant's own key was refused: it must be set again.
+    Rejected,
+}
+
+pub type ProviderFuture<'a, M> = Pin<Box<dyn Future<Output = Result<Arc<M>, NoProvider>> + Send + 'a>>;
+pub type NoticeFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
+/// Where a job gets its model provider: one per tenant, because each tenant brings its own Anthropic
+/// key (ADR-0019). The pipeline knows nothing about keys; it asks, and waits if there is none.
+pub trait ProviderSource<M>: Send + Sync + 'static {
+    /// The provider for this tenant's job.
+    fn provider<'a>(&'a self, tenant: TenantId) -> ProviderFuture<'a, M>;
+
+    /// The provider refused the tenant's key during a job.
+    fn key_rejected<'a>(&'a self, tenant: TenantId) -> NoticeFuture<'a>;
+}
+
+/// How a handler gets its provider.
+enum ModelSupply<M> {
+    /// One provider for every job (tests, and a single-owner server).
+    Fixed(Models<M>),
+    /// One per tenant.
+    PerTenant {
+        source: Arc<dyn ProviderSource<M>>,
+        settings: ReadSettings,
+    },
+}
+
+/// How long a job waits for a key to be set before looking again. Setting a key starts it within
+/// about this long.
+const KEY_WAIT: Duration = Duration::from_secs(60);
+
 /// Why a run stopped before the end: cancelled, or failed in a way the queue decides on.
 enum Stop {
     Cancelled,
@@ -211,6 +260,7 @@ fn worker_failure(error: &ProcessError) -> Stop {
     Stop::Failed(Failure {
         kind: error.failure_kind(),
         message: error.to_string(),
+        retry_after: None,
     })
 }
 
@@ -242,7 +292,7 @@ pub struct PipelineHandler<O, P, M = NoModel> {
     objects: O,
     worker: Arc<P>,
     config: PipelineConfig,
-    models: Option<Models<M>>,
+    models: Option<ModelSupply<M>>,
 }
 
 impl<O, P> PipelineHandler<O, P, NoModel> {
@@ -273,7 +323,23 @@ impl<O, P, M> PipelineHandler<O, P, M> {
             objects: self.objects,
             worker: self.worker,
             config: self.config,
-            models: Some(Models { provider, settings }),
+            models: Some(ModelSupply::Fixed(Models { provider, settings })),
+        }
+    }
+
+    /// Gives the handler a provider **per tenant** (each tenant brings its own key). A job whose
+    /// tenant has no usable key is analysed, then waits (without using up attempts) until one is set.
+    pub fn with_provider_source<M2: ModelProvider>(
+        self,
+        source: Arc<dyn ProviderSource<M2>>,
+        settings: ReadSettings,
+    ) -> PipelineHandler<O, P, M2> {
+        PipelineHandler {
+            store: self.store,
+            objects: self.objects,
+            worker: self.worker,
+            config: self.config,
+            models: Some(ModelSupply::PerTenant { source, settings }),
         }
     }
 }
@@ -282,7 +348,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
     async fn run(&self, job: &Job, ctx: &JobContext) -> Step<Finished> {
         let (tenant, document) = (job.tenant, job.document);
         let analysed = self.already_analysed(ctx, tenant, document).await?;
-        let Some(models) = &self.models else {
+        let Some(supply) = &self.models else {
             if !analysed {
                 let bytes = self.load_file(tenant, document).await?;
                 self.analyse(ctx, tenant, document, &bytes).await?;
@@ -293,7 +359,38 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
         if !analysed {
             self.analyse(ctx, tenant, document, &bytes).await?;
         }
-        self.read_pages(ctx, job, &bytes, models).await
+        let models = match supply {
+            ModelSupply::Fixed(models) => models.clone(),
+            ModelSupply::PerTenant { source, settings } => match source.provider(tenant).await {
+                Ok(provider) => Models {
+                    provider,
+                    settings: settings.clone(),
+                },
+                // Not a failure of the document: it waits, and starts soon after a key is set.
+                Err(NoProvider::NoKey) => {
+                    return Err(Stop::Failed(
+                        Failure::provider_unavailable("waiting for an Anthropic key: set one in Settings")
+                            .with_retry_after(KEY_WAIT),
+                    ));
+                }
+                Err(NoProvider::Rejected) => {
+                    return Err(Stop::Failed(
+                        Failure::provider_unavailable(
+                            "the Anthropic key was refused: set a new one in Settings",
+                        )
+                        .with_retry_after(KEY_WAIT),
+                    ));
+                }
+            },
+        };
+        self.read_pages(ctx, job, &bytes, &models).await
+    }
+
+    /// Tells the provider source the tenant's own key was refused during a job.
+    async fn key_was_rejected(&self, tenant: TenantId) {
+        if let Some(ModelSupply::PerTenant { source, .. }) = &self.models {
+            source.key_rejected(tenant).await;
+        }
     }
 
     /// The document's file, read out of storage and checked against its record.

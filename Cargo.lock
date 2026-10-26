@@ -366,9 +366,11 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 name = "clearcut-admin"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "clearcut-core",
  "clearcut-store",
+ "getrandom 0.4.3",
  "serde_json",
  "sqlx",
  "thiserror",
@@ -464,6 +466,22 @@ dependencies = [
  "clearcut-core",
  "clearcut-store",
  "getrandom 0.4.3",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "clearcut-keys"
+version = "0.1.0"
+dependencies = [
+ "clearcut-anthropic",
+ "clearcut-core",
+ "clearcut-store",
  "serde_json",
  "sqlx",
  "thiserror",
@@ -571,6 +589,7 @@ dependencies = [
  "clearcut-docproc",
  "clearcut-intake",
  "clearcut-jobs",
+ "clearcut-keys",
  "clearcut-objects",
  "clearcut-pipeline",
  "clearcut-store",

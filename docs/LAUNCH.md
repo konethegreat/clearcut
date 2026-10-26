@@ -11,7 +11,7 @@ _Kone Tshivhinda & Claude, 26 Oct 2026. The one place that says what is done, wh
 - **Review:** a person corrects and confirms a page the reader could not settle; recorded as theirs, no model call.
 - **Delete:** a document, everything read from it and its file are erased for good (POPIA); a content-free record of the deletion stays.
 - Tenants, API keys with scopes, row-level security, audit log; the web page (sign in, upload, list, report, review, delete); `docker compose up` on your own computer with the worker and database isolated.
-- Your own key on your own computer (mode A): environment or file, never printed, never in the worker.
+- Your own key on your own computer (mode A): environment or file, never printed, never in the worker. **Each account's own key on a deployed service (mode B)**: stored encrypted, write-only, used per job.
 - Prompt-injection handling: document text is data; flagged pages get a person's eyes before "done".
 
 ## 2. Being built, in this order
@@ -19,7 +19,7 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 
 | # | What | Why it is on the list |
 |---|---|---|
-| 1 | **Users' own keys on a deployed service (ADR-0011 mode B)**: each tenant stores its own Anthropic key, **encrypted at rest** (AES-256-GCM, the tenant id bound in), write-only (never shown again, only the last four characters and whether it works), set / replace / delete, audited, and the job runner uses the **tenant's** key. An operator switch turns the shared server key off, so on a deployment **every user must bring their own**. A key-settings screen in the web page. **[Kone: the migration SQL, shown first]** | Deployment: "users input their own key". Also what TimeLex needs: set the key once through the API. |
+| 1 | ~~**Users' own keys on a deployed service (ADR-0011 mode B, ADR-0019)**~~ **Built**: each tenant's key stored encrypted (AES-256-GCM, tenant bound in), write-only (`PUT/GET/DELETE /v1/anthropic-key`, `keys:admin`), the job runner uses the tenant's key, `CLEARCUT_KEY_MODE=tenant-only` never uses the server's, a document with no key is analysed and waits, a Settings screen, `generate-master-key`. **Remaining:** the master key is not yet rotated automatically (re-enter keys to rotate) | Deployment: users input their own key; TimeLex sets it once through the API. |
 | 2 | **TimeLex answers and contract**: `docs/integration/timelex.md` (key lifecycle, quality-gate pattern, pro-forma room, programmatic tenants), OpenAPI file for the REST API (P1-08), idempotency keys on mutating calls (P1-05), the invoice calculation kept stable with a cents test pair | Another product depends on a stable contract. |
 | 3 | **Exports in the formats promised**: PDF, Excel, Word, HTML, plain text, all from stored events through one export schema (P4-01 to P4-07) | Part of the product's core promise; only JSON, CSV and Markdown exist. |
 | 4 | **MCP server up to date and complete**: the 2026-07-28 spec, tools `upload_document`, `get_events`, `narrate_document`, `export_document`, `review_extraction` (P1-06, P2-11, P3-10, P4-09) | The agent front door; today it has 3 tools. |
@@ -49,7 +49,7 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 | A second person approving a review | A customer needs separation of duties |
 
 ## 5. Known limits today (so nothing is a surprise)
-- The server key is one shared key unless item 1 is done: fine on your own computer, **not for a service with other people's money**.
+- Set `CLEARCUT_KEY_MODE=tenant-only` on any deployment: in the default `shared` mode the server's own key fills in for an account with none, which is right for your own computer and wrong for other people's money.
 - One document is read at a time (deliberate until item 5).
 - No HTTPS in the compose file; the page is bound to this computer only.
 - If saving a review succeeds but queueing the finishing job fails, the document waits until a job is queued.

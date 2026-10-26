@@ -1609,3 +1609,109 @@ async fn a_page_a_person_confirmed_finishes_the_document_without_asking_a_model(
         .filter(|e| matches!(e.extractor(), Extractor::Human { .. } | Extractor::Model { .. }))
         .all(|e| matches!(e.extractor(), Extractor::Human { user } if user == "api_key:test")));
 }
+
+// ---------- a provider per tenant (ADR-0019) ----------
+
+/// A provider source that has a key only once it is switched on, and remembers a rejection.
+struct Switch {
+    provider: FakeProvider,
+    on: std::sync::atomic::AtomicBool,
+    rejected: std::sync::Mutex<Vec<TenantId>>,
+}
+
+impl ProviderSource<FakeProvider> for Switch {
+    fn provider<'a>(&'a self, _tenant: TenantId) -> ProviderFuture<'a, FakeProvider> {
+        Box::pin(async move {
+            if self.on.load(std::sync::atomic::Ordering::SeqCst) {
+                Ok(Arc::new(self.provider.clone()))
+            } else {
+                Err(NoProvider::NoKey)
+            }
+        })
+    }
+
+    fn key_rejected<'a>(&'a self, tenant: TenantId) -> NoticeFuture<'a> {
+        Box::pin(async move { self.rejected.lock().unwrap().push(tenant) })
+    }
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_document_with_no_key_is_analysed_then_waits_and_is_read_once_a_key_is_set(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for(&[PAGE_ONE]);
+    let switch = Arc::new(Switch {
+        provider: FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        on: std::sync::atomic::AtomicBool::new(false),
+        rejected: std::sync::Mutex::new(Vec::new()),
+    });
+    let handler = |worker: &Arc<FakeWorker>| {
+        w.handler(worker, PipelineConfig::default()).with_provider_source(
+            switch.clone() as Arc<dyn ProviderSource<FakeProvider>>,
+            settings(),
+        )
+    };
+    let doc = w.document(FILE).await;
+    let job = w.enqueue(doc).await;
+
+    // No key: the page is analysed, nothing is sent anywhere, and the job waits a minute without
+    // using up an attempt.
+    let report = w.run(handler(&worker)).await;
+    assert_eq!(
+        report.ended,
+        Ended::Retrying {
+            after: Duration::from_secs(60),
+            counts: false
+        }
+    );
+    assert!(w
+        .job(job)
+        .await
+        .last_error
+        .unwrap()
+        .contains("waiting for an Anthropic key"));
+    assert!(w.calls(doc).await.is_empty());
+    assert_eq!(w.store.load_page_reads(w.tenant, doc).await.unwrap().len(), 1);
+
+    // A key is set: the next run reads and finishes the document.
+    switch.on.store(true, std::sync::atomic::Ordering::SeqCst);
+    let again = Runner::new(w.store.clone(), handler(&worker), fast());
+    sqlx::query("update jobs set run_after = now() where id = $1")
+        .bind(job)
+        .execute(&w.pool)
+        .await
+        .unwrap();
+    let report = again.run_once().await.unwrap().expect("the job was due");
+    assert_eq!(
+        report.ended,
+        Ended::Succeeded,
+        "{:?}",
+        w.job(job).await.last_error
+    );
+    assert_eq!(w.status(doc).await, DocumentStatus::Done);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_key_the_provider_refuses_is_reported_to_its_source_and_the_job_waits(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for(&[PAGE_ONE]);
+    let switch = Arc::new(Switch {
+        provider: FakeProvider::scripted(vec![Err(ProviderError::Auth)]),
+        on: std::sync::atomic::AtomicBool::new(true),
+        rejected: std::sync::Mutex::new(Vec::new()),
+    });
+    let handler = w
+        .handler(&worker, PipelineConfig::default())
+        .with_provider_source(
+            switch.clone() as Arc<dyn ProviderSource<FakeProvider>>,
+            settings(),
+        );
+    let doc = w.document(FILE).await;
+    w.enqueue(doc).await;
+    let report = w.run(handler).await;
+    assert!(
+        matches!(report.ended, Ended::Retrying { counts: false, .. }),
+        "{:?}",
+        report.ended
+    );
+    assert_eq!(*switch.rejected.lock().unwrap(), [w.tenant]);
+}

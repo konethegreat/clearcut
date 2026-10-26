@@ -496,3 +496,21 @@ async fn the_whole_bootstrap_works_end_to_end(pool: PgPool) {
     assert_eq!(TenantId(principal.tenant()).0, tenant);
     let _ = keys::KEY_PREFIX;
 }
+
+#[test]
+fn a_generated_master_key_is_32_random_bytes_of_base64_on_stdout_alone() {
+    use base64::Engine;
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    generate_master_key(&mut out, &mut err).unwrap();
+    let line = String::from_utf8(out).unwrap();
+    assert_eq!(line.matches('\n').count(), 1, "only the key, on one line");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(line.trim())
+        .unwrap();
+    assert_eq!(bytes.len(), 32);
+    // The notes never contain the key, and two keys differ.
+    assert!(!String::from_utf8(err).unwrap().contains(line.trim()));
+    let mut again = Vec::new();
+    generate_master_key(&mut again, &mut Vec::new()).unwrap();
+    assert_ne!(String::from_utf8(again).unwrap(), line);
+}

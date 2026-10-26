@@ -16,6 +16,7 @@ clearcut-anthropic = { path = "../clearcut-anthropic" }
 clearcut-core = { path = "../clearcut-core" }
 clearcut-docproc = { path = "../clearcut-docproc" }
 clearcut-intake = { path = "../clearcut-intake" }
+clearcut-keys = { path = "../clearcut-keys" }
 clearcut-jobs = { path = "../clearcut-jobs" }
 clearcut-objects = { path = "../clearcut-objects" }
 clearcut-pipeline = { path = "../clearcut-pipeline" }

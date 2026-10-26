@@ -18,6 +18,7 @@
 //! - **The key is never logged**, and the header is marked sensitive so even a
 //!   `Debug` print of the request headers shows it redacted.
 
+use crate::anthropic_key::KeyAdmin;
 use crate::documents::Ingest;
 use crate::jobs::JobQueue;
 use crate::results::Results;
@@ -76,6 +77,7 @@ pub struct AppState {
     jobs: Option<Arc<dyn JobQueue>>,
     results: Option<Arc<dyn Results>>,
     reviews: Option<Arc<dyn Reviews>>,
+    keys: Option<Arc<dyn KeyAdmin>>,
 }
 
 impl AppState {
@@ -86,6 +88,7 @@ impl AppState {
             jobs: None,
             results: None,
             reviews: None,
+            keys: None,
         }
     }
 
@@ -96,6 +99,7 @@ impl AppState {
             jobs: None,
             results: None,
             reviews: None,
+            keys: None,
         }
     }
 
@@ -121,6 +125,16 @@ impl AppState {
     pub fn with_reviews(mut self, reviews: impl Reviews) -> Self {
         self.reviews = Some(Arc::new(reviews));
         self
+    }
+
+    /// Turns on the tenant's Anthropic key endpoints. Without it they answer 503.
+    pub fn with_keys(mut self, keys: impl KeyAdmin) -> Self {
+        self.keys = Some(Arc::new(keys));
+        self
+    }
+
+    pub(crate) fn keys(&self) -> Option<&dyn KeyAdmin> {
+        self.keys.as_deref()
     }
 
     pub(crate) fn reviews(&self) -> Option<&dyn Reviews> {

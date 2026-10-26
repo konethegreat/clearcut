@@ -4,6 +4,7 @@
 //!
 //! Every route except `/health` requires an API key (ADR-0007); see [`auth`].
 
+mod anthropic_key;
 mod auth;
 mod documents;
 mod jobs;
@@ -11,6 +12,7 @@ mod results;
 mod review;
 mod web;
 
+pub use anthropic_key::{KeyAdmin, KeysFuture};
 pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
 pub use documents::{EraseFuture, Ingest, IngestFuture, UploadBody};
 pub use jobs::{JobQueue, QueueFuture};
@@ -50,6 +52,12 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/documents/{id}/review", get(review::waiting))
         .route("/v1/documents/{id}/pages/{page}/review", post(review::confirm))
         .route("/v1/jobs/{id}/cancel", post(jobs::cancel))
+        .route(
+            "/v1/anthropic-key",
+            get(anthropic_key::status)
+                .put(anthropic_key::set)
+                .delete(anthropic_key::remove),
+        )
         .route("/v1/invoices/calculate", post(calculate))
 }
 

@@ -65,6 +65,40 @@ Two optional settings: `ANTHROPIC_WORKSPACE_ID` (only if your key is not tied to
 and `CLEARCUT_ANTHROPIC_BASE_URL` (only for a local gateway; it must be `https`, or `http` to this
 computer; it is the operator's setting and never something a user of a hosted ClearCut can choose).
 
+## 3b. Everyone brings their own key: a deployed service (ADR-0019)
+
+On your own computer one key in `.env` is enough (section 3). **When ClearCut is deployed for other
+people, each account brings its own key**, so nobody's documents are read on someone else's money.
+
+**For the person running the service**
+1. Make a master key once: `docker compose run --rm admin generate-master-key` (or
+   `cargo run -p clearcut-admin -- generate-master-key`). It prints one line. Put it in `.env` as
+   `CLEARCUT_MASTER_KEY=<that line>` (or point `CLEARCUT_MASTER_KEY_FILE` at a file holding it) and **keep a copy
+   somewhere safe**: without it every stored key is unreadable and has to be entered again. Keep it apart from the
+   database and its backups: the database alone, or the master key alone, reveals nothing.
+2. Set `CLEARCUT_KEY_MODE=tenant-only` in `.env`. Then the server's own `ANTHROPIC_API_KEY` is **never** used: an
+   account with no key of its own has its documents analysed and then wait. (`shared`, the default, lets the server's
+   key fill in for an account that has none: right for your own computer, wrong for other people's money.) The server
+   refuses to start in `tenant-only` mode without a master key.
+
+**For each user (or for TimeLex, once per tenant)**
+- In the web page: **Settings**, paste the key, **Save key**. ClearCut asks Anthropic what the key can do (a free call,
+  no tokens), refuses one Anthropic rejects, an admin key or a login token, and otherwise stores it **encrypted**
+  (AES-256-GCM, tied to your account so it cannot be moved to another). It is **never shown again**: only its last four
+  characters and whether Anthropic accepts it. **Remove my key** deletes it.
+- Through the API (needs a ClearCut key with `keys:admin`): `PUT /v1/anthropic-key` with `{ "key": "sk-ant-..." }`,
+  `GET /v1/anthropic-key` (status), `DELETE /v1/anthropic-key`. Nothing ever answers with the key.
+- A document uploaded before a key is set is analysed and then **waits** (no attempts used, no cost) and starts within a
+  minute of the key being saved. If Anthropic later refuses the key, the key is marked refused, documents wait, and the
+  page asks for a new one. A refused key is never quietly replaced by the server's.
+- Your own spend limit in the Anthropic Console is the one that cannot be bypassed; ClearCut's R5 a document and R100
+  a month are a second line.
+
+**What this protects, and what it does not.** A stolen database or backup holds only ciphertext. A stolen master key
+without the database is useless. A stolen copy of **both** reads every key, so keep them apart. A compromised service
+process holds the master key and can use any account's key, as the job runner does; that is why the advice is a
+dedicated key with a spend limit and an expiry.
+
 ## 4. Check the key (free)
 
 ```text

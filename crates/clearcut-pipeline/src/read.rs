@@ -201,9 +201,14 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                             tracing::warn!(%error, "the carry of an interrupted page could not be stored");
                         }
                     }
+                    if interruption.key_rejected {
+                        self.key_was_rejected(tenant).await;
+                    }
                     return Err(Stop::Failed(Failure {
                         kind: interruption.failure,
                         message: interruption.message,
+                        // What the provider asked for (a spend cap resets at a known time), when it said.
+                        retry_after: interruption.retry_after,
                     }));
                 }
             }

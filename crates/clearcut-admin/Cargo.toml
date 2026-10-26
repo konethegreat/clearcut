@@ -16,9 +16,11 @@ name = "clearcut-admin"
 path = "src/main.rs"
 
 [dependencies]
+base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 clearcut-core = { path = "../clearcut-core" }
 clearcut-store = { path = "../clearcut-store" }
+getrandom = "0.4.3"
 serde_json = "1.0.154"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres"] }
 thiserror = "2.0.21"

@@ -305,6 +305,8 @@ pub struct Interruption {
     pub message: String,
     /// When the provider said it is worth trying again.
     pub retry_after: Option<Duration>,
+    /// The user's key itself was refused: it must be replaced (a tenant's stored key is marked so).
+    pub key_rejected: bool,
     /// Store this and pass it back to `read_page` to carry on.
     pub carry: Carry,
     /// The calls of this run, including the one that failed.
@@ -326,6 +328,7 @@ struct Trouble {
     failure: FailureKind,
     message: String,
     retry_after: Option<Duration>,
+    key_rejected: bool,
 }
 
 impl Trouble {
@@ -334,6 +337,7 @@ impl Trouble {
             failure: error.failure_kind(),
             message: error.to_string(),
             retry_after: None,
+            key_rejected: false,
         }
     }
 
@@ -342,6 +346,7 @@ impl Trouble {
             failure: FailureKind::Transient,
             message: message.to_string(),
             retry_after: None,
+            key_rejected: false,
         }
     }
 }
@@ -615,6 +620,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                         failure: trouble.failure,
                         message: trouble.message,
                         retry_after: trouble.retry_after,
+                        key_rejected: trouble.key_rejected,
                         carry: Carry {
                             machine: run.machine,
                             best: run.best,
@@ -900,6 +906,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                     failure,
                     message: error.to_string(),
                     retry_after: error.retry_after(),
+                    key_rejected: error.key_rejected(),
                 });
             }
         };
@@ -1003,6 +1010,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 failure: FailureKind::NeedsReview,
                 message: "a rung asks for a picture size the worker does not draw".to_string(),
                 retry_after: None,
+                key_rejected: false,
             })?;
         let rendered = self
             .worker
