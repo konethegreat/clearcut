@@ -15,6 +15,12 @@ export interface LineItem {
   quantity_milli: number;
   unit_price: Money;
   tax: TaxCategory;
+  /**
+   * The line amount as you have already worked it out (excluding VAT, minor units). When given it
+   * is used as it is and quantity and unit price are informational; absent, the line is quantity
+   * times unit price. Same currency as `unit_price`.
+   */
+  line_total?: Money;
 }
 
 export interface Invoice {

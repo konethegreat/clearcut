@@ -210,6 +210,43 @@ async fn an_empty_invoice_is_still_unprocessable_for_an_authenticated_caller() {
 }
 
 #[tokio::test]
+async fn a_line_total_given_by_the_caller_is_used_as_given_and_older_callers_are_unchanged() {
+    // The pair in docs/integration/timelex.md: 1.5 hours at R333.33 is computed as R500.00, and a
+    // caller that has priced the line itself at R499.99 is not rounded again.
+    let (app, _) = app_with_fake();
+    let calculate = |line_total: &str| {
+        let body = format!(
+            r#"{{"number":"T","currency":"ZAR","status":"draft","lines":[{{"description":"Advice","quantity_milli":1500,"unit_price":{{"minor":33333,"currency":"ZAR"}},"tax":"standard"{line_total}}}]}}"#
+        );
+        Request::post("/v1/invoices/calculate")
+            .header(header::AUTHORIZATION, bearer(READER))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .unwrap()
+    };
+    let (status, _, body) = send(&app, calculate("")).await;
+    assert_eq!(status, StatusCode::OK);
+    let totals = &json(&body)["totals"];
+    assert_eq!(
+        (totals["net"]["minor"].as_i64(), totals["gross"]["minor"].as_i64()),
+        (Some(50_000), Some(57_500))
+    );
+
+    let given = r#","line_total":{"minor":49999,"currency":"ZAR"}"#;
+    let (status, _, body) = send(&app, calculate(given)).await;
+    assert_eq!(status, StatusCode::OK);
+    let totals = &json(&body)["totals"];
+    assert_eq!(
+        (
+            totals["net"]["minor"].as_i64(),
+            totals["vat"]["minor"].as_i64(),
+            totals["gross"]["minor"].as_i64()
+        ),
+        (Some(49_999), Some(7_500), Some(57_499))
+    );
+}
+
+#[tokio::test]
 async fn authentication_happens_before_the_body_is_looked_at() {
     // Garbage with no credentials must be a 401, not a 400/415/422 that tells
     // an anonymous caller about the API's parsing.
