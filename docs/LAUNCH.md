@@ -26,7 +26,7 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 | 5 | **Protecting users' money**: ~~the spend gate for documents at the same time~~ **closed by construction**: `CLEARCUT_RUNNER_CONCURRENCY` (1 to 16) documents are read at once but **never two of the same account** (a cap of one job per tenant), and each document's budget is rebuilt from that account's call log, so there is nothing to race on; the month's spend is already summed per account from the call log; a provider's `retry-after` and a missing or refused key wait without using attempts. **Remaining:** log each call as it happens so a crash mid-page cannot lose one (see known limits), and the adaptive rate-limit client (P2-24), which only matters once one key serves several jobs at once, which the cap prevents | A user's own money must not be spent by a bug or a race. |
 | 6 | **Hardening**: terminal-state guarantee with chaos tests (P2-18: every job ends `done` or `needs_review`), duplicate-invoice detection (P2-08), carried balances and statement totals across pages (P2-07) | Correctness on real documents. |
 | 7 | **Deploy path**: ~~CI builds the images and runs the stack~~ done (a `compose` job: the compose files, the build, the restricted login, a document analysed and held for a key); ~~HTTPS~~ done (`--profile https`, Caddy with automatic certificates); ~~`docs/DEPLOY.md`~~ done (setup, checks, backups, upgrades, safety). **Remaining:** S3-compatible storage, the hosted-trial path (ADR-0015, waits for a decision on who runs it), and some automation of backups | Something others can run. |
-| 8 | **Security review and threat model** (P8-05) including prompt injection from documents and the key store; **POPIA drafts**: privacy notice and operator agreement templates, retention and deletion description, for a lawyer to review | Before anyone else's invoices. |
+| 8 | ~~**Security review and threat model** (P8-05)~~ **done**: [THREAT-MODEL.md](THREAT-MODEL.md) (what is protected, who attacks, 15 threats with what stops each and what is left, the 9 real findings reviews have made, an outside reviewer's brief); a **dependency audit** in CI (Rust, npm, Python; on lock-file changes and weekly; found and fixed one cryptography advisory and documents an exception for three `zip` extraction advisories we cannot trigger). ~~**POPIA drafts**~~ **drafted for a lawyer** ([docs/privacy/](privacy/README.md): a data map with retention and deletion, a privacy notice template, an operator agreement outline; **not reviewed by a lawyer, not ready to publish**). **Remaining:** an attorney's review (yours to arrange), an automatic retention period, a per-account storage quota and request rate limit | Before anyone else's invoices. |
 | 9 | **Review and audit UX**: the page picture beside the form, reject or re-read a page, an audit-trail view, citation jump-to-source (P3-08, P5-02, P5-04), raw output and prompt versions stored for reproducibility (P3-09) | Makes review fast and results traceable. |
 
 ## 3. Only Kone can do these
@@ -35,6 +35,8 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 - **Anthropic terms**: confirm retention and zero-data-retention for the models in use (research 06 section 8: Fable 5.1 is 30-day retention).
 - **Hosting and a domain**, when a hosted trial or service is wanted.
 - **Which documents beyond invoices** (bank, payment-processor, supplier statements) for fee reconciliation (P2-21), and whose taxonomy for line categories (P2-22).
+
+- **Attorney review** of the drafts in [docs/privacy/](privacy/README.md) (a notice, an operator agreement, the transfer to Anthropic outside South Africa) and the breach procedure.
 
 ## 4. Deliberately later (and what brings each back)
 | Item | Comes back when |
@@ -58,3 +60,6 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 - A file whose deletion fails after its rows were erased is left behind (reported in the log) for a sweep that does not exist yet.
 - Deleting a document is not locked against a job queued, or the same bytes uploaded again, in the same instant: the first makes that job fail on its foreign keys (nothing is written), the second can leave a row whose file is missing (reported as "file missing", fixed by uploading again). Both need a lock inside the database function; it goes into the next migration (item 1).
 - Nothing is encrypted at rest in the database or file store: use disk encryption on the host.
+- **Nothing is deleted automatically**: an account's documents stay until it deletes them (no retention period is built), and a deleted document stays in older backups until they expire.
+- No per-account storage quota or request rate limit: a signed-in user could fill the disk.
+- No search across an account's documents by a person's name (needed to answer a data-subject request quickly).

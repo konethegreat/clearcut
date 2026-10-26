@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 60) — security review, dependency audit and POPIA drafts (LAUNCH item 8)
+**Done**
+- **`docs/THREAT-MODEL.md`**: assets, attackers, trust boundaries, **15 threats each with what stops it, where it is tested and what is left**, the **9 real findings** reviews have made so far (under-reserved budgets, free timeouts, an inline retry that spent twice, injection pages ending done, a worker next to a passwordless database, CRLF migrations, an erase race, a Windows network path, a cryptography advisory), the open gaps in the order worth closing, and what to give an outside reviewer. Claims were checked against the code; two were tightened.
+- **Dependency audit** (`cargo audit`, `npm audit`, `pip-audit`; a new `audit.yml` runs on lock-file changes and every Monday): it found **4 Rust advisories**: `ctutils` (non-constant-time comparisons in a cryptography helper) **fixed by upgrading**; and three on `zip` 8.6 that all concern *extracting* archives, which arrive through the Word library and **cannot be triggered because ClearCut only writes ZIP files**: recorded with that reason in `.cargo/audit.toml`, to be removed when the Word library moves to `zip` 9. npm and Python: clean. Switching off the PDF library's unused HTML layout removed an unmaintained `bincode` and a large part of the dependency tree (the PDF was re-checked: unchanged).
+- **`docs/privacy/`** (for an attorney to review; **not legal advice, not reviewed**): the data map with retention and erasure for every kind of data, a privacy notice template, an operator agreement outline, and the five questions only a person can answer (who is the responsible party, the Information Officer, the transfer to Anthropic, the retention period, the breach procedure).
+- Gaps the drafts surfaced, now on the checklist: **nothing is deleted automatically** (no retention period), **no per-account storage quota or rate limit**, **no search across documents by a person's name**.
+- Not done: the attorney's review (yours to arrange), an outside penetration test.
+
 ## 2026-10-27 (part 59) — the deploy path (LAUNCH item 7)
 **Done**
 - **CI runs the whole stack** (a new `compose` job): throwaway random `.env`, both compose files validated, `docker compose up --build`, the server answers, the page loads, an unauthenticated call is `401`, and a real (generated, valid) PDF goes in and ends **analysed and held for an Anthropic key**: that proves the images build, the database and the restricted login work, the worker is reachable from the server, and the runner is wired. The job was **rehearsed locally first** in a separate compose project (your stack was stopped and restored, your `.env` checked identical).
