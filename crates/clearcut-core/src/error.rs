@@ -19,6 +19,8 @@ pub enum Error {
     EmptyInvoice,
     #[error("quantity must be positive")]
     InvalidQuantity,
+    #[error("invalid extraction: {0}")]
+    InvalidExtraction(&'static str),
     #[error("invalid event: {0}")]
     InvalidEvent(&'static str),
     #[error("invalid narration: {0}")]

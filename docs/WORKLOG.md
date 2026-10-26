@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 45) — pages become a document: assemble, check, events, done
+**Done** (PR #70 merged first; faster pace by Kone's request: fewer tests, no ADR gate for this step)
+- `clearcut_core::assemble`: puts the pages' extractions together. Lines go in page order; everything printed once per document (invoice number, date, supplier, recipient, due date, credit-note reference, printed totals) comes from the first page that has it; a page that disagrees is a `Conflict` named from a fixed list and the document goes to a person (nothing is merged quietly). `Finding::is_blocking` says which checks stop a document being `done` (a wrong sum, an impossible quantity, no lines) and which are only facts shown to the reader (a due date before the invoice date, a tax-invoice rule).
+- The pipeline: when every page was read, the document is assembled, validated as a whole (this is where "the lines add up to the printed total" is finally judged, across pages), its events are stored, and the job ends **done**. If the pages disagree or the checks find a problem the events are still stored (they say what) and the job ends `needs_review` with the reason. The `document.read` audit entry now also holds the number of events, the blocking findings, the conflicts and the outcome.
+- **Real run:** the one invented page read by the real model now ends `done` with 6 events, for R0.0202.
+- Not done: carried balances and statement totals across pages (second half of P2-07), re-reading with a better model (a second reading of a document whose events exist is refused with a clear reason).
+
 ## 2026-10-27 (part 44) — the first real calls
 **Done** (PR #69 merged first; Kone loaded a funded key into the git-ignored `.env`; it was never printed)
 - **The key** starts `sk-ant-usr-` (a personal key from the Console), which ClearCut's guard refused; Anthropic accepted it (`GET /v1/models`, all four models visible), so the guard now accepts `sk-ant-api` and `sk-ant-usr-`.

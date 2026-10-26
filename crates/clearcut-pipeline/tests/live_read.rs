@@ -29,7 +29,7 @@ use clearcut_core::jobs::{JobKind, JobState};
 use clearcut_docproc::HttpWorker;
 use clearcut_jobs::{Ended, Runner, RunnerConfig};
 use clearcut_objects::{LocalDisk, ObjectStore, PutLimits};
-use clearcut_pipeline::{PipelineConfig, PipelineHandler, ReadSettings, AFTER_READING};
+use clearcut_pipeline::{PipelineConfig, PipelineHandler, ReadSettings};
 use clearcut_store::page_readings::PageState;
 use clearcut_store::{NewDocument, NewJob, Store};
 use sqlx::PgPool;
@@ -208,14 +208,12 @@ async fn one_real_page_is_read_by_the_real_model_and_the_cost_is_logged(pool: Pg
     println!("the document cost {} in {} calls", rand(spend.cost), spend.calls);
 
     // The path worked, within the money it was allowed.
-    assert_eq!(report.ended, Ended::NeedsReview, "{report:?}");
+    assert_eq!(report.ended, Ended::Succeeded, "{report:?}");
     let job = store.get_job(tenant, job).await.unwrap();
-    assert_eq!(job.state, JobState::NeedsReview);
-    assert_eq!(
-        job.last_error.as_deref(),
-        Some(AFTER_READING),
-        "every page was read"
-    );
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", job.last_error);
+    let events = store.load_events(tenant, doc).await.unwrap();
+    println!("{} events were stored for the document", events.len());
+    assert!(!events.is_empty(), "the document was turned into events");
     assert_eq!(pages.len(), 1);
     let PageState::Read(kept) = &pages[0].state else {
         panic!("the page was not read: {:?}", pages[0].state);

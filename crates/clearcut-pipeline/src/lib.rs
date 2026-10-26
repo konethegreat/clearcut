@@ -43,7 +43,7 @@ mod month;
 mod read;
 
 pub use month::{month_start, SOUTH_AFRICA_OFFSET_SECONDS};
-pub use read::{AFTER_READING, READ_STAGE};
+pub use read::READ_STAGE;
 
 #[cfg(test)]
 mod tests;
