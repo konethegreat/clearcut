@@ -44,6 +44,8 @@ The MCP server lets an agent upload an invoice, wait for it, read the facts and 
 ```
 The agent can read uploads **only** from that one folder, and only real PDF, PNG or JPEG files. Give the agent a key with only the scopes it needs (`documents:read` to look, `documents:write` to upload, confirm and delete). Why it is built this way: [ADR-0020](adr/0020-mcp-server-as-a-rest-client.md).
 
+To read several accounts' documents at once, set `CLEARCUT_RUNNER_CONCURRENCY=4` (1 to 16) in `.env`: never two documents of the same account together, so nobody's budget can race.
+
 ## The manual way
 (What compose does, by hand; useful when working on the code.)
 

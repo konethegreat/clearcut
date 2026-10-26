@@ -10,8 +10,12 @@
 //!   computer). A tenant with no usable key has its documents analysed and then **wait**, without
 //!   using up attempts, and start within a minute of a key being set.
 //!
-//! **One job at a time.** The spend gate that lets documents share a monthly budget safely
-//! while running together is not built (P2-12), so the runner does one document at a time.
+//! **How many at once.** `CLEARCUT_RUNNER_CONCURRENCY` (1 to 16, default 1) is how many documents are
+//! read at the same time, but **never two of the same account**: the queue hands out at most one job per
+//! tenant. That is what makes the spend gate unnecessary by construction: a document's budget is
+//! rebuilt from the account's call log when it starts, so two documents of one account never race on it,
+//! and different accounts spend different keys. On your own computer 1 is right; a deployment with many
+//! accounts raises it.
 
 use crate::local_env::LocalEnv;
 use clearcut_anthropic::provider::AnthropicProvider;
@@ -85,8 +89,11 @@ pub fn start(
     let worker = Arc::new(worker);
     let config = RunnerConfig::new(format!("server-{}", std::process::id()))
         .map_err(|e| e.to_string())?
-        .with_concurrency(1)
-        .map_err(|e| e.to_string())?;
+        .with_concurrency(runner_concurrency(
+            env.get("CLEARCUT_RUNNER_CONCURRENCY").as_deref(),
+        )?)
+        .map_err(|e| e.to_string())?
+        .with_per_tenant_cap(Some(1));
     let anthropic = AnthropicConfig::from_env(|name| env.os(name)).map_err(|e| format!("{e}"))?;
     let handler = PipelineHandler::new(store.clone(), objects, worker, PipelineConfig::default())
         .with_provider_source(
@@ -107,4 +114,31 @@ fn spawn<H: clearcut_jobs::Handler>(runner: Runner<H>, mut stopped: Receiver<boo
             })
             .await;
     })
+}
+
+/// `CLEARCUT_RUNNER_CONCURRENCY`: a whole number from 1 to 16; unset means 1.
+fn runner_concurrency(text: Option<&str>) -> Result<usize, String> {
+    match text.map(str::trim).filter(|t| !t.is_empty()) {
+        None => Ok(1),
+        Some(text) => text
+            .parse::<usize>()
+            .ok()
+            .filter(|n| (1..=16).contains(n))
+            .ok_or_else(|| "CLEARCUT_RUNNER_CONCURRENCY must be a whole number from 1 to 16".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::runner_concurrency;
+
+    #[test]
+    fn the_concurrency_is_one_unless_asked_and_is_bounded() {
+        assert_eq!(runner_concurrency(None), Ok(1));
+        assert_eq!(runner_concurrency(Some(" ")), Ok(1));
+        assert_eq!(runner_concurrency(Some("4")), Ok(4));
+        for bad in ["0", "17", "-1", "many", "2.5"] {
+            assert!(runner_concurrency(Some(bad)).is_err(), "{bad}");
+        }
+    }
 }
