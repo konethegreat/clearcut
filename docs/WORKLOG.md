@@ -2,6 +2,14 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 44) — the first real calls
+**Done** (PR #69 merged first; Kone loaded a funded key into the git-ignored `.env`; it was never printed)
+- **The key** starts `sk-ant-usr-` (a personal key from the Console), which ClearCut's guard refused; Anthropic accepted it (`GET /v1/models`, all four models visible), so the guard now accepts `sk-ant-api` and `sk-ant-usr-`.
+- **First real call through the adapter** (structured output on Haiku): worked, about R0.0005.
+- **First real page through the whole path** (real worker, real model, real Postgres, `tests/live_read.rs`): the model read every figure right and the page's own text confirmed them; R0.0202 for the page (3 099 tokens in, 220 out, 5 632 written to the cache), matching the planning figure of R0.02.
+- **One real finding:** an invoice that prints VAT only as a total ("VAT at 15 percent") made the model write `tax: not_shown` for the line, which ClearCut treats as a problem, so the page would have climbed to Sonnet. The rules now say that when the page states how VAT is charged on the invoice, every line takes that rate (the arithmetic check against the printed VAT still guards it). With it the page is accepted at the first rung. `prompt-v1` is edited in place (nothing has been stored under it that matters; freeze it after the gold run).
+- The live test's document cap is now R5, the default: R1 would not let a page climb to Sonnet (worst case about R2.70).
+
 ## 2026-10-27 (part 43) — ADR-0018 step 8: the live test and the closing docs
 **Done** (PR #68, step 7, merged first with CI green)
 - `tests/live_read.rs` in `clearcut-pipeline`: one invented invoice page through the real worker, the real model and a real Postgres, capped at R1, printing every call and its cost in rand. `#[ignore]`d; **not run** (no funded key yet). Its PDF builder has an ordinary test.

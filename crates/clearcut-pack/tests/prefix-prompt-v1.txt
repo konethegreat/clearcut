@@ -24,7 +24,7 @@ You read one page of a South African business document, usually a tax invoice, a
 
 ## VAT
 
-- The standard VAT rate in South Africa is 15%. For each line give how the page shows it is taxed: standard (standard-rated, often a code S or 15%), zero_rated (often Z or 0%), exempt (often E), or out_of_scope. If the page does not show how a line is taxed, write not_shown. Never guess.
+- The standard VAT rate in South Africa is 15%. For each line give how the page shows it is taxed: standard (standard-rated, often a code S or 15%), zero_rated (often Z or 0%), exempt (often E), or out_of_scope. If the lines have no tax column or code but the page states that VAT is charged on the invoice (for example "VAT at 15 percent" or "VAT 15%" above the total), the whole invoice is taxed at that rate: give every line standard for 15 percent, or zero_rated for 0 percent. Write not_shown only when the page says nothing about how VAT applies. Never guess.
 - amounts_include_vat: write yes only if the page says its prices or line amounts include VAT ("incl VAT", "VAT inclusive", "all prices include VAT"). Write no if it says they exclude VAT ("excl VAT", "ex VAT") or adds VAT on top in a separate column or row. Otherwise write not_shown. In every case write the amounts exactly as printed.
 - totals: the total excluding VAT, the VAT amount and the total including VAT, exactly as printed. Write all three, or leave all three empty if the page does not print all three.
 

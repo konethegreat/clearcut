@@ -3,8 +3,8 @@
 //! Postgres (ADR-0018 step 8).
 //!
 //! **Ignored by default, and never run in CI** (CI has no key). It costs a little: one page on
-//! Haiku 5.5 is about R0.02, and the document's budget is capped at R1 here, so even a page
-//! that climbed every rung could not cost more than that. It exists so that the first time the
+//! Haiku 5.5 is about R0.02, and the document's budget is capped at R5 here (the default),
+//! so even a page that climbed every rung could not cost more than that. It exists so that the first time the
 //! whole path meets the real API is on purpose, with your own key, and not in the middle of a
 //! real invoice. It needs:
 //!
@@ -91,7 +91,7 @@ fn rand(cost: Cost) -> String {
 }
 
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
-#[ignore = "needs your own ANTHROPIC_API_KEY, the real worker and a database; costs about R0.02"]
+#[ignore = "needs your own ANTHROPIC_API_KEY, the real worker and a database; costs about R0.02, at most R5"]
 async fn one_real_page_is_read_by_the_real_model_and_the_cost_is_logged(pool: PgPool) {
     let key = load().expect("set ANTHROPIC_API_KEY (or ANTHROPIC_API_KEY_FILE)");
     let anthropic = AnthropicConfig::from_env(|name| std::env::var_os(name)).expect("a valid configuration");
@@ -146,11 +146,11 @@ async fn one_real_page_is_read_by_the_real_model_and_the_cost_is_logged(pool: Pg
         .unwrap()
         .id;
 
-    // A cap of R1 for the document and R20 for the month: even a page that climbed every rung
-    // could not cost more.
+    // A cap of R5 for the document (the default; a cap of R1 would not let a page climb to Sonnet,
+    // whose worst case is about R2.70) and R20 for the month.
     let budget = BudgetPolicy::new(
-        Cost::from_rand_cents(100),
-        Cost::from_rand_cents(100),
+        Cost::from_rand_cents(500),
+        Cost::from_rand_cents(500),
         Cost::from_rand_cents(2_000),
     )
     .unwrap();
@@ -223,7 +223,7 @@ async fn one_real_page_is_read_by_the_real_model_and_the_cost_is_logged(pool: Pg
     assert!(!calls.is_empty(), "the call is in the log");
     assert!(spend.cost > Cost::ZERO, "a real call costs something");
     assert!(
-        spend.cost <= Cost::from_rand_cents(100),
+        spend.cost <= Cost::from_rand_cents(500),
         "and no more than the cap"
     );
 }
