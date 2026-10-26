@@ -2,6 +2,12 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 58) — more than one document at once, safely (LAUNCH item 5)
+**Done**
+- `CLEARCUT_RUNNER_CONCURRENCY` (1 to 16, default 1): how many documents are read at the same time, with the queue's cap of **one job per tenant** always on. A document's budget is rebuilt from its account's call log when it starts, so two documents of one account never see stale spending (they never run together), and different accounts spend different keys. That closes the "spend gate for concurrent documents" without building one. The cap itself was already built and tested in the job runner.
+- Found while checking: a provider's `retry-after` and the key wait are honoured since step 3 of ADR-0019, and the month's spend is summed per account from the call log, so the other items of LAUNCH 5 were already covered.
+- Not done: logging each call the moment it happens (a process killed mid-page loses that page's calls from the log: written in the known limits), and the adaptive rate-limit client (P2-24), which only matters when one key serves several jobs at once.
+
 ## 2026-10-26 (part 57) — the MCP server (LAUNCH item 4, ADR-0020)
 **Done**
 - The MCP server is now a **thin client of the REST API** (`clearcut-mcp` is a library plus a binary): 10 document tools (`upload_document`, `list_documents`, `get_document`, `wait_for_document`, `get_events`, `narrate_document`, `export_document`, `get_review_queue`, `review_extraction`, `delete_document`) and the 3 calculation tools, each with MCP read-only / destructive hints. Settings from the environment: `CLEARCUT_URL`, `CLEARCUT_API_KEY` or `_FILE` (a ClearCut key, unprintable, no redirects, no proxy), `CLEARCUT_MCP_UPLOAD_DIR`, `CLEARCUT_MCP_OUTPUT_DIR`.

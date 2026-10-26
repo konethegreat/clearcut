@@ -311,8 +311,9 @@ impl<O, P> PipelineHandler<O, P, NoModel> {
 impl<O, P, M> PipelineHandler<O, P, M> {
     /// Gives the handler a model provider: it then reads the pages after the analysis.
     ///
-    /// **Nothing may run against a real key until the monthly ledger and the spend gate of
-    /// P2-12 exist** (two documents running at once do not yet see each other's spending).
+    /// Two documents of **one account** must not be read at the same time: each rebuilds the
+    /// account's spending from the call log when it starts, so they would not see each other. The
+    /// runner guarantees that with a cap of one job per tenant (`RunnerConfig::with_per_tenant_cap`).
     pub fn with_models<M2: ModelProvider>(
         self,
         provider: Arc<M2>,
