@@ -2,6 +2,19 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 49) — first six invoices of Kone's test suite, and the tax-not-shown fix
+**Found (real key, six synthetic PDFs: plain, barcodes, signed, odd fonts, a corrupted text layer, a mix)**
+- Three ended `done` (001, 002, 003); three ended `needs_review` (004, 005, 006). The corrupted text layer (005) was caught: the text was judged unusable and the page was read as a picture.
+- The three that stopped print **no tax at all** (no VAT figure, no tax line). The converter reports that as `tax_not_shown`, which sent the page up every rung, **Haiku to Sonnet to Opus, R0.74 to R1.31 for Opus alone, and it failed at the top every time**. Total R5.36 for six invoices. Worse, 001 and 003 only reached `done` because a pressed Sonnet or Opus guessed a category.
+- The three that passed are grounded in the page (001 prints "Tax (Exempt)", 002 and 003 print "Tax (0.00%)").
+
+**Done**
+- `reading`: when no line shows its tax, it is derived **only** when the printed totals prove it (lines add up to the net, VAT is exactly 15% of the net, net + VAT = gross: every line standard-rated). A total with no VAT fits exempt, zero-rated and out-of-scope alike, so nothing is derived.
+- `escalation`: when a missing tax is all that is left, the page goes straight to a person with the new review reason `tax_not_shown` (no stronger model, which could only guess). Anything else a stronger model could fix still escalates first; a dropped line no longer makes the totals comparison escalate.
+- Migration `0008` widens the `review_reason` check for the new value (no data changes).
+- Same six invoices again: **R0.13 in total** (one Haiku call each); 001 to 003 `done`, 004 to 006 `needs_review (tax_not_shown)`.
+- Not done: a person cannot yet record the tax category (there is no review screen), so those three stay in `needs_review` with no events.
+
 ## 2026-10-27 (part 48) — one command: `docker compose up`
 **Done**
 - `docker-compose.yml`, `Dockerfile` (server, web page and operator command; non-root, read-only file system, no capabilities) and `services/worker/Dockerfile` (with Tesseract in English and Afrikaans). Services: `db` (Postgres, no published port, no password needed on the private network), `migrate` (makes the tables with the owner login, once), `worker` and `server`; `admin` is a helper for making the first login. The database and the worker are on an **internal network with no internet**; only the server is also on the outside network (it must reach Anthropic) and publishes a port, on this computer only (127.0.0.1:8099).

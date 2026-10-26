@@ -25,6 +25,7 @@
 use crate::decimal::{parse_money, parse_quantity_milli};
 use crate::event::{Confidence, DocumentId, Extractor};
 use crate::extraction::{CreditNoteRef, DueTerms, ExtractedLine, Extraction, Party, Sourced};
+use crate::tax::ZA_STANDARD_VAT_BPS;
 use crate::{Currency, InvoiceTotals, TaxCategory};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -282,7 +283,8 @@ impl PageReading {
         let invoice_date = converter.date("invoice_date", &self.invoice_date);
         let supplier = converter.party("supplier", &self.supplier);
         let recipient = converter.party("recipient", &self.recipient);
-        let lines = converter.lines(&self.lines, self.amounts_include_vat);
+        let derived_tax = converter.derive_tax(&self.lines, &self.totals);
+        let lines = converter.lines(&self.lines, self.amounts_include_vat, derived_tax);
         let stated_totals = converter.totals(&self.totals);
         let due = converter.due(&self.due);
         let credit_note = converter.credit_note(&self.credit_note);
@@ -411,7 +413,32 @@ impl Converter {
         }
     }
 
-    fn lines(&mut self, raw: &[ReadLine], basis: ReadVatBasis) -> Vec<ExtractedLine> {
+    /// The tax category of every line, when no line shows one but the page's own totals prove
+    /// it: the lines add up to the printed net, and the printed VAT is exactly the standard
+    /// rate of that net, so every line is standard-rated. A total with no VAT fits exempt,
+    /// zero-rated and out-of-scope alike, so it proves nothing and nothing is derived.
+    /// Nothing is reported here; a line left without a category is reported by `line`.
+    fn derive_tax(&self, raw: &[ReadLine], totals: &ReadTotals) -> Option<TaxCategory> {
+        if raw.is_empty() || raw.iter().any(|line| line.tax != ReadTax::NotShown) {
+            return None;
+        }
+        let money = |text: &str| parse_money(text.trim(), self.currency).ok();
+        let (net, vat, gross) = (money(&totals.net)?, money(&totals.vat)?, money(&totals.gross)?);
+        let mut sum = crate::Money::new(0, self.currency);
+        for line in raw {
+            sum = sum.checked_add(money(&line.line_total)?).ok()?;
+        }
+        let standard = net.percent_bps(ZA_STANDARD_VAT_BPS).ok()?;
+        let agrees = vat.minor != 0 && sum == net && vat == standard && net.checked_add(vat).ok()? == gross;
+        agrees.then_some(TaxCategory::Standard)
+    }
+
+    fn lines(
+        &mut self,
+        raw: &[ReadLine],
+        basis: ReadVatBasis,
+        derived_tax: Option<TaxCategory>,
+    ) -> Vec<ExtractedLine> {
         // VAT-inclusive amounts cannot be used as amounts excluding VAT, and backing the
         // VAT out is a rule that has not been agreed yet: report it and read no lines.
         if basis == ReadVatBasis::Yes && !raw.is_empty() {
@@ -420,7 +447,7 @@ impl Converter {
         }
         let mut lines = Vec::new();
         for (index, line) in raw.iter().take(MAX_LINES_PER_PAGE).enumerate() {
-            if let Some(line) = self.line(index + 1, line) {
+            if let Some(line) = self.line(index + 1, line, derived_tax) {
                 lines.push(line);
             }
         }
@@ -431,7 +458,12 @@ impl Converter {
     }
 
     /// Reports every problem in the line, and returns it only if there were none.
-    fn line(&mut self, number: usize, raw: &ReadLine) -> Option<ExtractedLine> {
+    fn line(
+        &mut self,
+        number: usize,
+        raw: &ReadLine,
+        derived_tax: Option<TaxCategory>,
+    ) -> Option<ExtractedLine> {
         let at = |field: &str| format!("lines/{number}/{field}");
         let mut complete = true;
 
@@ -482,7 +514,7 @@ impl Converter {
             ReadTax::ZeroRated => Some(TaxCategory::ZeroRated),
             ReadTax::Exempt => Some(TaxCategory::Exempt),
             ReadTax::OutOfScope => Some(TaxCategory::OutOfScope),
-            ReadTax::NotShown => None,
+            ReadTax::NotShown => derived_tax,
         };
         let Some(tax) = tax else {
             self.problem(at("tax"), ProblemKind::TaxNotShown);
