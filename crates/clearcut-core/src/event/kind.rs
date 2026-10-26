@@ -36,6 +36,22 @@ pub enum EventGroup {
 }
 
 impl EventGroup {
+    /// The name used in files and the API (the same as the serialised form).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EventGroup::Document => "document",
+            EventGroup::Parties => "parties",
+            EventGroup::Charges => "charges",
+            EventGroup::Tax => "tax",
+            EventGroup::Totals => "totals",
+            EventGroup::Terms => "terms",
+            EventGroup::Adjustments => "adjustments",
+            EventGroup::Payments => "payments",
+            EventGroup::Compliance => "compliance",
+            EventGroup::Risk => "risk",
+        }
+    }
+
     /// Every group, in taxonomy order.
     pub const ALL: [EventGroup; 10] = [
         EventGroup::Document,
@@ -87,6 +103,22 @@ pub enum EventType {
 }
 
 impl EventType {
+    /// The name used in files and the API (the same as the serialised form).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EventType::SupplierIdentified => "supplier_identified",
+            EventType::LineItemBilled => "line_item_billed",
+            EventType::LineTotalMismatch => "line_total_mismatch",
+            EventType::VatCalculated => "vat_calculated",
+            EventType::TotalsStated => "totals_stated",
+            EventType::TotalsMismatch => "totals_mismatch",
+            EventType::DueDateStated => "due_date_stated",
+            EventType::CreditNoteReferenced => "credit_note_referenced",
+            EventType::ComplianceIssueFound => "compliance_issue_found",
+            EventType::PossibleDuplicate => "possible_duplicate",
+        }
+    }
+
     /// Every kind currently defined.
     pub const ALL: [EventType; 10] = [
         EventType::SupplierIdentified,
@@ -128,6 +160,17 @@ impl EventType {
             | EventType::TotalsStated
             | EventType::DueDateStated
             | EventType::CreditNoteReferenced => Severity::Info,
+        }
+    }
+}
+
+impl Severity {
+    /// The name used in files and the API (the same as the serialised form).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Severity::Info => "info",
+            Severity::Warning => "warning",
+            Severity::Critical => "critical",
         }
     }
 }

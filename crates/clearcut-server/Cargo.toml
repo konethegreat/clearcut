@@ -14,6 +14,7 @@ workspace = true
 [dependencies]
 clearcut-anthropic = { path = "../clearcut-anthropic" }
 clearcut-core = { path = "../clearcut-core", features = ["schemars"] }
+clearcut-export = { path = "../clearcut-export" }
 clearcut-docproc = { path = "../clearcut-docproc" }
 clearcut-intake = { path = "../clearcut-intake" }
 clearcut-keys = { path = "../clearcut-keys" }

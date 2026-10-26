@@ -380,7 +380,7 @@ async function documentPage(id) {
   }
 
   function downloads() {
-    const make = (format, label, type) =>
+    const make = (format, label) =>
       h("button", {
         type: "button", class: "secondary",
         onclick: async (e) => {
@@ -389,7 +389,7 @@ async function documentPage(id) {
           try {
             const response = await api("/v1/documents/" + id + "/export?format=" + format);
             if (!response.ok) throw new Error("The download failed (" + response.status + ").");
-            const url = URL.createObjectURL(new Blob([await response.text()], { type }));
+            const url = URL.createObjectURL(await response.blob());
             const link = h("a", { href: url, download: "clearcut-" + id + "." + format });
             document.body.append(link);
             link.click();
@@ -402,7 +402,21 @@ async function documentPage(id) {
           }
         },
       }, label);
-    return h("div", {}, h("h2", {}, "Download"), h("div", { class: "row" }, make("json", "JSON", "application/json"), make("csv", "CSV (opens in Excel)", "text/csv"), make("md", "Markdown", "text/markdown")));
+    return h(
+      "div",
+      {},
+      h("h2", {}, "Download"),
+      h("div", { class: "row" },
+        make("pdf", "PDF report"),
+        make("xlsx", "Excel workbook"),
+        make("docx", "Word document"),
+        make("html", "Web page"),
+        make("txt", "Plain text"),
+        make("csv", "CSV (opens in Excel)"),
+        make("md", "Markdown"),
+        make("json", "JSON"),
+      ),
+    );
   }
 
   draw();

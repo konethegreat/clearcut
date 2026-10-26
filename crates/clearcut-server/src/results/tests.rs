@@ -200,7 +200,7 @@ async fn a_mode_or_a_format_that_does_not_exist_is_refused() {
         StatusCode::BAD_REQUEST
     );
     assert_eq!(
-        send(&app, get(Some(READER), "/export?format=docx")).await.0,
+        send(&app, get(Some(READER), "/export?format=exe")).await.0,
         StatusCode::BAD_REQUEST
     );
 }
@@ -244,4 +244,41 @@ async fn the_events_come_with_a_table_of_one_line_each() {
     assert_eq!(row["page"], 1);
     assert_eq!(row["confidence_per_mille"], 950);
     assert!(row["text"].as_str().unwrap().contains("Acme (Pty) Ltd"));
+}
+
+#[tokio::test]
+async fn every_export_format_comes_back_as_its_own_kind_of_file() {
+    use tower::ServiceExt;
+    let app = app(&fake("Acme (Pty) Ltd"));
+    for (format, content_type, magic) in [
+        ("pdf", "application/pdf", &b"%PDF-"[..]),
+        (
+            "xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            b"PK",
+        ),
+        (
+            "docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            b"PK",
+        ),
+        ("html", "text/html; charset=utf-8", b"<!doctype html>"),
+        ("txt", "text/plain; charset=utf-8", b"invoice.pdf"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(get(Some(READER), &format!("/export?format={format}")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{format}");
+        assert_eq!(response.headers()[header::CONTENT_TYPE], content_type);
+        assert!(response.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .ends_with(&format!(".{format}\"")));
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(bytes.starts_with(magic), "{format}");
+    }
 }

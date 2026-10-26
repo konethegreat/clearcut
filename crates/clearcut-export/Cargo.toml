@@ -1,0 +1,23 @@
+[package]
+name = "clearcut-export"
+description = "ClearCut exports: PDF, Excel, Word, HTML, text, Markdown, CSV and JSON, all laid out from one export model."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clearcut-core = { path = "../clearcut-core" }
+docx-rs = "0.4.22"
+printpdf = "0.12.8"
+rust_xlsxwriter = "0.101.0"
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+zip = "9.1.2"

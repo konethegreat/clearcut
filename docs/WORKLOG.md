@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-26 (part 56) — exports: PDF, Excel, Word, HTML, text (P4-01 to P4-07)
+**Done**
+- **One model** (`clearcut_core::export::ExportModel`, pure, built once from the events): the cited summary, grouped report and timeline, one row per event, the line items, the totals (marked *stated on the document* or *calculated by ClearCut*), what the checks found, and which model or person read each page. Every format only lays it out, so they cannot disagree. `as_str()` on the event group, type and severity (tested equal to their serialised names) so the core needs no JSON library.
+- **`clearcut-export`** (new crate): `render(format, input)` for JSON, CSV, Markdown, HTML, plain text, **Excel** (`rust_xlsxwriter`: Summary, Events, Line items, Checks, Sources; amounts are real numeric cells), **Word** (`docx-rs`: real tables, footer notice) and **PDF** (`printpdf` with built-in Helvetica: A4, wrapped text and right-aligned amounts using Helvetica's known character widths, tables that repeat their header across pages, a heading never stranded at a page foot, a footer with the notice and "Page n of m"). All permissive licences; `krilla` was skipped because it needs Rust 1.92 and the project minimum is 1.88.
+- **Safe by construction** (tested): HTML escapes every character that matters; Excel cells are plain strings, never formulas; CSV neutralises a leading `=` `+` `-` `@`; PDF and Word carry text only; a hostile description (`=HYPERLINK(...) <script>`) is shown as text in every format.
+- Server: `GET /v1/documents/{id}/export?format=json|csv|md|html|txt|xlsx|docx|pdf` (the old hand-written CSV, Markdown and JSON code is gone; they come from the model too); eight download buttons on the document screen; `contracts/openapi.json` regenerated.
+- **Looked at, not just tested:** the PDF was rendered to a picture with the worker's PDF engine and read; that showed a stranded heading and crowded columns, both fixed. Latin-1 text (Müller, Söhne) extracts correctly from the PDF.
+- Not done: batch export of many documents (P4-08) and the MCP tool (P4-09); the Excel and Word files were checked by their XML and have not been opened in Excel or Word; the PDF has no characters beyond Windows Latin-1 (others print as `?`: a font would have to be embedded for, say, ₹ or ₩); the Docker test database was down for the last full run, so the database tests ran in CI only.
+
 ## 2026-10-26 (part 55) — the OpenAPI file
 **Done**
 - `contracts/openapi.json` (OpenAPI 3.1, 13 paths): every REST route with its scope (`x-required-scope`), status codes and bodies. The core types' shapes come from `schemars`. **Generated from the code** (`clearcut-server/src/openapi.rs`); the test `the_checked_in_openapi_file_is_what_the_code_describes` fails when it is stale (rewrite with `CLEARCUT_UPDATE_CONTRACTS=1 cargo test -p clearcut-server openapi`), another sends a request to every documented route and fails if the server does not know it (and checks every one but `/health` refuses a caller with no key), another checks every `$ref` resolves.

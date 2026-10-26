@@ -1080,7 +1080,12 @@
               "enum": [
                 "json",
                 "csv",
-                "md"
+                "md",
+                "html",
+                "txt",
+                "xlsx",
+                "docx",
+                "pdf"
               ],
               "type": "string"
             }
@@ -1090,8 +1095,13 @@
           "200": {
             "content": {
               "application/json": {},
+              "application/pdf": {},
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {},
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
               "text/csv": {},
-              "text/markdown": {}
+              "text/html": {},
+              "text/markdown": {},
+              "text/plain": {}
             },
             "description": "The file"
           },
@@ -1136,7 +1146,7 @@
             "description": "Not found"
           }
         },
-        "summary": "The events as a file to download",
+        "summary": "The document as a file to download: the same events laid out as JSON, CSV, Markdown, HTML, plain text, Excel, Word or PDF",
         "x-required-scope": "documents:read"
       }
     },
