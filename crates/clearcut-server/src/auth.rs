@@ -20,6 +20,7 @@
 
 use crate::documents::Ingest;
 use crate::jobs::JobQueue;
+use crate::results::Results;
 use axum::extract::FromRequestParts;
 use axum::http::{header, request::Parts, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -72,6 +73,7 @@ pub struct AppState {
     auth: Arc<dyn Authenticator>,
     ingest: Option<Arc<dyn Ingest>>,
     jobs: Option<Arc<dyn JobQueue>>,
+    results: Option<Arc<dyn Results>>,
 }
 
 impl AppState {
@@ -80,6 +82,7 @@ impl AppState {
             auth: Arc::new(auth),
             ingest: None,
             jobs: None,
+            results: None,
         }
     }
 
@@ -88,6 +91,7 @@ impl AppState {
             auth,
             ingest: None,
             jobs: None,
+            results: None,
         }
     }
 
@@ -101,6 +105,16 @@ impl AppState {
     pub fn with_jobs(mut self, jobs: impl JobQueue) -> Self {
         self.jobs = Some(Arc::new(jobs));
         self
+    }
+
+    /// Turns on reading a document back (status, events, report, export). Without it they answer 503.
+    pub fn with_results(mut self, results: impl Results) -> Self {
+        self.results = Some(Arc::new(results));
+        self
+    }
+
+    pub(crate) fn results(&self) -> Option<&dyn Results> {
+        self.results.as_deref()
     }
 
     pub(crate) fn jobs(&self) -> Option<&dyn JobQueue> {

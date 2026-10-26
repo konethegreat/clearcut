@@ -519,9 +519,13 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
+ "clearcut-anthropic",
  "clearcut-core",
+ "clearcut-docproc",
  "clearcut-intake",
+ "clearcut-jobs",
  "clearcut-objects",
+ "clearcut-pipeline",
  "clearcut-store",
  "futures-util",
  "http-body-util",
