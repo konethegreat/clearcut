@@ -2,6 +2,13 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-27 (part 61) — smaller build folder
+**Done**
+- `Cargo.toml`: `[profile.dev] debug = "line-tables-only"`. Dev and test builds (Cargo's test profile inherits dev, so `cargo test` too) keep file and line information for backtraces but drop full type and variable debug info. Release builds, including the Docker image, are unchanged.
+- The `target` folder did not exist when this started, so this measures the new size rather than giving a before/after on this machine: a cold `cargo check --workspace --all-targets` left 1.0 GB, and the full `cargo test --workspace` build left 4.7 GB (1.8 GB of it Cargo's incremental cache, about 1 GB of PDB symbol files).
+- Verified with the normal gate: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` against the local Postgres: **1,915 tests passed, none failed**.
+**Not done:** nothing; CI needs no change because it uses the same profile.
+
 ## 2026-10-27 (part 60) — security review, dependency audit and POPIA drafts (LAUNCH item 8)
 **Done**
 - **`docs/THREAT-MODEL.md`**: assets, attackers, trust boundaries, **15 threats each with what stops it, where it is tested and what is left**, the **9 real findings** reviews have made so far (under-reserved budgets, free timeouts, an inline retry that spent twice, injection pages ending done, a worker next to a passwordless database, CRLF migrations, an erase race, a Windows network path, a cryptography advisory), the open gaps in the order worth closing, and what to give an outside reviewer. Claims were checked against the code; two were tightened.
