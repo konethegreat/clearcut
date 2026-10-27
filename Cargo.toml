@@ -16,3 +16,7 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# Keep the target folder small: line tables give useful backtraces without full debug info.
+[profile.dev]
+debug = "line-tables-only"
