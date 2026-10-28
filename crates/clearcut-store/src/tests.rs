@@ -192,6 +192,15 @@ async fn storage_used_sums_only_this_tenants_documents(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn a_document_of_a_given_size_is_found_only_for_its_own_tenant(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    assert!(store.tenant_has_document_of_size(tenant, 1234).await.unwrap());
+    assert!(!store.tenant_has_document_of_size(tenant, 1233).await.unwrap());
+    let other = new_tenant(&pool, "Other Practice").await.unwrap();
+    assert!(!store.tenant_has_document_of_size(other, 1234).await.unwrap());
+}
+
+#[sqlx::test]
 async fn a_document_that_would_cross_the_quota_is_refused(pool: PgPool) {
     let (store, tenant, _) = setup(&pool).await;
     let error = store

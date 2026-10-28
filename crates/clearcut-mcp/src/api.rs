@@ -21,6 +21,8 @@ pub struct Api {
 pub struct Reply {
     pub status: u16,
     pub content_type: String,
+    /// How long the server asked the caller to wait (`Retry-After`), in whole seconds.
+    pub retry_after: Option<u64>,
     pub body: Vec<u8>,
 }
 
@@ -76,6 +78,11 @@ impl Api {
             .and_then(|value| value.to_str().ok())
             .unwrap_or("")
             .to_string();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse().ok());
         let bytes = response
             .bytes()
             .await
@@ -86,6 +93,7 @@ impl Api {
         Ok(Reply {
             status,
             content_type,
+            retry_after,
             body: bytes.to_vec(),
         })
     }

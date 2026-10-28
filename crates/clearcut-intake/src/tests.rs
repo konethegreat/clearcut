@@ -573,6 +573,53 @@ async fn a_file_exactly_at_the_limit_is_accepted(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_repeat_upload_is_accepted_even_when_the_account_is_full(pool: PgPool) {
+    let f = fixture_with_quota(&pool, 1_000_000, PDF.len() as u64).await;
+    let first = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+    assert!(!first.duplicate);
+
+    let again = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+    assert!(again.duplicate);
+    assert_eq!(again.document, first.document);
+    assert_eq!(
+        f.store.tenant_storage_used(f.tenant).await.unwrap(),
+        PDF.len() as u64
+    );
+    assert_eq!(count(&pool, "select count(*) from documents").await, 1);
+    assert_eq!(stored_files(&f.dir), 1);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_new_file_the_size_of_one_already_stored_is_refused_and_leaves_nothing(pool: PgPool) {
+    let f = fixture_with_quota(&pool, 1_000_000, PDF.len() as u64).await;
+    f.intake
+        .upload(&f.writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+
+    let mut other = PDF.to_vec();
+    *other.last_mut().unwrap() = b'!';
+    let result = f
+        .intake
+        .upload(&f.writer, upload(&other, "application/pdf", None))
+        .await;
+    assert!(
+        matches!(result, Err(IntakeError::QuotaExceeded { .. })),
+        "{result:?}"
+    );
+    assert_eq!(count(&pool, "select count(*) from documents").await, 1);
+    assert_eq!(stored_files(&f.dir), 1, "the refused file was removed again");
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
 async fn an_upload_over_the_accounts_quota_is_refused_before_the_body_is_read(pool: PgPool) {
     let quota = PDF.len() as u64 + 10;
     let f = fixture_with_quota(&pool, 1_000_000, quota).await;

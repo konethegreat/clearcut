@@ -573,6 +573,11 @@ mod with_postgres {
         assert_eq!(v["used_bytes"], quota);
         assert_eq!(v["quota_bytes"], quota);
 
+        // The same bytes again cost no room, so a repeat is still accepted.
+        let (status, _, body) = send(&app, upload(&writer, PDF, "application/pdf")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(json(&body)["duplicate"], true);
+
         assert_eq!(files_under(disk.path()), 1);
         let documents: i64 = sqlx::query_scalar("select count(*) from documents")
             .fetch_one(&pool)

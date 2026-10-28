@@ -11,8 +11,9 @@
 //! 3. is refused up front if its declared length is over the limit, and in any
 //!    case is cut off the moment it actually exceeds the limit, whatever the
 //!    sender claimed;
-//! 4. is refused if it would take the account past its storage quota, and is
-//!    cut off at the account's remaining room in the same way;
+//! 4. is refused if it would take the account past its storage quota, unless
+//!    it may be a repeat of a document already stored (a repeat costs no room);
+//!    either way it is cut off at the account's remaining room;
 //! 5. is streamed into the object store (content-addressed, tenant-scoped, all
 //!    or nothing), then recorded as a document, then audited.
 //!
@@ -22,7 +23,10 @@
 //! race with an identical upload that has just found it. A sweep for files no
 //! document refers to can come later. The one exception is a quota refusal
 //! after the file was written (another upload took the last room first): that
-//! content is new, so its file is removed.
+//! content is new, so its file is removed. An identical upload racing that
+//! removal at the same instant can find the file gone, leaving the row it
+//! writes pointing at a missing file (reported as such, fixed by uploading
+//! again): the same narrow race as erasing a document while uploading it.
 //!
 //! Uploaded files are untrusted bytes. Nothing here opens or parses them; the
 //! file name is kept only as cleaned metadata and never forms a path. (Checking
@@ -234,27 +238,36 @@ impl<O: ObjectStore> Intake<O> {
         // If the room cannot be read, carry on: the insert checks the quota again,
         // and a database failure must not change whether the file is kept for a
         // retry (the empty room below also means "no early quota check").
-        let room = self
-            .store
-            .tenant_storage_used(tenant)
-            .await
-            .ok()
-            .map(|used| quota.saturating_sub(used));
-        if let (Some(room), Some(declared)) = (room, upload.declared_length) {
-            if declared > room {
-                return Err(IntakeError::QuotaExceeded {
-                    used_bytes: quota - room,
-                    quota_bytes: quota,
-                });
+        let used = self.store.tenant_storage_used(tenant).await.ok();
+        let room = used.map(|used| quota.saturating_sub(used));
+        if let (Some(used), Some(declared)) = (used, upload.declared_length) {
+            if declared > quota.saturating_sub(used) {
+                // A repeat of a document already stored costs no room, and its
+                // size is the only thing known before it is read. Anything else
+                // of that size cannot fit, so it is refused unread.
+                let maybe_a_repeat = self
+                    .store
+                    .tenant_has_document_of_size(tenant, declared)
+                    .await
+                    .unwrap_or(true);
+                if !maybe_a_repeat {
+                    return Err(IntakeError::QuotaExceeded {
+                        used_bytes: used,
+                        quota_bytes: quota,
+                    });
+                }
             }
         }
         let filename = clean_filename(upload.filename.as_deref());
 
         // Cut the stream off at the account's remaining room, so an upload
-        // that claims to be small cannot fill the disk before the check.
-        let max_bytes = room.map_or(self.limits.max_upload_bytes, |room| {
-            self.limits.max_upload_bytes.min(room)
-        });
+        // that claims to be small cannot fill the disk before the check. A
+        // possible repeat may take the size it declared, and no more.
+        let max_bytes = match (room, upload.declared_length) {
+            (Some(room), Some(declared)) if declared > room => declared,
+            (Some(room), _) => self.limits.max_upload_bytes.min(room),
+            (None, _) => self.limits.max_upload_bytes,
+        };
         let room_limited = max_bytes < self.limits.max_upload_bytes;
         let stored = self
             .objects
@@ -263,9 +276,8 @@ impl<O: ObjectStore> Intake<O> {
             .map_err(|error| match error {
                 clearcut_objects::Error::TooLarge { .. } if room_limited => {
                     // The cap was the account's room, not the file limit.
-                    let room = room.unwrap_or(0);
                     IntakeError::QuotaExceeded {
-                        used_bytes: quota - room,
+                        used_bytes: used.unwrap_or(quota),
                         quota_bytes: quota,
                     }
                 }
@@ -298,7 +310,9 @@ impl<O: ObjectStore> Intake<O> {
                 // Its content is new (a repeat would have been recognised as a
                 // duplicate), so this file belongs to nothing: remove it.
                 if stored.created {
-                    let _ = self.objects.delete(&stored.key).await;
+                    if let Err(error) = self.objects.delete(&stored.key).await {
+                        tracing::warn!(%error, "a refused upload's file could not be removed");
+                    }
                 }
                 return Err(IntakeError::QuotaExceeded {
                     used_bytes,

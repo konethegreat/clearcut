@@ -353,6 +353,25 @@ impl Store {
         Ok(u64::try_from(used).unwrap_or(0))
     }
 
+    /// Whether this tenant already has a document of exactly `byte_size` bytes.
+    /// Before an upload is read, its size is all that is known; this lets a
+    /// possible repeat through the quota check that would refuse a new file.
+    pub async fn tenant_has_document_of_size(&self, tenant: TenantId, byte_size: u64) -> Result<bool> {
+        let Ok(byte_size) = i64::try_from(byte_size) else {
+            return Ok(false);
+        };
+        let mut tx = self.begin(tenant).await?;
+        let found: bool = sqlx::query_scalar(
+            "select exists(select 1 from documents where tenant_id = $1 and byte_size = $2)",
+        )
+        .bind(tenant.0)
+        .bind(byte_size)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(found)
+    }
+
     /// Records an uploaded document. Uploading the same content again for the
     /// same tenant returns the existing document with `duplicate` set.
     pub async fn add_document(&self, tenant: TenantId, document: &NewDocument) -> Result<AddedDocument> {

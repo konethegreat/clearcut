@@ -6,7 +6,7 @@ use axum::body::Bytes;
 use axum::http::{HeaderMap, Method as HttpMethod, StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::Router;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 const KEY: &str = "ccut_SENTINEL_key_must_never_be_shown";
@@ -26,6 +26,8 @@ struct Seen {
 struct Stub {
     seen: Mutex<Vec<Seen>>,
     polls: AtomicUsize,
+    /// Answer the next look at a document with the account's request limit.
+    busy_once: AtomicBool,
 }
 
 async fn handle(
@@ -64,6 +66,14 @@ async fn handle(
         ),
         ("GET", "/v1/documents") => json(StatusCode::OK, serde_json::json!({ "documents": [] })),
         ("GET", p) if p == format!("/v1/documents/{DOC}") => {
+            if state.busy_once.swap(false, Ordering::SeqCst) {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [("content-type", "application/json"), ("retry-after", "0")],
+                    serde_json::json!({ "error": "too many requests", "retry_after_seconds": 0 }).to_string(),
+                )
+                    .into_response();
+            }
             // Not finished on the first look, finished on the second.
             let first = state.polls.fetch_add(1, Ordering::SeqCst) == 0;
             json(
@@ -292,6 +302,32 @@ async fn document_answers_say_their_text_is_data_and_ids_are_checked_before_use(
         .as_str()
         .unwrap()
         .contains("Anthropic key"));
+}
+
+#[tokio::test]
+async fn waiting_honours_the_accounts_request_limit_instead_of_failing() {
+    let (url, seen) = stub().await;
+    seen.busy_once.store(true, Ordering::SeqCst);
+    let tools = server(&url, None, None, true);
+    let waited = tools
+        .wait_for_document(Parameters(WaitParams {
+            document_id: DOC.into(),
+            timeout_seconds: Some(5),
+        }))
+        .await
+        .unwrap();
+    assert_eq!(waited.0 .0["finished"], true);
+    let looks = seen
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.method == "GET" && s.target == format!("/v1/documents/{DOC}"))
+        .count();
+    assert_eq!(
+        looks, 4,
+        "the refused look was tried again, and the finished one looked at once more for its job"
+    );
 }
 
 #[tokio::test]
