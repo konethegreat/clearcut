@@ -396,6 +396,44 @@ async fn a_provider_outage_does_not_use_up_attempts(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn an_outage_that_outlives_the_deadline_hands_the_document_over(pool: PgPool) {
+    let w = world(&pool).await;
+    let (doc, id) = w.job(1).await;
+    let r = runner(
+        &w.store,
+        script(|_, _| async { Err(Failure::provider_unavailable("503")) }),
+        fast(),
+    );
+    for _ in 0..3 {
+        w.make_due(id).await;
+        assert!(matches!(
+            run_once(&r).await.ended,
+            Ended::Retrying { counts: false, .. }
+        ));
+    }
+    let before = w.job_row(id).await;
+    assert_eq!((before.state, before.attempts), (JobState::Queued, 0));
+
+    // The provider stays down until the 48-hour deadline has gone by.
+    sqlx::query("update jobs set deadline_at = now() - interval '1 second' where id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    w.make_due(id).await;
+    assert!(r.run_once().await.unwrap().is_none(), "nothing was run");
+
+    let job = w.job_row(id).await;
+    assert_eq!(job.state, JobState::NeedsReview);
+    assert_eq!(job.attempts, 0, "the outage still used no attempt");
+    assert_eq!(
+        job.last_error.as_deref(),
+        Some("deadline passed before the job could finish")
+    );
+    assert_eq!(w.doc_status(doc).await, DocumentStatus::NeedsReview);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
 async fn a_failure_the_top_tier_could_not_fix_goes_straight_to_review(pool: PgPool) {
     let w = world(&pool).await;
     let (doc, id) = w.job(1).await;
