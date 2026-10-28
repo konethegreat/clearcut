@@ -162,10 +162,22 @@ struct Fixture {
 
 /// A restricted-role store, a temp-dir object store and one tenant.
 async fn fixture(pool: &PgPool, max_bytes: u64) -> Fixture {
+    fixture_with_quota(pool, max_bytes, u64::MAX).await
+}
+
+/// The same, with a storage quota for the account.
+async fn fixture_with_quota(pool: &PgPool, max_bytes: u64, tenant_quota_bytes: u64) -> Fixture {
     let tenant = Store::new(pool.clone()).create_tenant("Acme").await.unwrap();
     let store = app_store(pool).await;
     let dir = tempfile::tempdir().unwrap();
-    let intake = Intake::new(store.clone(), LocalDisk::new(dir.path()), max_bytes);
+    let intake = Intake::new(
+        store.clone(),
+        LocalDisk::new(dir.path()),
+        Limits {
+            max_upload_bytes: max_bytes,
+            tenant_quota_bytes,
+        },
+    );
     Fixture {
         intake,
         store,
@@ -561,6 +573,101 @@ async fn a_file_exactly_at_the_limit_is_accepted(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn an_upload_over_the_accounts_quota_is_refused_before_the_body_is_read(pool: PgPool) {
+    let quota = PDF.len() as u64 + 10;
+    let f = fixture_with_quota(&pool, 1_000_000, quota).await;
+    f.intake
+        .upload(&f.writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+
+    let body = Upload {
+        filename: None,
+        content_type: "application/pdf".into(),
+        declared_length: Some(11),
+        body: MustNotBeRead,
+    };
+    let result = f.intake.upload(&f.writer, body).await;
+    assert!(
+        matches!(
+            result,
+            Err(IntakeError::QuotaExceeded {
+                used_bytes,
+                quota_bytes
+            }) if used_bytes == PDF.len() as u64 && quota_bytes == quota
+        ),
+        "{result:?}"
+    );
+    assert_eq!(count(&pool, "select count(*) from documents").await, 1);
+    assert_eq!(stored_files(&f.dir), 1);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn the_quota_holds_even_when_the_declared_length_lies(pool: PgPool) {
+    let quota = PDF.len() as u64 + 10;
+    let f = fixture_with_quota(&pool, 1_000_000, quota).await;
+    f.intake
+        .upload(&f.writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+
+    let mut larger = PDF.to_vec();
+    larger.extend_from_slice(b"\n% more");
+    let liar = Upload {
+        filename: None,
+        content_type: "application/pdf".into(),
+        declared_length: Some(1), // claims to be small
+        body: &larger[..],
+    };
+    let result = f.intake.upload(&f.writer, liar).await;
+    assert!(
+        matches!(result, Err(IntakeError::QuotaExceeded { .. })),
+        "{result:?}"
+    );
+    assert_eq!(count(&pool, "select count(*) from documents").await, 1);
+    assert_eq!(
+        stored_files(&f.dir),
+        1,
+        "the cut-off upload leaves no file or temporary file"
+    );
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_file_that_exactly_fills_the_quota_is_accepted(pool: PgPool) {
+    let quota = PDF.len() as u64 * 2;
+    let f = fixture_with_quota(&pool, 1_000_000, quota).await;
+    f.intake
+        .upload(&f.writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+    let mut other = PDF.to_vec();
+    *other.last_mut().unwrap() = b'!';
+    f.intake
+        .upload(&f.writer, upload(&other, "application/pdf", None))
+        .await
+        .unwrap();
+    assert_eq!(f.store.tenant_storage_used(f.tenant).await.unwrap(), quota);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn one_accounts_quota_does_not_limit_another(pool: PgPool) {
+    let f = fixture_with_quota(&pool, 1_000_000, PDF.len() as u64).await;
+    f.intake
+        .upload(&f.writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+    let other = Store::new(pool.clone())
+        .create_tenant("Other Practice")
+        .await
+        .unwrap();
+    let other_writer = principal(other, &[Scope::DocumentsWrite]);
+    f.intake
+        .upload(&other_writer, upload(PDF, "application/pdf", None))
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
 async fn an_empty_file_is_refused(pool: PgPool) {
     let f = fixture(&pool, 1_000_000).await;
     let result = f
@@ -596,7 +703,14 @@ async fn a_database_failure_keeps_the_file_and_a_retry_reuses_it(pool: PgPool) {
     let f = fixture(&pool, 1_000_000).await;
     let broken = app_store(&pool).await;
     broken.pool().close().await;
-    let failing = Intake::new(broken, LocalDisk::new(f.dir.path()), 1_000_000);
+    let failing = Intake::new(
+        broken,
+        LocalDisk::new(f.dir.path()),
+        Limits {
+            max_upload_bytes: 1_000_000,
+            tenant_quota_bytes: u64::MAX,
+        },
+    );
 
     let result = failing
         .upload(&f.writer, upload(PDF, "application/pdf", None))
@@ -622,7 +736,14 @@ async fn a_storage_failure_is_reported_and_nothing_is_recorded(pool: PgPool) {
     // Point the object store at a path that is a file, so it cannot create folders.
     let blocker = f.dir.path().join("blocker");
     std::fs::write(&blocker, b"x").unwrap();
-    let broken = Intake::new(f.store.clone(), LocalDisk::new(&blocker), 1_000_000);
+    let broken = Intake::new(
+        f.store.clone(),
+        LocalDisk::new(&blocker),
+        Limits {
+            max_upload_bytes: 1_000_000,
+            tenant_quota_bytes: u64::MAX,
+        },
+    );
     let result = broken
         .upload(&f.writer, upload(PDF, "application/pdf", None))
         .await;

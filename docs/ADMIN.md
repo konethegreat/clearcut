@@ -28,7 +28,9 @@ clearcut-admin create-key --tenant "$TENANT" --name "first admin" \
 ## Running the service
 The service reads `DATABASE_URL` too, but it must be the **service role** (`clearcut_app`), not the owner's. At startup it checks the role and **refuses to start** if the role is a superuser, can bypass row-level security, or owns the tenant tables, because running as the owner would silently switch tenant isolation off. It never migrates or creates tenants; that is this command's job. Callers present their key as `Authorization: Bearer ccut_...`; `GET /health` is the only route that needs no key, and `GET /v1/whoami` shows which tenant, key and scopes a key carries.
 
-Two more settings belong to the service: `CLEARCUT_STORAGE_DIR` (**required**: the directory where uploaded files are kept, one sub-directory per tenant; the server will not start without it, so invoices are never written to a place nobody chose) and `CLEARCUT_MAX_UPLOAD_BYTES` (optional, default 67108864 = 64 MiB). Back up the storage directory together with the database: the database records each document, the directory holds its bytes.
+Three more settings belong to the service: `CLEARCUT_STORAGE_DIR` (**required**: the directory where uploaded files are kept, one sub-directory per tenant; the server will not start without it, so invoices are never written to a place nobody chose), `CLEARCUT_MAX_UPLOAD_BYTES` (optional, default 67108864 = 64 MiB, the most one file may be) and `CLEARCUT_TENANT_QUOTA_BYTES` (optional, default 1073741824 = 1 GiB, the most one account's files together may be; a further upload is refused with `507` and deleting documents frees room). A fourth, `CLEARCUT_RATE_LIMIT_PER_MINUTE` (optional, default 120), caps requests per account; after it a caller gets `429` with `Retry-After` until the minute rolls over. Back up the storage directory together with the database: the database records each document, the directory holds its bytes.
+
+The quota and the rate limit are counted per **account** (tenant), not per key, and both must be a positive whole number or the service refuses to start.
 
 ## When a key leaks
 ```

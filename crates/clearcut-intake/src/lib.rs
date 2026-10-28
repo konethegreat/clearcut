@@ -11,14 +11,18 @@
 //! 3. is refused up front if its declared length is over the limit, and in any
 //!    case is cut off the moment it actually exceeds the limit, whatever the
 //!    sender claimed;
-//! 4. is streamed into the object store (content-addressed, tenant-scoped, all
+//! 4. is refused if it would take the account past its storage quota, and is
+//!    cut off at the account's remaining room in the same way;
+//! 5. is streamed into the object store (content-addressed, tenant-scoped, all
 //!    or nothing), then recorded as a document, then audited.
 //!
 //! The file is stored *before* the row is written. If the row then fails, the
 //! file is deliberately left in place: it is harmless (named by its content and
 //! owned by one tenant), a retry finds it already there, and deleting it could
 //! race with an identical upload that has just found it. A sweep for files no
-//! document refers to can come later.
+//! document refers to can come later. The one exception is a quota refusal
+//! after the file was written (another upload took the last room first): that
+//! content is new, so its file is removed.
 //!
 //! Uploaded files are untrusted bytes. Nothing here opens or parses them; the
 //! file name is kept only as cleaned metadata and never forms a path. (Checking
@@ -168,6 +172,9 @@ pub enum IntakeError {
     UnsupportedMediaType,
     #[error("the file is larger than the {max_bytes}-byte limit")]
     TooLarge { max_bytes: u64 },
+    /// Storing the file would put the account over its storage quota.
+    #[error("the account's storage is full: {used_bytes} of {quota_bytes} bytes used")]
+    QuotaExceeded { used_bytes: u64, quota_bytes: u64 },
     #[error("the file is empty")]
     Empty,
     /// The sender went away before the whole file arrived.
@@ -182,20 +189,28 @@ pub enum IntakeError {
     Busy,
 }
 
+/// The size limits an upload is held to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    /// The largest single file accepted.
+    pub max_upload_bytes: u64,
+    /// The most bytes one account may have stored at once.
+    pub tenant_quota_bytes: u64,
+}
+
 /// Accepts uploads.
 pub struct Intake<O> {
     store: Store,
     objects: O,
-    max_bytes: u64,
+    limits: Limits,
 }
 
 impl<O: ObjectStore> Intake<O> {
-    /// `max_bytes` is the largest file accepted.
-    pub fn new(store: Store, objects: O, max_bytes: u64) -> Self {
+    pub fn new(store: Store, objects: O, limits: Limits) -> Self {
         Self {
             store,
             objects,
-            max_bytes,
+            limits,
         }
     }
 
@@ -210,29 +225,57 @@ impl<O: ObjectStore> Intake<O> {
         let media_type = MediaType::parse(&upload.content_type).ok_or(IntakeError::UnsupportedMediaType)?;
         if upload
             .declared_length
-            .is_some_and(|length| length > self.max_bytes)
+            .is_some_and(|length| length > self.limits.max_upload_bytes)
         {
             return Err(self.too_large());
         }
+        let tenant = TenantId(by.tenant());
+        let quota = self.limits.tenant_quota_bytes;
+        // If the room cannot be read, carry on: the insert checks the quota again,
+        // and a database failure must not change whether the file is kept for a
+        // retry (the empty room below also means "no early quota check").
+        let room = self
+            .store
+            .tenant_storage_used(tenant)
+            .await
+            .ok()
+            .map(|used| quota.saturating_sub(used));
+        if let (Some(room), Some(declared)) = (room, upload.declared_length) {
+            if declared > room {
+                return Err(IntakeError::QuotaExceeded {
+                    used_bytes: quota - room,
+                    quota_bytes: quota,
+                });
+            }
+        }
         let filename = clean_filename(upload.filename.as_deref());
 
+        // Cut the stream off at the account's remaining room, so an upload
+        // that claims to be small cannot fill the disk before the check.
+        let max_bytes = room.map_or(self.limits.max_upload_bytes, |room| {
+            self.limits.max_upload_bytes.min(room)
+        });
+        let room_limited = max_bytes < self.limits.max_upload_bytes;
         let stored = self
             .objects
-            .put(
-                by.tenant(),
-                upload.body,
-                PutLimits {
-                    max_bytes: self.max_bytes,
-                },
-            )
+            .put(by.tenant(), upload.body, PutLimits { max_bytes })
             .await
-            .map_err(|error| self.explain(error))?;
+            .map_err(|error| match error {
+                clearcut_objects::Error::TooLarge { .. } if room_limited => {
+                    // The cap was the account's room, not the file limit.
+                    let room = room.unwrap_or(0);
+                    IntakeError::QuotaExceeded {
+                        used_bytes: quota - room,
+                        quota_bytes: quota,
+                    }
+                }
+                other => self.explain(other),
+            })?;
         let byte_size = i64::try_from(stored.byte_size).map_err(|_| self.too_large())?;
 
-        let tenant = TenantId(by.tenant());
-        let added = self
+        let added = match self
             .store
-            .add_document(
+            .add_document_within(
                 tenant,
                 &NewDocument {
                     original_filename: filename.clone(),
@@ -242,8 +285,28 @@ impl<O: ObjectStore> Intake<O> {
                     storage_key: stored.key.as_str().to_string(),
                     page_count: None,
                 },
+                quota,
             )
-            .await?;
+            .await
+        {
+            Ok(added) => added,
+            Err(clearcut_store::Error::StorageQuotaExceeded {
+                used_bytes,
+                quota_bytes,
+            }) => {
+                // Another upload for this account filled the last room first.
+                // Its content is new (a repeat would have been recognised as a
+                // duplicate), so this file belongs to nothing: remove it.
+                if stored.created {
+                    let _ = self.objects.delete(&stored.key).await;
+                }
+                return Err(IntakeError::QuotaExceeded {
+                    used_bytes,
+                    quota_bytes,
+                });
+            }
+            Err(error) => return Err(error.into()),
+        };
 
         // Recorded even for a repeat, so every attempt is visible. The entry
         // names the file and its size, never its content.
@@ -352,7 +415,7 @@ impl<O: ObjectStore> Intake<O> {
 
     fn too_large(&self) -> IntakeError {
         IntakeError::TooLarge {
-            max_bytes: self.max_bytes,
+            max_bytes: self.limits.max_upload_bytes,
         }
     }
 

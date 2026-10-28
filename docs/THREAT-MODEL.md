@@ -41,7 +41,7 @@ Each arrow is a trust boundary. The worker is the most exposed component (it par
 | 8 | **A malicious export** (a formula in Excel or CSV, markup in HTML) | HTML escapes every character that matters; Excel cells are plain strings, never formulas; CSV neutralises a leading `= + - @`; PDF and Word carry text only (export tests with hostile text) | A viewer with its own flaw |
 | 9 | **Denying who did what** | The audit log is append-only (a trigger refuses change); uploads, reviews, deletions, key changes record the key that did them; a deletion leaves a content-free record | A review made by an AI agent is recorded against its key: ClearCut cannot tell an agent's "yes" from a person's |
 | 10 | **Data left after a deletion** | One function erases the document's rows and the file (cannot race a live job); the cost log keeps no content | Older **backups** keep it until they expire (say so in the privacy notice); a tiny race between a delete and an identical re-upload (LAUNCH known limits) |
-| 11 | **Denial of service** | Upload size limit enforced as the bytes arrive; the worker caps pages and bytes; per-account concurrency; Caddy limits the request body; the job queue retries without losing work | **No per-account storage quota or request rate limit**: a signed-in user could fill the disk. On the list below |
+| 11 | **Denial of service** | Upload size limit enforced as the bytes arrive; a **per-account storage quota** checked before the body is read, again as the bytes arrive, and finally under a lock in the database, so two uploads cannot both take the last room; a **per-account request rate limit** in the server, checked after authentication, answering `429` with `Retry-After`; the worker caps pages and bytes; per-account concurrency; Caddy limits the request body; the job queue retries without losing work | The rate limit is counted in one server's memory, so it is exact for the single server DEPLOY.md describes and would need a shared store if the service were ever run as several |
 | 12 | **Supply chain** | `Cargo.lock` and `package-lock.json` committed; Dependabot; **`cargo audit`, `npm audit` and `pip-audit` in CI** (new); a licence check keeps GPL/LGPL/AGPL code out of the worker; GitGuardian on every PR; images build in CI and run non-root | GitHub Actions are pinned by version tag, not commit; base images by tag (not digest); see the exception in section 5 |
 | 13 | **Server-side request forgery** | The server makes **one** kind of outbound call, to Anthropic's address from the operator's settings; no URL ever comes from a user or a document; the MCP client follows no redirects and uses no proxy | None known |
 | 14 | **An operator's mistake** | Refuses to start as the owner role; `tenant-only` refuses to start without a master key; the compose file publishes the page on `127.0.0.1` only (with HTTPS on, only Caddy's ports 80 and 443 are public); passwords required by name | A weak password or an open firewall: `docs/DEPLOY.md` says what to check |
@@ -65,12 +65,11 @@ Every item was found by a review or by trying the system, and fixed. They are th
 - The audit now runs on every pull request that touches a lock file and **every week**, so a new advisory is seen without anyone having to look.
 
 ## 6. Open gaps, in the order worth closing
-1. **A per-account storage quota and a request rate limit** (threat 11).
-2. **Logging each model call as it happens**, so a crash mid-page cannot lose a billed call from the spend total.
-3. **A second person approving a review**, if a customer needs separation of duties (threat 9).
-4. **Pinning GitHub Actions and base images by digest** (threat 12).
-5. **Automated backups and a tested restore** (DEPLOY.md describes them by hand).
-6. **Rotating the master key and the database passwords** without re-entering every account's key.
+1. **Logging each model call as it happens**, so a crash mid-page cannot lose a billed call from the spend total.
+2. **A second person approving a review**, if a customer needs separation of duties (threat 9).
+3. **Pinning GitHub Actions and base images by digest** (threat 12).
+4. **Automated backups and a tested restore** (DEPLOY.md describes them by hand).
+5. **Rotating the master key and the database passwords** without re-entering every account's key.
 
 ## 7. For an outside reviewer
 A penetration test or code review would be most useful on: the **tenant-isolation migrations and functions** (`crates/clearcut-store/migrations`, 0003 to 0010); the **worker's confinement** (`services/worker`, `docker-compose.yml`) with hostile PDFs and images; the **key store** (`clearcut-anthropic/src/vault`, ADR-0019); the **web page** (`crates/clearcut-server/src/web`); the **MCP server** (`clearcut-mcp`, ADR-0020); and the **deployment** (`docs/DEPLOY.md`, `deploy/Caddyfile`). Give them this file, `docs/ARCHITECTURE.md` and the ADRs, a running stack and two accounts to try to cross.

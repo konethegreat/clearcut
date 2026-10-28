@@ -74,4 +74,4 @@ The database tables are brought up to date automatically (the `migrate` step). M
 - Not built yet, so do by hand: rotating the database passwords, rotating the master key (re-enter each account's key afterwards), a tenant-management screen (the operator command is the tool), and email.
 
 ## Limits you should know
-One server only; files are on a local disk volume (an S3-compatible store is on the checklist); no rate limiting at the edge beyond the keys being unguessable; the page and the API are the same address. The hosted free trial with no accounts ([ADR-0015](adr/0015-try-it-deployment.md)) is deliberately not built: it waits for a decision about who runs it.
+One server only; files are on a local disk volume (an S3-compatible store is on the checklist); no rate limiting at the edge, only the per-account limit inside the service (kept in its memory, so a second server would need a shared store); the page and the API are the same address. The hosted free trial with no accounts ([ADR-0015](adr/0015-try-it-deployment.md)) is deliberately not built: it waits for a decision about who runs it.

@@ -363,6 +363,21 @@ async fn each_intake_refusal_has_its_own_status_and_leaks_nothing() {
             serde_json::json!({ "error": "file too large", "max_bytes": 1000 }),
         ),
         (
+            "storage quota full",
+            || {
+                Err(IntakeError::QuotaExceeded {
+                    used_bytes: 900,
+                    quota_bytes: 1000,
+                })
+            },
+            StatusCode::INSUFFICIENT_STORAGE,
+            serde_json::json!({
+                "error": "storage quota exceeded",
+                "used_bytes": 900,
+                "quota_bytes": 1000,
+            }),
+        ),
+        (
             "empty",
             || Err(IntakeError::Empty),
             StatusCode::BAD_REQUEST,
@@ -442,6 +457,8 @@ mod with_postgres {
     use sqlx::PgPool;
 
     const PDF: &[u8] = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOF";
+    /// The same length as [`PDF`], but different bytes.
+    const PDF2: &[u8] = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOG";
 
     fn files_under(dir: &std::path::Path) -> usize {
         std::fs::read_dir(dir).map_or(0, |entries| {
@@ -453,8 +470,24 @@ mod with_postgres {
     }
 
     async fn real_app(pool: &PgPool, disk: &tempfile::TempDir, max_bytes: u64) -> Router {
+        real_app_with_quota(pool, disk, max_bytes, u64::MAX).await
+    }
+
+    async fn real_app_with_quota(
+        pool: &PgPool,
+        disk: &tempfile::TempDir,
+        max_bytes: u64,
+        tenant_quota_bytes: u64,
+    ) -> Router {
         let store = service_store(pool).await;
-        let intake = Intake::new(store.clone(), LocalDisk::new(disk.path()), max_bytes);
+        let intake = Intake::new(
+            store.clone(),
+            LocalDisk::new(disk.path()),
+            clearcut_intake::Limits {
+                max_upload_bytes: max_bytes,
+                tenant_quota_bytes,
+            },
+        );
         finish(routes(), AppState::new(store).with_ingest(intake))
     }
 
@@ -521,6 +554,31 @@ mod with_postgres {
             .await
             .unwrap();
         assert_eq!(documents, 0);
+    }
+
+    #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+    async fn an_upload_that_would_overfill_the_account_is_refused_with_507(pool: PgPool) {
+        let disk = tempfile::tempdir().unwrap();
+        let quota = PDF.len() as u64;
+        let app = real_app_with_quota(&pool, &disk, 1_000_000, quota).await;
+        let (_, writer, _) = first_key(&pool, &[Scope::DocumentsWrite]).await;
+
+        let (status, ..) = send(&app, upload(&writer, PDF, "application/pdf")).await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, _, body) = send(&app, upload(&writer, PDF2, "application/pdf")).await;
+        assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE, "{body}");
+        let v = json(&body);
+        assert_eq!(v["error"], "storage quota exceeded");
+        assert_eq!(v["used_bytes"], quota);
+        assert_eq!(v["quota_bytes"], quota);
+
+        assert_eq!(files_under(disk.path()), 1);
+        let documents: i64 = sqlx::query_scalar("select count(*) from documents")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(documents, 1);
     }
 }
 

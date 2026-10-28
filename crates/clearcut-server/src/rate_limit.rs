@@ -44,7 +44,28 @@ impl RateLimiter {
     /// Counts one request from `tenant` at `now`. `Ok(())` if it is allowed;
     /// `Err(seconds)` if the account must wait that many whole seconds.
     pub fn check(&self, tenant: Uuid, now: Instant) -> Result<(), u64> {
-        todo!()
+        let mut windows = self
+            .windows
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let window = windows.entry(tenant).or_insert(Window {
+            started: now,
+            used: 0,
+        });
+        let elapsed = now.saturating_duration_since(window.started);
+        if elapsed >= WINDOW {
+            *window = Window {
+                started: now,
+                used: 0,
+            };
+        }
+        if window.used >= self.per_minute.get() {
+            // Part of a second still has to wait a whole one, so callers never retry early.
+            let wait = WINDOW.saturating_sub(elapsed);
+            return Err(wait.as_secs() + u64::from(wait.subsec_nanos() > 0));
+        }
+        window.used += 1;
+        Ok(())
     }
 }
 
@@ -75,10 +96,7 @@ mod tests {
         let limiter = limiter(1);
         let start = Instant::now();
         assert_eq!(limiter.check(tenant(1), start), Ok(()));
-        assert_eq!(
-            limiter.check(tenant(1), start + Duration::from_secs(15)),
-            Err(45)
-        );
+        assert_eq!(limiter.check(tenant(1), start + Duration::from_secs(15)), Err(45));
         assert_eq!(
             limiter.check(tenant(1), start + Duration::from_millis(59_500)),
             Err(1),
@@ -92,10 +110,7 @@ mod tests {
         let start = Instant::now();
         assert_eq!(limiter.check(tenant(1), start), Ok(()));
         assert!(limiter.check(tenant(1), start + Duration::from_secs(59)).is_err());
-        assert_eq!(
-            limiter.check(tenant(1), start + Duration::from_secs(60)),
-            Ok(())
-        );
+        assert_eq!(limiter.check(tenant(1), start + Duration::from_secs(60)), Ok(()));
     }
 
     #[test]
@@ -115,10 +130,7 @@ mod tests {
         for _ in 0..5 {
             assert!(limiter.check(tenant(1), start + Duration::from_secs(30)).is_err());
         }
-        assert_eq!(
-            limiter.check(tenant(1), start + Duration::from_secs(60)),
-            Ok(())
-        );
+        assert_eq!(limiter.check(tenant(1), start + Duration::from_secs(60)), Ok(()));
     }
 
     #[test]
@@ -126,10 +138,7 @@ mod tests {
         let limiter = limiter(2);
         let start = Instant::now();
         assert_eq!(limiter.check(tenant(1), start), Ok(()));
-        assert_eq!(
-            limiter.check(tenant(1), start + Duration::from_secs(50)),
-            Ok(())
-        );
+        assert_eq!(limiter.check(tenant(1), start + Duration::from_secs(50)), Ok(()));
         assert_eq!(
             limiter.check(tenant(1), start + Duration::from_secs(60)),
             Ok(()),

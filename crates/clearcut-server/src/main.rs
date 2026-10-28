@@ -14,6 +14,10 @@ use tracing_subscriber::EnvFilter;
 
 /// The largest upload accepted unless `CLEARCUT_MAX_UPLOAD_BYTES` says otherwise: 64 MiB.
 const DEFAULT_MAX_UPLOAD_BYTES: u64 = 64 * 1024 * 1024;
+/// The most bytes one account may store unless `CLEARCUT_TENANT_QUOTA_BYTES` says otherwise: 1 GiB.
+const DEFAULT_TENANT_QUOTA_BYTES: u64 = 1024 * 1024 * 1024;
+/// What each account may ask for in a minute unless `CLEARCUT_RATE_LIMIT_PER_MINUTE` says otherwise.
+const DEFAULT_RATE_LIMIT_PER_MINUTE: u32 = 120;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -81,8 +85,44 @@ async fn main() -> ExitCode {
             }
         },
     };
+    let tenant_quota_bytes = match env.get("CLEARCUT_TENANT_QUOTA_BYTES") {
+        None => DEFAULT_TENANT_QUOTA_BYTES,
+        Some(value) => match value.trim().parse::<u64>() {
+            Ok(bytes) if bytes > 0 => bytes,
+            _ => {
+                eprintln!(
+                    "error: CLEARCUT_TENANT_QUOTA_BYTES must be a whole number of bytes greater than zero"
+                );
+                return ExitCode::from(2);
+            }
+        },
+    };
+    let rate_limit_per_minute = match env.get("CLEARCUT_RATE_LIMIT_PER_MINUTE") {
+        None => std::num::NonZeroU32::new(DEFAULT_RATE_LIMIT_PER_MINUTE).unwrap(),
+        Some(value) => match value
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .and_then(std::num::NonZeroU32::new)
+        {
+            Some(limit) => limit,
+            None => {
+                eprintln!(
+                    "error: CLEARCUT_RATE_LIMIT_PER_MINUTE must be a whole number of requests greater than zero"
+                );
+                return ExitCode::from(2);
+            }
+        },
+    };
     let objects = LocalDisk::new(storage_dir);
-    let intake = Intake::new(store.clone(), objects.clone(), max_upload_bytes);
+    let intake = Intake::new(
+        store.clone(),
+        objects.clone(),
+        clearcut_intake::Limits {
+            max_upload_bytes,
+            tenant_quota_bytes,
+        },
+    );
 
     // Each tenant's own Anthropic key (ADR-0019): sealed with a master key from the settings, and
     // `CLEARCUT_KEY_MODE=tenant-only` makes sure the server's own key is never used.
@@ -130,7 +170,8 @@ async fn main() -> ExitCode {
             .with_jobs(store.clone())
             .with_reviews(store.clone())
             .with_keys(tenant_keys)
-            .with_results(store)),
+            .with_results(store)
+            .with_rate_limit(rate_limit_per_minute)),
     )
     .with_graceful_shutdown(async move {
         let _ = server_stop.wait_for(|stopped| *stopped).await;
