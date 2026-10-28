@@ -267,7 +267,7 @@ impl TryFrom<UncheckedCarry> for Carry {
             if kept.rung > MAX_RUNG {
                 return Err("a kept reading is from a rung outside the ladder");
             }
-            if serde_json::from_value::<PageReading>(kept.reading.clone()).is_err() {
+            if PageReading::from_stored_value(kept.reading.clone()).is_err() {
                 return Err("a kept reading is not a reading");
             }
         }
@@ -1039,9 +1039,9 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             PageOutcome::NeedsReview { draft: None, .. } => (None, ConfidenceBasis::Unresolved),
         };
         let evaluated = match (&kept, &run.material) {
-            (Some(kept), Some(material)) => serde_json::from_value::<PageReading>(kept.reading.clone())
+            (Some(kept), Some(material)) => PageReading::from_stored_value(kept.reading.clone())
                 .ok()
-                .and_then(|reading| evaluate(task, material, &reading, &kept.model, basis).ok()),
+                .and_then(|stored| evaluate(task, material, &stored.reading, &kept.model, basis).ok()),
             _ => None,
         };
         let (reading, reading_from) = match (evaluated.as_ref(), kept) {

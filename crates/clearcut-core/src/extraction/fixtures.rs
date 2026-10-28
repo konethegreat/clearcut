@@ -65,6 +65,7 @@ pub(crate) fn clean() -> Extraction {
             vat: zar(225_000),
             gross: zar(1_825_000),
         })),
+        carried: vec![],
         due: Some(at(DueTerms {
             due: d!(2026 - 04 - 30),
             terms: Some("30 days".into()),

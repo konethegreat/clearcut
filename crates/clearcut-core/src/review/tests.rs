@@ -18,6 +18,7 @@ fn draft(tax: &str, gross: &str) -> PageReading {
             { "description": "B", "quantity": "1", "unit_price": "600.00", "line_total": "600.00", "tax": tax }
         ],
         "totals": { "net": "", "vat": "", "gross": gross },
+        "carried": { "brought_forward": "", "carried_forward": "" },
         "due": { "date": "", "terms": "" },
         "credit_note": { "original_invoice_number": "", "amount": "" }
     }))

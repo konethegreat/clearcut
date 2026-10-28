@@ -135,6 +135,10 @@ pub fn assemble(pages: &[Extraction]) -> Result<Assembled> {
             recipient,
             lines: pages.iter().flat_map(|page| page.lines.iter().cloned()).collect(),
             stated_totals,
+            carried: pages
+                .iter()
+                .flat_map(|page| page.carried.iter().cloned())
+                .collect(),
             due,
             credit_note,
         },

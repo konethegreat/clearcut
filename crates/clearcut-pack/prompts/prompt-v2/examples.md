@@ -36,6 +36,7 @@ Correct output:
     { "description": "Travel (zero-rated)", "quantity": "1", "unit_price": "250.00", "line_total": "250.00", "tax": "zero_rated" }
   ],
   "totals": { "net": "3250.00", "vat": "450.00", "gross": "3700.00" },
+  "carried": { "brought_forward": "", "carried_forward": "" },
   "due": { "date": "2026-05-03", "terms": "30 days" },
   "credit_note": { "original_invoice_number": "", "amount": "" }
 }
@@ -72,24 +73,26 @@ Correct output (the amounts are written as printed; the page says they include V
     { "description": "Milk 1l", "quantity": "1", "unit_price": "22.50", "line_total": "22.50", "tax": "standard" }
   ],
   "totals": { "net": "45.63", "vat": "6.85", "gross": "52.48" },
+  "carried": { "brought_forward": "", "carried_forward": "" },
   "due": { "date": "", "terms": "" },
   "credit_note": { "original_invoice_number": "", "amount": "" }
 }
 ```
 
-### Example 3: a continuation page
+### Example 3: a continuation page that carries a balance forward
 
 <page_text id="example" source="text_layer">
-Page 2 of 2
+Page 2 of 3
+Brought forward                              5 000,00
 Description          Qty   Unit price   Amount   VAT
 Hosting - April       1    800,00       800,00    S
 Support retainer      1    1 200,00     1 200,00  S
-Subtotal                                2 000,00
-VAT 15%                                   300,00
-Total                                   2 300,00
+Subtotal                                     2 000,00
+VAT 15%                                        300,00
+Carried forward                              7 300,00
 </page_text id="example">
 
-Correct output (nothing from the first page is repeated; no currency or VAT basis is stated on this page):
+Correct output (nothing from the first page is repeated; the page carries 5 000,00 in and 7 300,00 out, which is not the invoice's own total):
 
 ```json
 {
@@ -104,6 +107,7 @@ Correct output (nothing from the first page is repeated; no currency or VAT basi
     { "description": "Support retainer", "quantity": "1", "unit_price": "1200.00", "line_total": "1200.00", "tax": "standard" }
   ],
   "totals": { "net": "2000.00", "vat": "300.00", "gross": "2300.00" },
+  "carried": { "brought_forward": "5000.00", "carried_forward": "7300.00" },
   "due": { "date": "", "terms": "" },
   "credit_note": { "original_invoice_number": "", "amount": "" }
 }

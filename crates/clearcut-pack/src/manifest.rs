@@ -44,7 +44,7 @@ pub struct RedactionReport {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackManifest {
-    /// `reading-v2/prompt-v1`: the shape and the prompt that produced this call.
+    /// `reading-v3/prompt-v2`: the shape and the prompt that produced this call.
     pub prompt_version: String,
     /// SHA-256 of the cached prefix (all system blocks); equal hashes mean a cache can hit.
     pub prefix_sha256: String,

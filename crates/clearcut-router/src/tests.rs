@@ -1,4 +1,4 @@
-// Written by Kone Tshivhinda & Claude
+﻿// Written by Kone Tshivhinda & Claude
 //! The driver for one page, against `FakeProvider` and `FakeWorker`: no key, no network, no
 //! database, no real invoice. Every text here is invented.
 
@@ -69,6 +69,7 @@ fn clean_reading() -> PageReading {
             vat: "2250.00".into(),
             gross: "17250.00".into(),
         },
+        carried: Default::default(),
         due: ReadDue::default(),
         credit_note: ReadCreditNote::default(),
     }
@@ -378,7 +379,7 @@ async fn what_is_read_becomes_an_extraction_with_the_evidence_as_its_confidence(
         extraction.extractor,
         Extractor::Model {
             name: HAIKU.to_string(),
-            prompt_version: "reading-v2/prompt-v1".to_string()
+            prompt_version: "reading-v3/prompt-v2".to_string()
         }
     );
 }
@@ -426,7 +427,7 @@ async fn every_call_is_recorded_without_any_content() {
     assert_eq!(call.effort, ThinkingEffort::Medium);
     assert_eq!(call.kind, CallKind::First);
     assert_eq!(call.label, CallLabel::Accepted);
-    assert_eq!(call.prompt_version, "reading-v2/prompt-v1");
+    assert_eq!(call.prompt_version, "reading-v3/prompt-v2");
     assert_eq!(call.request_id.as_deref(), Some("req_1"));
     assert_eq!(call.usage.input_tokens, 6_000);
     assert_eq!(call.usage.output_tokens, 1_000);

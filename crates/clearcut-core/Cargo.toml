@@ -17,6 +17,9 @@ schemars = ["dep:schemars"]
 [dependencies]
 schemars = { version = "1", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
+# Reading a stored page reading written before the current shape (ADR-0022) needs a JSON value.
+# This is serialisation, not I/O; the crate stays free of network and files.
+serde_json = "1.0.154"
 thiserror = "2.0.21"
 uuid = "1"
 # Dates are easy to get subtly wrong (leap years, month lengths), so we use a
@@ -24,5 +27,4 @@ uuid = "1"
 time = { version = "0.3.55", default-features = false, features = ["serde-human-readable"] }
 
 [dev-dependencies]
-serde_json = "1.0.154"
 time = { version = "0.3.55", features = ["macros"] }

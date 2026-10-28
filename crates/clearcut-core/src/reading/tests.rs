@@ -2,7 +2,7 @@
 use super::*;
 use crate::event::{Confidence, DocumentId, Extractor};
 use crate::extraction::fixtures;
-use crate::{Currency, TaxCategory};
+use crate::{Currency, Money, TaxCategory};
 use std::num::NonZeroU32;
 
 const SECRET: &str = "ACCOUNT 1234567890 SECRET";
@@ -53,6 +53,7 @@ fn clean_reading() -> PageReading {
             vat: "2250.00".into(),
             gross: "18250.00".into(),
         },
+        carried: ReadCarried::default(),
         due: ReadDue {
             date: "2026-04-30".into(),
             terms: "30 days".into(),
@@ -71,6 +72,7 @@ fn empty_reading() -> PageReading {
         recipient: ReadParty::default(),
         lines: vec![],
         totals: ReadTotals::default(),
+        carried: ReadCarried::default(),
         due: ReadDue::default(),
         credit_note: ReadCreditNote::default(),
     }
@@ -142,7 +144,7 @@ fn a_reading_that_shows_nothing_converts_to_an_extraction_with_nothing() {
 
 #[test]
 fn the_version_is_recorded() {
-    assert_eq!(READING_SHAPE_VERSION, "reading-v2");
+    assert_eq!(READING_SHAPE_VERSION, "reading-v3");
 }
 
 // ---------- the JSON the model returns ----------
@@ -159,6 +161,7 @@ fn the_json_a_model_returns_is_read() {
         "lines": [{ "description": "x", "quantity": "2", "unit_price": "1.00",
                     "line_total": "2.00", "tax": "zero_rated" }],
         "totals": { "net": "", "vat": "", "gross": "" },
+        "carried": { "brought_forward": "", "carried_forward": "" },
         "due": { "date": "", "terms": "" },
         "credit_note": { "original_invoice_number": "", "amount": "" }
     });
@@ -540,7 +543,7 @@ fn a_year_outside_a_plausible_range_is_refused() {
 
 #[test]
 fn non_ascii_digits_are_not_digits() {
-    for bad in ["２０２６-10-01", "2026-１０-01", "٢٠٢٦-10-01"] {
+    for bad in ["�'０�'�--10-01", "2026-�'０-01", "٢٠٢٦-10-01"] {
         let reading = PageReading {
             invoice_date: bad.into(),
             ..clean_reading()
@@ -1068,7 +1071,7 @@ fn a_vat_number_alone_is_not_a_party() {
     );
 }
 
-// ---------- VAT-inclusive amounts (reading-v2) ----------
+// ---------- VAT-inclusive amounts (the reading shape) ----------
 
 #[test]
 fn the_vat_basis_names_are_the_documented_ones() {
@@ -1161,4 +1164,93 @@ fn the_kind_used_only_in_failure_reports_has_its_own_name() {
         serde_json::to_string(&ProblemKind::NotOnPage).unwrap(),
         "\"not_on_page\""
     );
+}
+
+// ---------- carried figures (ADR-0022) ----------
+
+#[test]
+fn a_page_with_both_carried_figures_converts_them() {
+    let mut reading = clean_reading();
+    reading.carried = ReadCarried {
+        brought_forward: "1000.00".into(),
+        carried_forward: "2500.50".into(),
+    };
+    let extraction = convert(&reading).extraction;
+    assert_eq!(extraction.carried.len(), 1);
+    let carried = &extraction.carried[0];
+    assert_eq!(carried.value.brought_forward, Some(Money::zar(100_000)));
+    assert_eq!(carried.value.carried_forward, Some(Money::zar(250_050)));
+    assert_eq!(carried.page.get(), 1);
+}
+
+#[test]
+fn a_page_with_one_carried_figure_converts_the_one_it_has() {
+    let mut reading = empty_reading();
+    reading.currency = ReadCurrency::Zar;
+    reading.carried = ReadCarried {
+        brought_forward: "120.00".into(),
+        carried_forward: String::new(),
+    };
+    let extraction = convert(&reading).extraction;
+    assert_eq!(extraction.carried.len(), 1);
+    assert_eq!(
+        extraction.carried[0].value.brought_forward,
+        Some(Money::zar(12_000))
+    );
+    assert_eq!(extraction.carried[0].value.carried_forward, None);
+}
+
+#[test]
+fn a_page_with_no_carried_figures_has_no_carried_fact() {
+    let mut reading = empty_reading();
+    reading.currency = ReadCurrency::Zar;
+    let extraction = convert(&reading).extraction;
+    assert_eq!(extraction.carried, Vec::new());
+}
+
+#[test]
+fn a_carried_figure_that_cannot_be_read_is_a_problem_and_is_left_out() {
+    let mut reading = empty_reading();
+    reading.currency = ReadCurrency::Zar;
+    reading.carried = ReadCarried {
+        brought_forward: "1,000.00".into(),
+        carried_forward: "2000.00".into(),
+    };
+    assert_eq!(
+        problems(&reading),
+        vec![path("carried/brought_forward", ProblemKind::BadAmount)]
+    );
+    let extraction = convert(&reading).extraction;
+    assert_eq!(extraction.carried.len(), 1);
+    assert_eq!(extraction.carried[0].value.brought_forward, None);
+    assert_eq!(
+        extraction.carried[0].value.carried_forward,
+        Some(Money::zar(200_000))
+    );
+}
+
+// ---------- stored readings from an older shape (ADR-0022) ----------
+
+#[test]
+fn a_current_stored_reading_is_read_as_current() {
+    let value = serde_json::to_value(clean_reading()).unwrap();
+    let stored = PageReading::from_stored_value(value).expect("the current shape reads");
+    assert!(!stored.legacy);
+    assert_eq!(stored.reading, clean_reading());
+}
+
+#[test]
+fn a_reading_stored_before_the_carried_figures_is_lifted_with_none() {
+    let mut value = serde_json::to_value(clean_reading()).unwrap();
+    value.as_object_mut().unwrap().remove("carried");
+    let stored = PageReading::from_stored_value(value).expect("the v2 shape is lifted");
+    assert!(stored.legacy);
+    assert_eq!(stored.reading.carried, ReadCarried::default());
+    assert_eq!(stored.reading.invoice_number, clean_reading().invoice_number);
+}
+
+#[test]
+fn a_damaged_stored_reading_is_refused() {
+    let value = serde_json::json!({ "currency": "ZAR" });
+    assert!(PageReading::from_stored_value(value).is_err());
 }

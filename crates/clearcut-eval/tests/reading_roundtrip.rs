@@ -104,6 +104,7 @@ fn reading_of_page(e: &Extraction, page: u32) -> PageReading {
                 gross: format_money(t.value.gross.minor),
             })
             .unwrap_or_default(),
+        carried: Default::default(),
         due: e
             .due
             .as_ref()
@@ -171,6 +172,7 @@ fn merge(parts: Vec<Extraction>) -> Extraction {
         recipient: one(parts.iter().map(|p| p.recipient.clone()).collect()),
         lines,
         stated_totals: one(parts.iter().map(|p| p.stated_totals.clone()).collect()),
+        carried: Vec::new(),
         due: one(parts.iter().map(|p| p.due.clone()).collect()),
         credit_note: one(parts.iter().map(|p| p.credit_note.clone()).collect()),
     }

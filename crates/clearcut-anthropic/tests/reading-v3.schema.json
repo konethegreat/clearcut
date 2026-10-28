@@ -12,6 +12,25 @@
       ],
       "type": "string"
     },
+    "carried": {
+      "additionalProperties": false,
+      "description": "The page-continuation figures, if this page prints any (ADR-0022).",
+      "properties": {
+        "brought_forward": {
+          "description": "The amount brought forward at the top of this page, for example \"Brought forward\",\n\"Balance brought forward\" or \"B/F\", written like a unit price. Empty if this page does\nnot print one.",
+          "type": "string"
+        },
+        "carried_forward": {
+          "description": "The amount carried forward at the foot of this page, for example \"Carried forward\",\n\"Balance carried forward\" or \"C/F\", written like a unit price. Empty if this page does\nnot print one.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "brought_forward",
+        "carried_forward"
+      ],
+      "type": "object"
+    },
     "credit_note": {
       "additionalProperties": false,
       "description": "The credited invoice, if this is a credit note.",
@@ -196,6 +215,7 @@
     "recipient",
     "lines",
     "totals",
+    "carried",
     "due",
     "credit_note"
   ],

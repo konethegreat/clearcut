@@ -1,4 +1,4 @@
-// Written by Kone Tshivhinda & Claude
+﻿// Written by Kone Tshivhinda & Claude
 //! The context-pack builder (ADR-0014), through its public API only.
 
 use clearcut_core::extraction::Finding;
@@ -747,7 +747,7 @@ fn the_manifest_names_what_was_sent_and_holds_no_text() {
         );
     }
     let m = &pack.manifest;
-    assert_eq!(m.prompt_version, "reading-v2/prompt-v1");
+    assert_eq!(m.prompt_version, "reading-v3/prompt-v2");
     assert_eq!(m.prefix_sha256.len(), 64);
     assert_eq!(m.schema_sha256.len(), 64);
     assert_eq!((m.page, m.of), (2, 5));

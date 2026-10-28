@@ -64,6 +64,7 @@ fn reading() -> Value {
         "supplier": { "name": "", "address": "", "vat_number": "" },
         "recipient": { "name": "", "address": "", "vat_number": "" },
         "lines": [], "totals": { "net": "", "vat": "", "gross": "" },
+        "carried": { "brought_forward": "", "carried_forward": "" },
         "due": { "date": "", "terms": "" },
         "credit_note": { "original_invoice_number": "", "amount": "" }
     })
