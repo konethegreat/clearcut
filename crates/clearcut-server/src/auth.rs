@@ -15,12 +15,17 @@
 //!   body, so an anonymous caller cannot probe how the API parses input.
 //! - **A scoped route answers 403 only to an authenticated caller.** An
 //!   anonymous caller gets 401, which does not reveal what the route needs.
+//! - **A caller who asks too often is told to wait.** Once the key is
+//!   accepted, each request counts against its account's minute; over the
+//!   limit the answer is `429` with `Retry-After`. A bad key is still `401`
+//!   and uses no allowance.
 //! - **The key is never logged**, and the header is marked sensitive so even a
 //!   `Debug` print of the request headers shows it redacted.
 
 use crate::anthropic_key::KeyAdmin;
 use crate::documents::Ingest;
 use crate::jobs::JobQueue;
+use crate::rate_limit::RateLimiter;
 use crate::results::Results;
 use crate::review::Reviews;
 use axum::extract::FromRequestParts;
@@ -29,8 +34,10 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use clearcut_core::auth::{Principal, Scope};
 use std::future::Future;
+use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Why a key could not be turned into a [`Principal`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +85,7 @@ pub struct AppState {
     results: Option<Arc<dyn Results>>,
     reviews: Option<Arc<dyn Reviews>>,
     keys: Option<Arc<dyn KeyAdmin>>,
+    rate_limit: Option<Arc<RateLimiter>>,
 }
 
 impl AppState {
@@ -89,6 +97,7 @@ impl AppState {
             results: None,
             reviews: None,
             keys: None,
+            rate_limit: None,
         }
     }
 
@@ -100,6 +109,7 @@ impl AppState {
             results: None,
             reviews: None,
             keys: None,
+            rate_limit: None,
         }
     }
 
@@ -133,6 +143,17 @@ impl AppState {
         self
     }
 
+    /// Limits each account to `per_minute` requests a minute, counted after
+    /// authentication. Without it no request is refused for asking too often.
+    pub fn with_rate_limit(mut self, per_minute: NonZeroU32) -> Self {
+        self.rate_limit = Some(Arc::new(RateLimiter::new(per_minute)));
+        self
+    }
+
+    pub(crate) fn rate_limit(&self) -> Option<&RateLimiter> {
+        self.rate_limit.as_deref()
+    }
+
     pub(crate) fn keys(&self) -> Option<&dyn KeyAdmin> {
         self.keys.as_deref()
     }
@@ -161,6 +182,8 @@ pub enum ApiProblem {
     Unauthorized,
     /// Authenticated, but the key lacks this scope.
     Forbidden(Scope),
+    /// The account has used its requests for this minute; try again in this many seconds.
+    RateLimited { retry_after_seconds: u64 },
     /// Something went wrong on our side. Nothing more is said.
     Internal,
 }
@@ -177,6 +200,15 @@ impl IntoResponse for ApiProblem {
             ApiProblem::Forbidden(scope) => (
                 StatusCode::FORBIDDEN,
                 Json(serde_json::json!({ "error": "forbidden", "required_scope": scope.as_str() })),
+            )
+                .into_response(),
+            ApiProblem::RateLimited { retry_after_seconds } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, retry_after_seconds.to_string())],
+                Json(serde_json::json!({
+                    "error": "too many requests",
+                    "retry_after_seconds": retry_after_seconds,
+                })),
             )
                 .into_response(),
             ApiProblem::Internal => (
@@ -217,7 +249,18 @@ impl FromRequestParts<AppState> for Authed {
             return Err(ApiProblem::Unauthorized);
         };
         match state.auth.authenticate(token).await {
-            Ok(principal) => Ok(Authed(principal)),
+            Ok(principal) => {
+                if let Some(limiter) = state.rate_limit() {
+                    if let Err(retry_after_seconds) = limiter.check(principal.tenant(), Instant::now()) {
+                        tracing::warn!(
+                            tenant = %principal.tenant(),
+                            "a request was refused by the account's rate limit"
+                        );
+                        return Err(ApiProblem::RateLimited { retry_after_seconds });
+                    }
+                }
+                Ok(Authed(principal))
+            }
             Err(AuthFailure::Rejected) => {
                 tracing::warn!(reason = "credentials rejected", "authentication failed");
                 Err(ApiProblem::Unauthorized)

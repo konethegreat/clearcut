@@ -175,6 +175,102 @@ async fn uploading_the_same_content_twice_returns_the_same_document(pool: PgPool
     assert!(!different.duplicate);
 }
 
+fn document_of(seed: u8, byte_size: i64) -> NewDocument {
+    NewDocument {
+        byte_size,
+        ..new_document(seed)
+    }
+}
+
+#[sqlx::test]
+async fn storage_used_sums_only_this_tenants_documents(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    let other = new_tenant(&pool, "Other Practice").await.unwrap();
+    store.add_document(other, &document_of(2, 500)).await.unwrap();
+    assert_eq!(store.tenant_storage_used(tenant).await.unwrap(), 1234);
+    assert_eq!(store.tenant_storage_used(other).await.unwrap(), 500);
+}
+
+#[sqlx::test]
+async fn a_document_of_a_given_size_is_found_only_for_its_own_tenant(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    assert!(store.tenant_has_document_of_size(tenant, 1234).await.unwrap());
+    assert!(!store.tenant_has_document_of_size(tenant, 1233).await.unwrap());
+    let other = new_tenant(&pool, "Other Practice").await.unwrap();
+    assert!(!store.tenant_has_document_of_size(other, 1234).await.unwrap());
+}
+
+#[sqlx::test]
+async fn a_document_that_would_cross_the_quota_is_refused(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    let error = store
+        .add_document_within(tenant, &document_of(2, 100), 1300)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::StorageQuotaExceeded {
+                used_bytes: 1234,
+                quota_bytes: 1300
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(store.tenant_storage_used(tenant).await.unwrap(), 1234);
+}
+
+#[sqlx::test]
+async fn a_document_that_exactly_fills_the_quota_is_accepted(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    let added = store
+        .add_document_within(tenant, &document_of(2, 66), 1300)
+        .await
+        .unwrap();
+    assert!(!added.duplicate);
+    assert_eq!(store.tenant_storage_used(tenant).await.unwrap(), 1300);
+}
+
+#[sqlx::test]
+async fn two_uploads_for_one_account_cannot_both_take_the_last_room(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    let quota = 1300;
+    let first = document_of(2, 66);
+    let second = document_of(3, 66);
+    let (a, b) = tokio::join!(
+        store.add_document_within(tenant, &first, quota),
+        store.add_document_within(tenant, &second, quota)
+    );
+    assert_eq!(
+        usize::from(a.is_ok()) + usize::from(b.is_ok()),
+        1,
+        "only one upload fits"
+    );
+    assert_eq!(store.tenant_storage_used(tenant).await.unwrap(), quota);
+}
+
+#[sqlx::test]
+async fn a_duplicate_is_accepted_even_when_the_account_is_full(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    let again = store
+        .add_document_within(tenant, &new_document(1), 1234)
+        .await
+        .unwrap();
+    assert!(again.duplicate);
+}
+
+#[sqlx::test]
+async fn one_tenants_quota_does_not_limit_another(pool: PgPool) {
+    let (store, tenant, _) = setup(&pool).await;
+    let other = new_tenant(&pool, "Other Practice").await.unwrap();
+    store
+        .add_document_within(other, &document_of(2, 500), 1234)
+        .await
+        .unwrap();
+    assert_eq!(store.tenant_storage_used(tenant).await.unwrap(), 1234);
+    assert_eq!(store.tenant_storage_used(other).await.unwrap(), 500);
+}
+
 #[sqlx::test]
 async fn another_tenant_uploading_the_same_content_gets_its_own_document(pool: PgPool) {
     let (store, _tenant, doc) = setup(&pool).await;

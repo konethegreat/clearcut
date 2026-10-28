@@ -18,14 +18,20 @@ use uuid::Uuid;
 // ---------- test doubles ----------
 
 pub(crate) const TENANT: u128 = 0xA;
+const OTHER_TENANT: u128 = 0xB;
 pub(crate) const READER: &str = "ccut_reader";
 pub(crate) const WRITER: &str = "ccut_writer";
 pub(crate) const ADMIN_ONLY: &str = "ccut_admin_only";
+const OTHER: &str = "ccut_other_tenant";
 const FLAKY: &str = "ccut_db_is_down";
 
 fn principal(key: u128, scopes: &[Scope]) -> Principal {
+    principal_of(TENANT, key, scopes)
+}
+
+fn principal_of(tenant: u128, key: u128, scopes: &[Scope]) -> Principal {
     Principal::new(
-        Uuid::from_u128(TENANT),
+        Uuid::from_u128(tenant),
         Uuid::from_u128(key),
         scopes.iter().copied(),
     )
@@ -47,6 +53,10 @@ impl FakeAuth {
         );
         principals.insert(WRITER.to_string(), principal(2, &[Scope::DocumentsWrite]));
         principals.insert(ADMIN_ONLY.to_string(), principal(3, &[Scope::KeysAdmin]));
+        principals.insert(
+            OTHER.to_string(),
+            principal_of(OTHER_TENANT, 4, &[Scope::DocumentsRead]),
+        );
         Arc::new(Self {
             principals,
             unavailable: HashSet::from([FLAKY.to_string()]),
@@ -79,7 +89,7 @@ impl Authenticator for FakeAuth {
 
 /// The real routes plus a few test-only ones that exercise scope checks and
 /// what a handler can see of the request.
-fn router_with(fake: &Arc<FakeAuth>) -> Router {
+fn test_routes() -> Router<AppState> {
     async fn needs_write(auth: Authed) -> Result<&'static str, ApiProblem> {
         auth.require(Scope::DocumentsWrite)?;
         Ok("written")
@@ -98,12 +108,22 @@ fn router_with(fake: &Arc<FakeAuth>) -> Router {
             .is_some_and(|v| v.is_sensitive());
         format!("sensitive={sensitive}; debug={headers:?}")
     }
-    let routes = routes()
+    routes()
         .route("/test/write", get(needs_write))
         .route("/test/read", get(needs_read))
         .route("/test/admin", get(needs_admin))
-        .route("/test/headers", get(show_headers));
-    finish(routes, AppState::shared(fake.clone()))
+        .route("/test/headers", get(show_headers))
+}
+
+fn router_with(fake: &Arc<FakeAuth>) -> Router {
+    finish(test_routes(), AppState::shared(fake.clone()))
+}
+
+fn router_with_rate_limit(fake: &Arc<FakeAuth>, per_minute: u32) -> Router {
+    finish(
+        test_routes(),
+        AppState::shared(fake.clone()).with_rate_limit(std::num::NonZeroU32::new(per_minute).unwrap()),
+    )
 }
 
 fn app_with_fake() -> (Router, Arc<FakeAuth>) {
@@ -179,6 +199,51 @@ async fn the_bearer_scheme_name_is_not_case_sensitive() {
         let (status, ..) = send(&app, get_with("/v1/whoami", Some(&format!("{scheme} {READER}")))).await;
         assert_eq!(status, StatusCode::OK, "{scheme}");
     }
+}
+
+#[tokio::test]
+async fn an_account_is_refused_after_its_requests_for_the_minute() {
+    let fake = FakeAuth::new();
+    let app = router_with_rate_limit(&fake, 2);
+    for _ in 0..2 {
+        let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer(READER)))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, headers, body) = send(&app, get_with("/v1/whoami", Some(&bearer(READER)))).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    let retry: u64 = headers
+        .get(header::RETRY_AFTER)
+        .expect("a refusal says when to try again")
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!((1..=60).contains(&retry), "{retry}");
+    let v = json(&body);
+    assert_eq!(v["error"], "too many requests");
+    assert_eq!(v["retry_after_seconds"], retry);
+}
+
+#[tokio::test]
+async fn another_account_keeps_its_own_allowance() {
+    let fake = FakeAuth::new();
+    let app = router_with_rate_limit(&fake, 1);
+    let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer(READER)))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer(READER)))).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer(OTHER)))).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_bad_key_is_refused_as_unauthorized_before_any_allowance_is_used() {
+    let fake = FakeAuth::new();
+    let app = router_with_rate_limit(&fake, 1);
+    let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer("ccut_unknown")))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer(READER)))).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]

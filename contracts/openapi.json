@@ -478,6 +478,32 @@
               }
             },
             "description": "The key lacks the required scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Remove the tenant's own Anthropic key",
@@ -562,6 +588,32 @@
               }
             },
             "description": "The key lacks the required scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Whether this tenant has its own Anthropic key (never the key), and whose key the next job would use",
@@ -653,6 +705,32 @@
             },
             "description": "An admin key, a login token, or a key Anthropic does not accept"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
           "502": {
             "content": {
               "application/json": {
@@ -719,6 +797,32 @@
               }
             },
             "description": "The key lacks the required scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "The tenant's most recent documents, newest first",
@@ -837,6 +941,42 @@
               }
             },
             "description": "Not a PDF, PNG, JPEG, TIFF or XML"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "507": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Storing this file would overfill the account's storage quota"
           }
         },
         "summary": "Upload one document (the request body is the file itself)",
@@ -899,6 +1039,32 @@
               }
             },
             "description": "A job is running on it; try again when it has finished"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Erase the document, everything read from it and its file for good (POPIA)",
@@ -982,6 +1148,32 @@
               }
             },
             "description": "No such document, or it belongs to another tenant"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "A document's status, page count, file name and number of events",
@@ -1055,6 +1247,32 @@
               }
             },
             "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "The events as stored: the source of truth",
@@ -1144,6 +1362,32 @@
               }
             },
             "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "The document as a file to download: the same events laid out as JSON, CSV, Markdown, HTML, plain text, Excel, Word or PDF",
@@ -1211,6 +1455,32 @@
               }
             },
             "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "What is happening to a document: its jobs, newest first",
@@ -1324,6 +1594,32 @@
               }
             },
             "description": "Not good enough yet: see `refusal`"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "A person's reading of a page, checked by the same rules as a model's; if it passes the page is confirmed and the document finished with no model call",
@@ -1405,6 +1701,32 @@
               }
             },
             "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "The cited narration; every sentence names the events it comes from",
@@ -1496,6 +1818,32 @@
               }
             },
             "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "The pages waiting for a person, each with the reason it stopped and the reader's best draft",
@@ -1556,6 +1904,32 @@
               }
             },
             "description": "The invoice cannot be calculated (no lines, a bad quantity, mixed currencies)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Net, VAT and gross of an invoice: pure arithmetic, nothing stored. VAT is taken per tax category on the category subtotal. A line may carry `line_total`, used as given."
@@ -1610,6 +1984,32 @@
               }
             },
             "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Cancel a job (a running one is asked to stop)",
@@ -1663,6 +2063,32 @@
               }
             },
             "description": "The key lacks the required scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "summary": "Which tenant, key and scopes these credentials carry"

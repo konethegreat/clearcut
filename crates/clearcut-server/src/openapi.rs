@@ -34,7 +34,22 @@ fn responses(ok: Value, others: &[(&str, &str)]) -> Value {
         map.insert(code, body);
     }
     for (code, text) in others {
-        let (code, body) = problem(code, text);
+        let (code, mut body) = problem(code, text);
+        if code == "429" {
+            body["headers"] = json!({
+                "Retry-After": {
+                    "description": "How many seconds to wait before trying again",
+                    "schema": { "type": "integer" }
+                }
+            });
+            body["content"]["application/json"]["schema"] = json!({
+                "type": "object",
+                "properties": {
+                    "error": { "type": "string" },
+                    "retry_after_seconds": { "type": "integer" }
+                }
+            });
+        }
         map.insert(code, body);
     }
     Value::Object(map)
@@ -124,6 +139,10 @@ pub fn document() -> Value {
     let auth = [
         ("401", "No valid key (the answer is identical for every failure)"),
         ("403", "The key lacks the required scope"),
+        (
+            "429",
+            "This account has used its requests for the minute; Retry-After says how long to wait",
+        ),
     ];
     let with_auth = |extra: &[(&'static str, &'static str)]| -> Vec<(&'static str, &'static str)> {
         let mut all: Vec<(&str, &str)> = auth.to_vec();
@@ -146,7 +165,7 @@ pub fn document() -> Value {
                 responses(json!({
                     "201": { "description": "Stored and queued to be read", "content": { "application/json": { "schema": { "type": "object", "properties": { "document_id": { "type": "string" }, "job_id": { "type": ["string", "null"] }, "duplicate": { "type": "boolean" }, "sha256": { "type": "string" }, "byte_size": { "type": "integer" }, "filename": { "type": "string" }, "media_type": { "type": "string" } } } } } },
                     "200": { "description": "This tenant had uploaded exactly these bytes before; the existing document is returned" } }),
-                    &with_auth(&[("413", "Over the size limit"), ("415", "Not a PDF, PNG, JPEG, TIFF or XML")]))),
+                    &with_auth(&[("413", "Over the size limit"), ("415", "Not a PDF, PNG, JPEG, TIFF or XML"), ("507", "Storing this file would overfill the account's storage quota")]))),
             "get": op("The tenant's most recent documents, newest first", Some("documents:read"), vec![], None,
                 responses(ok_json("200", "A list", json!({ "type": "object", "properties": { "documents": { "type": "array", "items": { "type": "object" } } } })), &auth)),
         },
@@ -187,7 +206,7 @@ pub fn document() -> Value {
         },
         "/v1/invoices/calculate": { "post": op("Net, VAT and gross of an invoice: pure arithmetic, nothing stored. VAT is taken per tax category on the category subtotal. A line may carry `line_total`, used as given.", None, vec![],
             Some(json!({ "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Invoice" } } } })),
-            responses(ok_json("200", "Totals in integer minor units", json!({ "type": "object", "properties": { "totals": { "$ref": "#/components/schemas/InvoiceTotals" }, "required_document": { "type": "string" }, "display_gross": { "type": "string" } } })), &[("401", "No valid key"), ("422", "The invoice cannot be calculated (no lines, a bad quantity, mixed currencies)")])) },
+            responses(ok_json("200", "Totals in integer minor units", json!({ "type": "object", "properties": { "totals": { "$ref": "#/components/schemas/InvoiceTotals" }, "required_document": { "type": "string" }, "display_gross": { "type": "string" } } })), &[("401", "No valid key"), ("422", "The invoice cannot be calculated (no lines, a bad quantity, mixed currencies)"), ("429", "This account has used its requests for the minute; Retry-After says how long to wait")])) },
     });
 
     // The core types were generated with their own `#/$defs/...` references; their definitions now

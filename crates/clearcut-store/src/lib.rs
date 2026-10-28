@@ -103,6 +103,9 @@ pub enum Error {
     /// The document has a job queued or running, so it cannot be erased right now.
     #[error("the document is being worked on")]
     DocumentBusy,
+    /// Storing this document would put the tenant over its storage quota.
+    #[error("storage quota exceeded: {used_bytes} of {quota_bytes} bytes used")]
+    StorageQuotaExceeded { used_bytes: u64, quota_bytes: u64 },
     /// A person tried to confirm a page that is not waiting for review (it was never sent to
     /// review, or someone has confirmed it already).
     #[error("the page is not waiting for review")]
@@ -335,10 +338,93 @@ impl Store {
         Ok(TenantId(id))
     }
 
+    /// The bytes of every document this tenant has stored. Erased documents
+    /// no longer count.
+    pub async fn tenant_storage_used(&self, tenant: TenantId) -> Result<u64> {
+        let mut tx = self.begin(tenant).await?;
+        let used: i64 = sqlx::query_scalar(
+            "select coalesce(sum(byte_size), 0)::bigint from documents where tenant_id = $1",
+        )
+        .bind(tenant.0)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        // The column is checked non-negative, so the sum cannot be negative.
+        Ok(u64::try_from(used).unwrap_or(0))
+    }
+
+    /// Whether this tenant already has a document of exactly `byte_size` bytes.
+    /// Before an upload is read, its size is all that is known; this lets a
+    /// possible repeat through the quota check that would refuse a new file.
+    pub async fn tenant_has_document_of_size(&self, tenant: TenantId, byte_size: u64) -> Result<bool> {
+        let Ok(byte_size) = i64::try_from(byte_size) else {
+            return Ok(false);
+        };
+        let mut tx = self.begin(tenant).await?;
+        let found: bool = sqlx::query_scalar(
+            "select exists(select 1 from documents where tenant_id = $1 and byte_size = $2)",
+        )
+        .bind(tenant.0)
+        .bind(byte_size)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(found)
+    }
+
     /// Records an uploaded document. Uploading the same content again for the
     /// same tenant returns the existing document with `duplicate` set.
     pub async fn add_document(&self, tenant: TenantId, document: &NewDocument) -> Result<AddedDocument> {
+        self.add_document_within(tenant, document, u64::MAX).await
+    }
+
+    /// Records an uploaded document unless it would take the tenant past
+    /// `quota_bytes`. A duplicate costs nothing and is accepted even when the
+    /// account is full.
+    ///
+    /// The check and the insert take turns per tenant, so two uploads for one
+    /// account cannot both pass a check that only one of them fits.
+    pub async fn add_document_within(
+        &self,
+        tenant: TenantId,
+        document: &NewDocument,
+        quota_bytes: u64,
+    ) -> Result<AddedDocument> {
         let mut tx = self.begin(tenant).await?;
+        sqlx::query("select pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(tenant.0.to_string())
+            .execute(&mut *tx)
+            .await?;
+
+        let existing: Option<Uuid> =
+            sqlx::query_scalar("select id from documents where tenant_id = $1 and sha256 = $2")
+                .bind(tenant.0)
+                .bind(&document.sha256[..])
+                .fetch_optional(&mut *tx)
+                .await?;
+        if let Some(id) = existing {
+            tx.commit().await?;
+            return Ok(AddedDocument {
+                id: DocId(id),
+                duplicate: true,
+            });
+        }
+
+        let used: i64 = sqlx::query_scalar(
+            "select coalesce(sum(byte_size), 0)::bigint from documents where tenant_id = $1",
+        )
+        .bind(tenant.0)
+        .fetch_one(&mut *tx)
+        .await?;
+        let used_bytes = u64::try_from(used).unwrap_or(0);
+        let adding = u64::try_from(document.byte_size).unwrap_or(0);
+        if used_bytes.saturating_add(adding) > quota_bytes {
+            return Err(Error::StorageQuotaExceeded {
+                used_bytes,
+                quota_bytes,
+            });
+        }
+
         let inserted: Option<Uuid> = sqlx::query_scalar(
             "insert into documents \
              (tenant_id, original_filename, content_type, byte_size, sha256, storage_key, page_count) \

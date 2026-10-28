@@ -388,17 +388,48 @@ impl ClearCut {
     /// Wait until a document is `done` or `needs_review`, or the time runs out, and answer its status.
     #[tool(name = "wait_for_document", annotations(read_only_hint = true))]
     async fn wait_for_document(&self, Parameters(p): Parameters<WaitParams>) -> Result<Json<Answer>, String> {
+        let id = document_id(&p.document_id)?;
+        let api = self.api()?;
         let limit = Duration::from_secs(p.timeout_seconds.unwrap_or(60).clamp(1, 300));
         let started = std::time::Instant::now();
+        let path = format!("/v1/documents/{id}");
+        let mut last: Option<Value> = None;
         loop {
-            let mut view = self.document_view(&p.document_id).await?;
+            let reply = api.send(Method::GET, &path, None).await?;
+            if reply.status == 429 {
+                // The account has used its requests for the minute: wait as told.
+                let wait = Duration::from_secs(reply.retry_after.unwrap_or(1).min(60));
+                if wait >= limit.saturating_sub(started.elapsed()) {
+                    break;
+                }
+                tokio::time::sleep(wait).await;
+                continue;
+            }
+            if !reply.ok() {
+                return Err(api::explain(&reply));
+            }
+            let view = reply.json();
             let finished = matches!(view["status"].as_str(), Some("done" | "needs_review"));
             if finished || started.elapsed() >= limit {
-                view["finished"] = json!(finished);
-                return Ok(answer(view));
+                last = Some(view);
+                break;
             }
+            last = Some(view);
             tokio::time::sleep(self.poll).await;
         }
+        let mut view = match last {
+            Some(view) => view,
+            None => return Err("the ClearCut server is at its request limit; try again shortly".into()),
+        };
+        let finished = matches!(view["status"].as_str(), Some("done" | "needs_review"));
+        if finished {
+            // Add what the latest job is doing, as `get_document` does.
+            if let Ok(full) = self.document_view(&p.document_id).await {
+                view = full;
+            }
+        }
+        view["finished"] = json!(finished);
+        Ok(answer(view))
     }
 
     /// The facts read from a document, each with its page and how sure ClearCut is: the source of truth.

@@ -19,6 +19,7 @@
 //! | key lacks `documents:write` | `403`, naming the scope |
 //! | not a PDF, PNG, JPEG, TIFF or XML | `415`, listing what is accepted |
 //! | over the size limit | `413`, saying the limit |
+//! | would overfill the account's storage | `507`, saying how much is used and the quota |
 //! | empty, or the sender went away | `400` |
 //! | our storage or database failed | `500`, with no detail (it goes to the log) |
 //! | no intake configured | `503` |
@@ -217,6 +218,18 @@ fn explain(error: IntakeError) -> Response {
         IntakeError::TooLarge { max_bytes } => (
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(serde_json::json!({ "error": "file too large", "max_bytes": max_bytes })),
+        )
+            .into_response(),
+        IntakeError::QuotaExceeded {
+            used_bytes,
+            quota_bytes,
+        } => (
+            StatusCode::INSUFFICIENT_STORAGE,
+            Json(serde_json::json!({
+                "error": "storage quota exceeded",
+                "used_bytes": used_bytes,
+                "quota_bytes": quota_bytes,
+            })),
         )
             .into_response(),
         IntakeError::Empty => problem(StatusCode::BAD_REQUEST, "the file is empty"),
