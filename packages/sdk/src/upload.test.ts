@@ -7,6 +7,7 @@ const KEY = `ccut_${"a".repeat(32)}_${"b".repeat(64)}`;
 const PDF = new TextEncoder().encode("%PDF-1.7 a tiny invoice");
 const STORED = {
   document_id: "d0c",
+  job_id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
   duplicate: false,
   sha256: "ab".repeat(32),
   byte_size: PDF.length,

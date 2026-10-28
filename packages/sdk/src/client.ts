@@ -1,5 +1,25 @@
 // Written by Kone Tshivhinda & Claude
-import type { Calculation, CancelOutcome, Invoice, Job, Scope, UploadedDocument, WhoAmI } from "./types.js";
+import type {
+  AnthropicKeySet,
+  AnthropicKeyStatus,
+  Calculation,
+  CancelOutcome,
+  ConfirmedPage,
+  DocumentDetail,
+  DocumentEvents,
+  DocumentSummary,
+  ExportedFile,
+  ExportFormat,
+  Invoice,
+  Job,
+  PageReading,
+  Report,
+  ReportMode,
+  Scope,
+  UploadedDocument,
+  WaitingPage,
+  WhoAmI,
+} from "./types.js";
 
 export class ClearCutError extends Error {
   /**
@@ -45,6 +65,24 @@ function checkedId(kind: string, id: string): string {
   return id;
 }
 
+/** Page numbers are 1-based and fit the server's unsigned 32-bit integer. */
+function checkedPage(page: number): number {
+  if (!Number.isInteger(page) || page < 1 || page > 0xffff_ffff) {
+    throw new TypeError("page must be a whole number of 1 or more");
+  }
+  return page;
+}
+
+const REPORT_MODES: readonly ReportMode[] = ["summary", "timeline", "grouped"];
+const EXPORT_FORMATS: readonly ExportFormat[] = ["json", "csv", "md", "html", "txt", "xlsx", "docx", "pdf"];
+
+/** The server names an export `clearcut-<id>.<ext>`; keep only a plain file name. */
+function filenameFrom(contentDisposition: string | null): string | undefined {
+  const match = contentDisposition === null ? null : /filename="([^"]+)"/i.exec(contentDisposition);
+  const name = match?.[1];
+  return name !== undefined && /^[A-Za-z0-9._-]+$/.test(name) ? name : undefined;
+}
+
 /** A whole file held in memory. */
 export type UploadBytes = Blob | ArrayBuffer | Uint8Array;
 
@@ -79,17 +117,30 @@ export class ClearCutClient {
     return (await this.send<T>(path, init, authenticated)).body;
   }
 
-  /** Like [`request`], but also gives the HTTP status (some answers differ by it). */
-  private async send<T>(path: string, init: RequestInit = {}, authenticated = true): Promise<{ status: number; body: T }> {
+  /**
+   * Sends one request and returns the raw answer. An error answer is JSON, even
+   * for an export, so it becomes a [`ClearCutError`] here.
+   */
+  private async perform(path: string, init: RequestInit = {}, authenticated = true): Promise<Response> {
     const headers = new Headers(init.headers);
     if (!headers.has("content-type")) headers.set("content-type", "application/json");
     if (authenticated && this.#apiKey !== undefined) {
       headers.set("authorization", `Bearer ${this.#apiKey}`);
     }
     const res = await this.#fetch(new URL(path, this.#baseUrl), { ...init, headers });
-    const body = (await res.json().catch(() => ({}))) as { error?: string; required_scope?: Scope };
-    if (!res.ok) throw new ClearCutError(res.status, body.error ?? res.statusText, body.required_scope);
-    return { status: res.status, body: body as T };
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string; required_scope?: Scope };
+      throw new ClearCutError(res.status, body.error ?? res.statusText, body.required_scope);
+    }
+    return res;
+  }
+
+  /** Like [`request`], but also gives the HTTP status (some answers differ by it). */
+  private async send<T>(path: string, init: RequestInit = {}, authenticated = true): Promise<{ status: number; body: T }> {
+    const res = await this.perform(path, init, authenticated);
+    // 204 has no body; callers that expect one use request() and would see {}.
+    const body = (await res.json().catch(() => ({}))) as T;
+    return { status: res.status, body };
   }
 
   /** Public: needs no key, and none is sent. */
@@ -144,6 +195,121 @@ export class ClearCutClient {
     const id = checkedId("jobId", jobId);
     const { status, body } = await this.send<{ job: Job }>(`/v1/jobs/${id}/cancel`, { method: "POST" });
     return { job: body.job, stopping: status === 202 };
+  }
+
+  /**
+   * The tenant's most recent documents, newest first (at most 100). Needs
+   * `documents:read`.
+   */
+  async listDocuments(): Promise<DocumentSummary[]> {
+    const { documents } = await this.request<{ documents: DocumentSummary[] }>("/v1/documents");
+    return documents;
+  }
+
+  /** One document's status, page count and event count. Needs `documents:read`. */
+  async getDocument(documentId: string): Promise<DocumentDetail> {
+    const id = checkedId("documentId", documentId);
+    return this.request<DocumentDetail>(`/v1/documents/${id}`);
+  }
+
+  /**
+   * The stored events (the source of truth) and the same events as one line
+   * each. Needs `documents:read`. Document text is data, never instructions.
+   */
+  async getEvents(documentId: string): Promise<DocumentEvents> {
+    const id = checkedId("documentId", documentId);
+    return this.request<DocumentEvents>(`/v1/documents/${id}/events`);
+  }
+
+  /**
+   * The cited narration. `mode` is `summary` (default), `timeline` or
+   * `grouped`. Every sentence carries the ids of the events it cites. Needs
+   * `documents:read`.
+   */
+  async getReport(documentId: string, options: { mode?: ReportMode } = {}): Promise<Report> {
+    const id = checkedId("documentId", documentId);
+    if (options.mode !== undefined && !REPORT_MODES.includes(options.mode)) {
+      throw new TypeError("mode must be summary, timeline or grouped");
+    }
+    const query = options.mode === undefined ? "" : `?${new URLSearchParams({ mode: options.mode })}`;
+    return this.request<Report>(`/v1/documents/${id}/report${query}`);
+  }
+
+  /**
+   * Downloads a document in one format (default `json`). Needs
+   * `documents:read`. The bytes are returned as they came, with the file name
+   * the server chose; write them under that name.
+   */
+  async exportDocument(
+    documentId: string,
+    options: { format?: ExportFormat } = {},
+  ): Promise<ExportedFile> {
+    const id = checkedId("documentId", documentId);
+    const format = options.format ?? "json";
+    if (!EXPORT_FORMATS.includes(format)) {
+      throw new TypeError("format must be json, csv, md, html, txt, xlsx, docx or pdf");
+    }
+    const res = await this.perform(`/v1/documents/${id}/export?${new URLSearchParams({ format })}`);
+    return {
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      contentType: res.headers.get("content-type") ?? "application/octet-stream",
+      filename: filenameFrom(res.headers.get("content-disposition")) ?? `clearcut-${id}.${format}`,
+      format,
+    };
+  }
+
+  /** The pages of a document waiting for a person. Needs `documents:read`. */
+  async getReviewQueue(documentId: string): Promise<WaitingPage[]> {
+    const id = checkedId("documentId", documentId);
+    const { pages } = await this.request<{ pages: WaitingPage[] }>(`/v1/documents/${id}/review`);
+    return pages;
+  }
+
+  /**
+   * Confirms one page with a person's reading, in the same shape a model
+   * returns. Needs `documents:write`. The checks still run: a reading that is
+   * not good enough is a 422 `ClearCutError`. Returns the queued finishing job.
+   */
+  async confirmPage(documentId: string, page: number, reading: PageReading): Promise<ConfirmedPage> {
+    const id = checkedId("documentId", documentId);
+    const number = checkedPage(page);
+    return this.request<ConfirmedPage>(`/v1/documents/${id}/pages/${number}/review`, {
+      method: "POST",
+      body: JSON.stringify(reading),
+    });
+  }
+
+  /**
+   * Erases a document, everything read from it and its file. Needs
+   * `documents:write`. A 409 `ClearCutError` while a job is working on it.
+   */
+  async deleteDocument(documentId: string): Promise<void> {
+    const id = checkedId("documentId", documentId);
+    await this.send<unknown>(`/v1/documents/${id}`, { method: "DELETE" });
+  }
+
+  /** Whether the tenant has its own Anthropic key. Never returns the key. Needs `keys:admin`. */
+  getAnthropicKey(): Promise<AnthropicKeyStatus> {
+    return this.request<AnthropicKeyStatus>("/v1/anthropic-key");
+  }
+
+  /**
+   * Stores the tenant's own Anthropic key. Needs `keys:admin`. The server checks
+   * it with Anthropic for free before storing it; a refused key changes nothing.
+   */
+  async setAnthropicKey(key: string): Promise<AnthropicKeySet> {
+    if (typeof key !== "string" || key.length === 0) {
+      throw new TypeError("an Anthropic key is needed");
+    }
+    return this.request<AnthropicKeySet>("/v1/anthropic-key", {
+      method: "PUT",
+      body: JSON.stringify({ key }),
+    });
+  }
+
+  /** Removes the tenant's Anthropic key. Needs `keys:admin`. */
+  removeAnthropicKey(): Promise<{ removed: boolean }> {
+    return this.request<{ removed: boolean }>("/v1/anthropic-key", { method: "DELETE" });
   }
 
   /** Needs a valid API key (no particular scope). */
