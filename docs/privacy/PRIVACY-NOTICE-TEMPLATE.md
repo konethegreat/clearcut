@@ -30,7 +30,7 @@ To read, check and present the documents you ask us to, and to keep your account
 - **Nobody else**, and we do not sell information.
 
 ## How long we keep it
-- A document and everything read from it stay **until you delete them** (or **after [N] days [if a retention period is built]**). Deleting removes the document, what was read from it and its file for good.
+- A document and everything read from it stay **until you delete them, or 365 days after you upload them** **[Operator: or the period you set]** (`CLEARCUT_RETENTION_DAYS`; `0` turns automatic deletion off). Deleting, by you or by the retention period, removes the document, what was read from it and its file for good.
 - **Backups** are kept for **[N] days**, so a deleted document may remain in a backup for that long.
 - A record that you uploaded or deleted something (without its content), and the cost records, are kept **[period]** so your spending and our security can be accounted for.
 

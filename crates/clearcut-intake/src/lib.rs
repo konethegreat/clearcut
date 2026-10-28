@@ -31,6 +31,10 @@
 //! Uploaded files are untrusted bytes. Nothing here opens or parses them; the
 //! file name is kept only as cleaned metadata and never forms a path. (Checking
 //! that the bytes really are what the media type claims is P2-02.)
+//!
+//! Deletion lives here too: a person's delete and the server's retention sweep
+//! share one erasure, which cancels a waiting job, refuses a running one, and
+//! removes the file once no document of the account uses those bytes.
 
 use clearcut_core::auth::{Principal, Scope};
 use clearcut_core::document::DocumentStatus;
@@ -371,6 +375,40 @@ impl<O: ObjectStore> Intake<O> {
 
     /// Erases a document for good (POPIA): its events, readings, jobs and row, through the vetted
     /// `erase_document` database function, and then its file. Needs `documents:write`.
+    pub async fn erase(&self, by: &Principal, document: DocId) -> Result<(), IntakeError> {
+        by.require(Scope::DocumentsWrite)
+            .map_err(|_| IntakeError::Forbidden(Scope::DocumentsWrite))?;
+        let requested = AuditEntry {
+            actor: serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() }),
+            action: "document.erase_requested".into(),
+            subject_type: "document".into(),
+            subject_id: document.0.to_string(),
+            detail: serde_json::json!({}),
+        };
+        self.erase_as(TenantId(by.tenant()), document, requested).await
+    }
+
+    /// Erases a document whose retention period has passed: the same erasure as a person's
+    /// deletion, recorded as asked for by the retention sweep with the period as the reason.
+    /// No key is involved: the server decides this, not a caller. A document still being read
+    /// is [`IntakeError::Busy`] and is left for a later sweep.
+    pub async fn erase_expired(
+        &self,
+        tenant: TenantId,
+        document: DocId,
+        days: u16,
+    ) -> Result<(), IntakeError> {
+        let requested = AuditEntry {
+            actor: serde_json::json!({ "type": "retention" }),
+            action: "document.erase_requested".into(),
+            subject_type: "document".into(),
+            subject_id: document.0.to_string(),
+            detail: serde_json::json!({ "retention_days": days }),
+        };
+        self.erase_as(tenant, document, requested).await
+    }
+
+    /// The erasure both above share.
     ///
     /// A job that is only waiting is cancelled first; one that is **running** refuses
     /// ([`IntakeError::Busy`]): it would be writing what is being removed. The file is removed **after** the rows, and only when no
@@ -378,14 +416,16 @@ impl<O: ObjectStore> Intake<O> {
     /// of the same bytes reuses it). If removing the file fails the rows are already gone; that is
     /// reported, and the file is left for a sweep. What stays by design: the audit entry naming the
     /// document (no content) and the call log's costs (no content).
-    pub async fn erase(&self, by: &Principal, document: DocId) -> Result<(), IntakeError> {
-        by.require(Scope::DocumentsWrite)
-            .map_err(|_| IntakeError::Forbidden(Scope::DocumentsWrite))?;
-        let tenant = TenantId(by.tenant());
+    async fn erase_as(
+        &self,
+        tenant: TenantId,
+        document: DocId,
+        requested: AuditEntry,
+    ) -> Result<(), IntakeError> {
         let file = self.store.document_file(tenant, document).await?;
         // A job that is only waiting (for a key, a retry, its turn) is stopped first; one that is
         // running is not interrupted: the person is told to try again when it has finished.
-        let actor = serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() });
+        let actor = requested.actor.clone();
         let jobs = self.store.jobs_for_document(tenant, document).await?;
         for job in jobs.iter().filter(|job| !job.state.is_terminal()) {
             if job.state == clearcut_core::jobs::JobState::Running {
@@ -400,19 +440,9 @@ impl<O: ObjectStore> Intake<O> {
                 return Err(IntakeError::Busy);
             }
         }
-        // Who asked is recorded first (the database function can only say "system"). No content.
-        self.store
-            .record_audit(
-                tenant,
-                &AuditEntry {
-                    actor: serde_json::json!({ "type": "api_key", "id": by.key_id().to_string() }),
-                    action: "document.erase_requested".into(),
-                    subject_type: "document".into(),
-                    subject_id: document.0.to_string(),
-                    detail: serde_json::json!({}),
-                },
-            )
-            .await?;
+        // Who asked and why is recorded first (the database function can only say "system"). No
+        // content.
+        self.store.record_audit(tenant, &requested).await?;
         self.store
             .erase_document(tenant, document)
             .await

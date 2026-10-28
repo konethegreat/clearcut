@@ -21,7 +21,9 @@ Once other people upload their invoices to a server you run, **you** handle othe
    CLEARCUT_DOMAIN=clearcut.yourdomain.example
    CLEARCUT_KEY_MODE=tenant-only
    CLEARCUT_RUNNER_CONCURRENCY=4
+   CLEARCUT_RETENTION_DAYS=365
    ```
+   `CLEARCUT_RETENTION_DAYS` is how long a document is kept before the server erases it (age from upload; `0` turns it off, and then documents stay until deleted). Set the period the responsible party can justify and state it in the privacy notice.
    **Do not set `ANTHROPIC_API_KEY`.** `tenant-only` means the server's own key is never used: every account brings its own.
 3. Make the master key that seals each account's Anthropic key, and add it to `.env`:
    ```text
@@ -56,7 +58,7 @@ What holds state, and so what to back up:
 | `.env` and the **master key** | copy to an offline place | **never in the same place as the database dump** |
 | Caddy's certificates | the `clearcut_caddy_data` volume | optional: they can be re-issued |
 
-Encrypt the backups: they contain people's invoices. **A deleted document stays in older backups until they expire**, so keep a retention period you can state in your privacy notice. Restore into a spare machine at least once, before you need it.
+Encrypt the backups: they contain people's invoices. **A document deleted by a person, or erased by the retention period, stays in older backups until they expire**, so give the backups their own period and state it in your privacy notice. Restore into a spare machine at least once, before you need it.
 
 ## Upgrade
 ```text
