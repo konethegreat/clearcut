@@ -9,6 +9,7 @@ mod auth;
 mod documents;
 mod jobs;
 pub mod openapi;
+mod rate_limit;
 mod results;
 mod review;
 mod web;
