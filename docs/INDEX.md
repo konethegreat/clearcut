@@ -8,10 +8,11 @@
 | [research/05-ingestion-narration-export.md](research/05-ingestion-narration-export.md) | Reading uploaded invoices, events, narration, grouping, export |
 | [research/04-differentiation.md](research/04-differentiation.md) | How ClearCut stands out |
 | [research/06-anthropic-api.md](research/06-anthropic-api.md) | The Anthropic API as it applies to ClearCut: limits, caching, errors, prices, retention (read 22 Oct 2026) |
+| [research/07-idp-pipeline-prompts.md](research/07-idp-pipeline-prompts.md) | Parsing/ingestion prompts kept for a later phase, and how they sit against what ClearCut already does |
 | [gold-set/](gold-set/README.md) | How to build the gold set: workflow, labelling and anonymisation guides, consent template, checklists |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Components and data flow |
 | [BYOK.md](BYOK.md) | Bring your own Anthropic key: make a safe key, give it to ClearCut, check it, what it costs |
-| [adr/](adr/) | Architecture decision records (0006: Postgres schema v1; 0007: auth and row-level security; 0010: gold set and evaluation; 0011: bring your own Anthropic key; 0012: the Anthropic adapter; 0013: the model-facing reading shape; 0014: the context-pack builder; 0015: the try-it deployment; 0016: page text, page images and text quality; 0017: the document analysis stage; 0018: the model router and escalation ladder) |
+| [adr/](adr/) | Architecture decision records (0006: Postgres schema v1; 0007: auth and row-level security; 0010: gold set and evaluation; 0011: bring your own Anthropic key; 0012: the Anthropic adapter; 0013: the model-facing reading shape; 0014: the context-pack builder; 0015: the try-it deployment; 0016: page text, page images and text quality; 0017: the document analysis stage; 0018: the model router and escalation ladder; 0019: tenant Anthropic keys; 0020: the MCP server as a REST client; 0021: automatic retention) |
 | [ADMIN.md](ADMIN.md) | Operator runbook: `clearcut-admin`, first-time tenant setup, leaked keys |
 | [PHASES.md](PHASES.md) | Roadmap with tasks and status |
 | [WORKLOG.md](WORKLOG.md) | Running log of work |

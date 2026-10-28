@@ -925,3 +925,104 @@ async fn a_document_is_erased_with_its_file_but_not_while_a_job_works_on_it(pool
         Err(IntakeError::Database(clearcut_store::Error::DocumentNotFound))
     ));
 }
+
+// ---------- retention ----------
+
+/// Stops the job the upload queued, then moves the document into the past.
+async fn settle_and_age(f: &Fixture, pool: &PgPool, done: &Uploaded) {
+    f.store
+        .request_cancel(
+            f.tenant,
+            done.job.expect("the upload queues a job"),
+            &serde_json::json!({ "type": "system" }),
+        )
+        .await
+        .unwrap();
+    sqlx::query("update documents set created_at = now() - interval '400 days'")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn retention_erases_an_aged_document_its_file_and_says_why(pool: PgPool) {
+    let f = fixture(&pool, 1_000_000).await;
+    let done = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", Some("a.pdf")))
+        .await
+        .unwrap();
+    settle_and_age(&f, &pool, &done).await;
+
+    f.intake
+        .erase_expired(f.tenant, done.document, 365)
+        .await
+        .unwrap();
+
+    assert_eq!(count(&pool, "select count(*) from documents").await, 0);
+    assert_eq!(count(&pool, "select count(*) from jobs").await, 0);
+    assert_eq!(stored_files(&f.dir), 0);
+    let (actor, detail): (serde_json::Value, serde_json::Value) =
+        sqlx::query_as("select actor, detail from audit_log where action = 'document.erase_requested'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(actor, serde_json::json!({ "type": "retention" }));
+    assert_eq!(detail, serde_json::json!({ "retention_days": 365 }));
+    assert_eq!(
+        count(
+            &pool,
+            "select count(*) from audit_log where action = 'document.erased'"
+        )
+        .await,
+        1
+    );
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn retention_does_not_interrupt_a_running_job(pool: PgPool) {
+    let f = fixture(&pool, 1_000_000).await;
+    let done = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", Some("a.pdf")))
+        .await
+        .unwrap();
+    sqlx::query(
+        "update jobs set state = 'running', started_at = now(), attempts = 1, \
+         lease_token = gen_random_uuid(), leased_by = 'test', \
+         lease_expires_at = now() + interval '1 minute'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("update documents set created_at = now() - interval '400 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        f.intake.erase_expired(f.tenant, done.document, 365).await,
+        Err(IntakeError::Busy)
+    ));
+    assert_eq!(count(&pool, "select count(*) from documents").await, 1);
+    assert_eq!(stored_files(&f.dir), 1);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn retention_of_a_document_that_is_already_gone_is_not_found(pool: PgPool) {
+    let f = fixture(&pool, 1_000_000).await;
+    let done = f
+        .intake
+        .upload(&f.writer, upload(PDF, "application/pdf", Some("a.pdf")))
+        .await
+        .unwrap();
+    settle_and_age(&f, &pool, &done).await;
+    f.intake
+        .erase_expired(f.tenant, done.document, 365)
+        .await
+        .unwrap();
+    assert!(matches!(
+        f.intake.erase_expired(f.tenant, done.document, 365).await,
+        Err(IntakeError::Database(clearcut_store::Error::DocumentNotFound))
+    ));
+}

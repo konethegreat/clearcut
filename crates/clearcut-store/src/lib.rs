@@ -637,6 +637,23 @@ impl Store {
             .collect()
     }
 
+    /// Documents older than `days`, across every account, oldest first, that no
+    /// running job is using: the retention sweep's candidates. Only ids come
+    /// back (the database function in migration 0011 is vetted for that);
+    /// erasing one goes through [`Store::erase_document`] as usual.
+    pub async fn retention_candidates(&self, days: u16, limit: u16) -> Result<Vec<(TenantId, DocId)>> {
+        let rows: Vec<(Uuid, Uuid)> =
+            sqlx::query_as("select tenant_id, document_id from expired_documents($1, $2)")
+                .bind(i32::from(days))
+                .bind(i32::from(limit))
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(tenant, document)| (TenantId(tenant), DocId(document)))
+            .collect())
+    }
+
     /// Erases one document for a data-subject request (POPIA): its events and its
     /// row, plus one audit entry that names the document and holds no invoice
     /// content. The application cannot delete events itself; this calls the

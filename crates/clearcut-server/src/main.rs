@@ -1,5 +1,6 @@
 // Written by Kone Tshivhinda & Claude
 mod local_env;
+mod retention;
 mod runner;
 
 use clearcut_anthropic::{load_from, AnthropicConfig, LoadError, MasterKey};
@@ -115,14 +116,21 @@ async fn main() -> ExitCode {
         },
     };
     let objects = LocalDisk::new(storage_dir);
-    let intake = Intake::new(
-        store.clone(),
-        objects.clone(),
-        clearcut_intake::Limits {
-            max_upload_bytes,
-            tenant_quota_bytes,
-        },
-    );
+    let limits = clearcut_intake::Limits {
+        max_upload_bytes,
+        tenant_quota_bytes,
+    };
+    let intake = Intake::new(store.clone(), objects.clone(), limits);
+    // The sweep erases through its own Intake: the server's is moved into the app.
+    let sweep_intake = Intake::new(store.clone(), objects.clone(), limits);
+
+    let retention_days = match retention::retention_days(env.get("CLEARCUT_RETENTION_DAYS").as_deref()) {
+        Ok(days) => days,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::from(2);
+        }
+    };
 
     // Each tenant's own Anthropic key (ADR-0019): sealed with a master key from the settings, and
     // `CLEARCUT_KEY_MODE=tenant-only` makes sure the server's own key is never used.
@@ -150,6 +158,14 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    match retention_days {
+        Some(days) => {
+            tracing::info!(days, "retention: documents older than this many days are erased");
+            retention::start(sweep_intake, store.clone(), days, stopped.clone());
+        }
+        None => tracing::info!("retention is off: documents are kept until their account deletes them"),
+    }
 
     let addr = env
         .get("CLEARCUT_BIND")

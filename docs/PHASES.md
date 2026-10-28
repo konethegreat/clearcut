@@ -103,7 +103,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ⬜ P8-03 Dunning, ageing/DSO reports; payment-delay forecasting
 - ⬜ P8-04 Connectors: Xero, QuickBooks, Sage (verify SA demand and import formats first)
 - 🔄 P8-05 Security review, threat model (incl. prompt injection from uploaded documents), dependency audit — **internal review and threat model done** ([THREAT-MODEL.md](THREAT-MODEL.md)), **dependency audit in CI**; an outside review remains
-- 🔄 P8-06 POPIA review, retention and deletion tooling; v1.0 criteria — deletion is built (API, page, MCP); **drafts** for a lawyer in [docs/privacy/](privacy/README.md); an automatic retention period and the lawyer's review remain
+- 🔄 P8-06 POPIA review, retention and deletion tooling; v1.0 criteria — deletion is built (API, page, MCP); **automatic retention is built**: documents older than `CLEARCUT_RETENTION_DAYS` (365 by default, `0` off) are erased hourly through the same erasure, file included, with the audit entry and call log kept; **drafts** for a lawyer in [docs/privacy/](privacy/README.md); the lawyer's review remains
 
 ## Where we are on the way to a first real run (27 Oct 2026)
 > **Superseded by [LAUNCH.md](LAUNCH.md)**, which is kept current: what works, what is being built in order, what only Kone can do, what is later. The text below is the 27 Oct snapshot.

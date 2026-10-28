@@ -1761,3 +1761,147 @@ async fn another_tenants_or_a_missing_documents_file_is_not_found(pool: PgPool) 
         Err(Error::DocumentNotFound)
     ));
 }
+
+// ---------- retention ----------
+
+/// Moves a document into the past. The admin connection is used because the
+/// application role may not change a document's timestamps.
+async fn age(pool: &PgPool, doc: DocId, days: i32) {
+    sqlx::query("update documents set created_at = now() - make_interval(days => $2) where id = $1")
+        .bind(doc.0)
+        .bind(days)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn retention_finds_aged_documents_in_every_account_oldest_first(pool: PgPool) {
+    let (store, a, a_doc) = setup(&pool).await;
+    let b = new_tenant(&pool, "Other Practice").await.unwrap();
+    let b_old = store.add_document(b, &new_document(2)).await.unwrap().id;
+    let b_new = store.add_document(b, &new_document(3)).await.unwrap().id;
+    age(&pool, a_doc, 400).await;
+    age(&pool, b_old, 366).await;
+
+    let candidates = store.retention_candidates(365, 100).await.unwrap();
+    assert_eq!(candidates, vec![(a, a_doc), (b, b_old)]);
+    assert!(!candidates.iter().any(|(_, doc)| *doc == b_new));
+}
+
+#[sqlx::test]
+async fn retention_waits_for_a_running_job_but_not_a_queued_one(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    age(&pool, doc, 400).await;
+    let actor = json!({ "type": "system" });
+    let job = store
+        .enqueue_job(
+            tenant,
+            &NewJob::new(doc, clearcut_core::jobs::JobKind::ProcessDocument),
+            &actor,
+        )
+        .await
+        .unwrap();
+    // Queued means nothing has started: the document is still due to go, and erasure cancels the
+    // job first. This is what lets a document expire on a server with no worker.
+    assert_eq!(
+        store.retention_candidates(365, 100).await.unwrap(),
+        vec![(tenant, doc)]
+    );
+
+    sqlx::query(
+        "update jobs set state = 'running', started_at = now(), attempts = 1, \
+         lease_token = gen_random_uuid(), leased_by = 'test', \
+         lease_expires_at = now() + interval '1 minute' where id = $1",
+    )
+    .bind(job.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // Running means work in progress: left alone until it ends.
+    assert!(store.retention_candidates(365, 100).await.unwrap().is_empty());
+
+    sqlx::query(
+        "update jobs set state = 'cancelled', finished_at = now(), \
+         lease_token = null, leased_by = null, lease_expires_at = null where id = $1",
+    )
+    .bind(job.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        store.retention_candidates(365, 100).await.unwrap(),
+        vec![(tenant, doc)]
+    );
+}
+
+#[sqlx::test]
+async fn retention_keeps_a_document_younger_than_the_period(pool: PgPool) {
+    let (store, _, doc) = setup(&pool).await;
+    age(&pool, doc, 364).await;
+    assert!(store.retention_candidates(365, 100).await.unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn retention_returns_at_most_the_batch_size(pool: PgPool) {
+    let (store, tenant, first) = setup(&pool).await;
+    for seed in 2..5u8 {
+        let doc = store.add_document(tenant, &new_document(seed)).await.unwrap().id;
+        age(&pool, doc, 400).await;
+    }
+    age(&pool, first, 401).await;
+    assert_eq!(store.retention_candidates(365, 2).await.unwrap().len(), 2);
+}
+
+#[sqlx::test]
+async fn retention_refuses_a_period_below_one_day(pool: PgPool) {
+    let (store, _, _) = setup(&pool).await;
+    assert!(store.retention_candidates(0, 100).await.is_err());
+}
+
+#[sqlx::test]
+async fn expired_documents_is_a_vetted_security_definer_function_owned_by_the_retention_role(pool: PgPool) {
+    let _ = setup(&pool).await;
+    let (secdef, owner, config): (bool, String, Option<Vec<String>>) = sqlx::query_as(
+        "select p.prosecdef, pg_get_userbyid(p.proowner), p.proconfig \
+         from pg_proc p where p.proname = 'expired_documents'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(secdef);
+    assert_eq!(owner, "clearcut_retention");
+    assert!(config
+        .unwrap_or_default()
+        .iter()
+        .any(|c| c.starts_with("search_path=")));
+}
+
+#[sqlx::test]
+async fn only_the_application_role_may_call_expired_documents(pool: PgPool) {
+    let _ = setup(&pool).await;
+    let probe = format!("probe_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("create role {probe} nologin")))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let can_probe: bool = sqlx::query_scalar(
+        "select has_function_privilege($1, 'expired_documents(integer, integer)', 'execute')",
+    )
+    .bind(&probe)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let can_app: bool = sqlx::query_scalar(
+        "select has_function_privilege('clearcut_app', 'expired_documents(integer, integer)', 'execute')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("drop role {probe}")))
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(!can_probe, "an arbitrary role must not list aged documents");
+    assert!(can_app);
+}
