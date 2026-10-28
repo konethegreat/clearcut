@@ -27,11 +27,11 @@
 //! reading (or its best draft), logs every call and what it was charged, and resumes a page
 //! that was stopped by a failure of the service.
 //!
-//! **What the handler returns.** The stages after the analysis (classify, extract, validate,
-//! events) do not exist yet, and a document must never be marked `done` for work that was not
-//! done (ADR-0005: every job ends `done` or `needs_review`). So, for now, the job ends
-//! `needs_review` with [`AFTER_ANALYSIS`] as the reason. The ending is the one line to change
-//! when the next stage is built.
+//! **What the handler returns.** Without a model provider the job ends after the analysis with
+//! [`AFTER_ANALYSIS`] as the reason (nothing was read, so nothing may be called `done`). With
+//! one, the read stage puts the pages together, checks the whole document, stores its events and
+//! ends `done`, or `needs_review` when a page or a whole-document check asks for a person
+//! (ADR-0005: every job ends `done` or `needs_review`).
 //!
 //! **Running twice.** The queue promises "at least once". The analysis writes all its rows in
 //! one transaction and replaces the earlier ones, and after it a checkpoint is saved, so a
@@ -73,8 +73,9 @@ use std::time::Duration;
 use time::UtcOffset;
 use tokio::io::AsyncReadExt;
 
-/// Why a job ends `needs_review` once the analysis is done: nothing comes after it yet.
-pub const AFTER_ANALYSIS: &str = "analysed; the later stages are not built yet";
+/// Why a job ends `needs_review` once the analysis is done when the handler was given no
+/// model provider: nothing was read, so nothing may be called `done`.
+pub const AFTER_ANALYSIS: &str = "analysed; no model provider was given, so nothing was read";
 
 /// The name saved in the checkpoint once the analysis is complete.
 pub const CHECKPOINT_STAGE: &str = "analysed";

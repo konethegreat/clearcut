@@ -1,4 +1,4 @@
-// Written by Kone Tshivhinda & Claude
+﻿// Written by Kone Tshivhinda & Claude
 //! The read stage (ADR-0018 step 7) against a real Postgres, as the restricted `clearcut_app`
 //! role, a real object store on disk, a scripted `FakeWorker` and a scripted `FakeProvider`.
 //! No model, no key, no real invoice: every text here is invented.
@@ -6,6 +6,7 @@
 use super::*;
 use clearcut_core::cost::{BudgetPolicy, Cost, TokenUsage};
 use clearcut_core::escalation::{CallKind, ConfidenceBasis, Picture, ReviewReason, ThinkingEffort};
+use clearcut_core::event::{DuplicateReason, Event, EventPayload, EventType, Severity};
 use clearcut_core::reading::{
     PageReading, ReadCreditNote, ReadCurrency, ReadDue, ReadLine, ReadParty, ReadTax, ReadTotals,
     ReadVatBasis,
@@ -1776,4 +1777,344 @@ async fn a_key_the_provider_refuses_is_reported_to_its_source_and_the_job_waits(
         report.ended
     );
     assert_eq!(*switch.rejected.lock().unwrap(), [w.tenant]);
+}
+
+// ---------- near-duplicates (P2-08, LAUNCH item 6b) ----------
+
+/// A worker for any number of one-page documents, in the order they are read: the analysis
+/// asks for a page, then the router asks for it again.
+fn worker_for_docs(texts: &[&str]) -> Arc<FakeWorker> {
+    let mut inspections = Vec::new();
+    let mut answers = Vec::new();
+    for text in texts {
+        inspections.push(Ok(pdf(1, 1)));
+        answers.push(Ok(vec![text_page(1, text)]));
+        answers.push(Ok(vec![text_page(1, text)]));
+    }
+    let ocr = texts.iter().map(|_| Ok(ocr_read(1, Some(1000)))).collect();
+    Arc::new(
+        FakeWorker::scripted(inspections)
+            .with_texts(answers)
+            .with_ocr(ocr)
+            .with_renders(pictures(12)),
+    )
+}
+
+/// The same number, supplier and date as [`PAGE_ONE`], but a different gross total.
+const PAGE_BIGGER: &str = "TAX INVOICE\nInvoice No: INV-2024-001\nDate: 2024-03-01\n\
+                           Supplier: Acme (Pty) Ltd VAT No 4123456789\nDescription Quantity Price Amount\n\
+                           Consulting 1 R2,000.00 R2,000.00\nNet R2,000.00 VAT R300.00 Total R2,300.00";
+
+fn bigger_invoice() -> PageReading {
+    PageReading {
+        lines: vec![ReadLine {
+            description: "Consulting".into(),
+            quantity: "1".into(),
+            unit_price: "2000.00".into(),
+            line_total: "2000.00".into(),
+            tax: ReadTax::Standard,
+        }],
+        totals: ReadTotals {
+            net: "2000.00".into(),
+            vat: "300.00".into(),
+            gross: "2300.00".into(),
+        },
+        ..whole_invoice()
+    }
+}
+
+impl World {
+    /// Records `bytes` as a new document, queues it and reads it once.
+    async fn read_bytes(
+        &self,
+        bytes: &[u8],
+        worker: &Arc<FakeWorker>,
+        provider: &FakeProvider,
+    ) -> (DocId, Uuid, RunReport) {
+        let doc = self.document(bytes).await;
+        let job = self.enqueue(doc).await;
+        let report = self.run(self.read_handler(worker, provider, settings())).await;
+        (doc, job, report)
+    }
+}
+
+fn duplicate_events(events: &[Event]) -> Vec<&Event> {
+    events
+        .iter()
+        .filter(|event| event.event_type() == EventType::PossibleDuplicate)
+        .collect()
+}
+
+fn expected_duplicate(matching: DocId) -> EventPayload {
+    EventPayload::PossibleDuplicate {
+        matching_document: matching.as_core_id(),
+        reason: DuplicateReason::SupplierNumberDateTotal,
+    }
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_second_document_with_the_same_four_facts_is_flagged_but_still_done(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_ONE]);
+
+    let (first, _, first_report) = w
+        .read_bytes(
+            b"a scan of the invoice",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    assert_eq!(first_report.ended, Ended::Succeeded);
+
+    let (second, _, second_report) = w
+        .read_bytes(
+            b"the same invoice, saved again",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    assert_eq!(
+        second_report.ended,
+        Ended::Succeeded,
+        "a warning does not stop the document"
+    );
+    assert_eq!(w.status(second).await, DocumentStatus::Done);
+
+    let events = w.store.load_events(w.tenant, second).await.unwrap();
+    let found = duplicate_events(&events);
+    assert_eq!(found.len(), 1, "exactly one warning");
+    assert_eq!(found[0].payload(), &expected_duplicate(first));
+    assert_eq!(
+        found[0].id().as_str(),
+        format!("{}:r1:possible-duplicate", second.as_core_id().as_str())
+    );
+    assert_eq!(found[0].severity(), Severity::Warning);
+
+    // Only earlier documents are candidates: the first document is not flagged.
+    assert!(duplicate_events(&w.store.load_events(w.tenant, first).await.unwrap()).is_empty());
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_different_invoice_date_is_not_a_duplicate(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_ONE]);
+    let _ = w
+        .read_bytes(
+            b"the first copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+
+    let mut other = whole_invoice();
+    other.invoice_date = "2024-04-01".into();
+    let (second, _, report) = w
+        .read_bytes(
+            b"the second copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &other)]),
+        )
+        .await;
+    assert_eq!(report.ended, Ended::Succeeded);
+    assert!(duplicate_events(&w.store.load_events(w.tenant, second).await.unwrap()).is_empty());
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_different_supplier_is_not_a_duplicate(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_ONE]);
+    let _ = w
+        .read_bytes(
+            b"the first copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+
+    let mut other = whole_invoice();
+    other.supplier.name = "Beta (Pty) Ltd".into();
+    let (second, _, report) = w
+        .read_bytes(
+            b"the second copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &other)]),
+        )
+        .await;
+    assert_eq!(report.ended, Ended::Succeeded);
+    assert!(duplicate_events(&w.store.load_events(w.tenant, second).await.unwrap()).is_empty());
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_different_gross_total_is_not_a_duplicate(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_BIGGER]);
+    let (_, _, first_report) = w
+        .read_bytes(
+            b"the invoice for R1 150",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    assert_eq!(first_report.ended, Ended::Succeeded);
+
+    let (second, _, report) = w
+        .read_bytes(
+            b"the invoice for R2 300",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &bigger_invoice())]),
+        )
+        .await;
+    assert_eq!(report.ended, Ended::Succeeded);
+    assert!(duplicate_events(&w.store.load_events(w.tenant, second).await.unwrap()).is_empty());
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn an_earlier_document_without_events_is_not_a_duplicate(pool: PgPool) {
+    let w = world(&pool).await;
+    // Uploaded, but never read: there is nothing to compare with.
+    let _never_read = w.document(b"an earlier upload nobody has read yet").await;
+    let worker = worker_for(&[PAGE_ONE]);
+    let (doc, _, report) = w
+        .read_bytes(
+            b"the only document that was read",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    assert_eq!(report.ended, Ended::Succeeded);
+    assert!(duplicate_events(&w.store.load_events(w.tenant, doc).await.unwrap()).is_empty());
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_later_document_is_never_named_by_an_earlier_one(pool: PgPool) {
+    let w = world(&pool).await;
+    let earlier = w.document(b"the earlier upload").await;
+    let later = w.document(b"the later upload").await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_ONE]);
+
+    // Read the later document first: at that moment no earlier document has events.
+    w.enqueue(later).await;
+    let provider = FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]);
+    let report = w.run(w.read_handler(&worker, &provider, settings())).await;
+    assert_eq!(report.ended, Ended::Succeeded);
+
+    // Then the earlier one: the later one's events exist, but a later document is not a
+    // candidate, so the two can never point at each other.
+    w.enqueue(earlier).await;
+    let provider = FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]);
+    let report = w.run(w.read_handler(&worker, &provider, settings())).await;
+    assert_eq!(report.ended, Ended::Succeeded);
+
+    assert!(duplicate_events(&w.store.load_events(w.tenant, earlier).await.unwrap()).is_empty());
+    assert!(duplicate_events(&w.store.load_events(w.tenant, later).await.unwrap()).is_empty());
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn reading_the_document_again_keeps_one_warning_and_never_flags_itself(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_ONE]);
+    let (first, _, _) = w
+        .read_bytes(
+            b"the first copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    let (second, _, _) = w
+        .read_bytes(
+            b"the second copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    assert_eq!(
+        duplicate_events(&w.store.load_events(w.tenant, second).await.unwrap()).len(),
+        1
+    );
+
+    // Read it again: the page is already read, so no model is asked. A new job starts without
+    // the earlier job's checkpoint, so the analysis runs again; the page itself is not re-read.
+    let again = w.enqueue(second).await;
+    let quiet_worker = worker_for(&[PAGE_ONE]);
+    let nobody = FakeProvider::scripted(vec![]);
+    let report = w.run(w.read_handler(&quiet_worker, &nobody, settings())).await;
+    assert_eq!(
+        report.ended,
+        Ended::Succeeded,
+        "{:?}",
+        w.job(again).await.last_error
+    );
+
+    let events = w.store.load_events(w.tenant, second).await.unwrap();
+    let found = duplicate_events(&events);
+    assert_eq!(found.len(), 1, "the warning is kept, not added to");
+    assert_eq!(found[0].payload(), &expected_duplicate(first));
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn an_earlier_document_with_no_invoice_date_is_not_a_duplicate(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_ONE]);
+    // The earlier document does not state a date, so it does not have all four facts.
+    let mut no_date = whole_invoice();
+    no_date.invoice_date = String::new();
+    let (_first, _, first_report) = w
+        .read_bytes(
+            b"the first copy, undated",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &no_date)]),
+        )
+        .await;
+    assert_eq!(first_report.ended, Ended::Succeeded);
+
+    let (second, _, report) = w
+        .read_bytes(
+            b"the second copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    assert_eq!(report.ended, Ended::Succeeded);
+    assert!(duplicate_events(&w.store.load_events(w.tenant, second).await.unwrap()).is_empty());
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn the_earliest_of_several_matching_documents_is_the_one_named(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for_docs(&[PAGE_ONE, PAGE_ONE, PAGE_ONE]);
+    let (first, _, _) = w
+        .read_bytes(
+            b"the first copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    let (second, _, _) = w
+        .read_bytes(
+            b"the second copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    let (third, _, report) = w
+        .read_bytes(
+            b"the third copy",
+            &worker,
+            &FakeProvider::scripted(vec![answer(HAIKU, &whole_invoice())]),
+        )
+        .await;
+    assert_eq!(report.ended, Ended::Succeeded);
+
+    let second_events = w.store.load_events(w.tenant, second).await.unwrap();
+    let second_found = duplicate_events(&second_events);
+    assert_eq!(second_found[0].payload(), &expected_duplicate(first));
+
+    let third_events = w.store.load_events(w.tenant, third).await.unwrap();
+    let found = duplicate_events(&third_events);
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].payload(),
+        &expected_duplicate(first),
+        "the earliest matching document is the one named"
+    );
 }

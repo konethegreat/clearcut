@@ -163,12 +163,10 @@ fn template(payload: &EventPayload) -> String {
             "Compliance issue with {field}: {}.",
             message.trim().trim_end_matches('.'),
         ),
-        EventPayload::PossibleDuplicate {
-            matching_document,
-            reason,
-        } => format!(
-            "This document may duplicate {}: {}.",
-            matching_document.as_str(),
+        // The earlier document's id is in the event, not in the sentence: a UUID means nothing
+        // to a person reading a report, and every sentence stays tied to its event by citation.
+        EventPayload::PossibleDuplicate { reason, .. } => format!(
+            "This document may duplicate an earlier document: {}.",
             duplicate_reason(*reason),
         ),
     }

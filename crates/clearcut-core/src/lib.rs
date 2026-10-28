@@ -11,6 +11,7 @@ pub mod compliance_za;
 pub mod cost;
 pub mod decimal;
 pub mod document;
+pub mod duplicate;
 pub mod error;
 pub mod escalation;
 pub mod event;

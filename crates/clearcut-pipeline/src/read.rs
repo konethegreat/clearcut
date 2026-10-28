@@ -26,8 +26,11 @@
 //! currency, invoice number, supplier, whether totals were seen, how many lines): a draft
 //! from a page that went to a person is not offered to the next page as fact.
 //!
-//! **How it ends.** Until the stages after reading exist the job still ends `needs_review`,
-//! and says so: `read; the later stages are not built yet`, or how many pages need a person.
+//! **How it ends.** When every page was read, the pages are put together, the document is
+//! checked as a whole, its events are derived and stored, and an earlier document of the same
+//! account that prints the same supplier, number, date and total is named in one
+//! `possible_duplicate` warning (P2-08). The job ends `done` unless a check, a page or a
+//! disagreement between pages sends the document to a person.
 
 use crate::call_log::to_new_model_call;
 use crate::month::month_start;
@@ -35,8 +38,9 @@ use crate::{needs_review, report_failure, store_failure, transient, Models, Pipe
 use bytes::Bytes;
 use clearcut_core::assemble::assemble;
 use clearcut_core::cost::{BudgetCheck, Cost};
+use clearcut_core::duplicate::{self, DuplicateKey, EarlierDocument};
 use clearcut_core::escalation::{ConfidenceBasis, PageOutcome};
-use clearcut_core::event::Confidence;
+use clearcut_core::event::{Confidence, Event};
 use clearcut_core::extraction::{derive_events, Extraction};
 use clearcut_core::jobs::Progress;
 use clearcut_core::page_read::{PageRead, ROUTING_VERSION};
@@ -464,7 +468,15 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
             .map_err(|e| store_failure(&e))?;
         let derived = derive_events(&assembled.extraction, NonZeroU32::MIN, &earlier)
             .map_err(|_| needs_review("events could not be made from the reading"))?;
-        match self.store.append_events(tenant, document, &derived.events).await {
+        let mut events = derived.events;
+        if let Some(duplicate) = self
+            .possible_duplicate(tenant, document, &assembled.extraction, &earlier)
+            .await?
+        {
+            events.push(duplicate);
+        }
+        let event_count = events.len();
+        match self.store.append_events(tenant, document, &events).await {
             Ok(()) => {}
             Err(clearcut_store::Error::EventIdConflict(_)) => {
                 return Err(needs_review(
@@ -474,7 +486,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
             Err(error) => return Err(store_failure(&error)),
         }
         Ok(Completion {
-            events: derived.events.len(),
+            events: event_count,
             injection_pages: ended
                 .iter()
                 .filter(|page| !page.details.injection_suspected.is_empty())
@@ -491,6 +503,55 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                 .count(),
             conflicts: assembled.conflicts.iter().map(|c| c.as_str()).collect(),
         })
+    }
+
+    /// One `possible_duplicate` warning event when an earlier document of this account prints
+    /// the same supplier, invoice number, invoice date and gross total (P2-08, LAUNCH item 6b).
+    ///
+    /// The rule is in [`clearcut_core::duplicate`]; this only fetches the candidates (earlier
+    /// documents of the account that state the same invoice number, oldest first) and records
+    /// the finding. A missing fact or no match records nothing; a lookup that fails is logged
+    /// and the document finishes without the warning (it is advisory, so it never loses the
+    /// events that were read). A document read again keeps the warning it already has: that
+    /// warning is about what the earlier document said when it was read, and a second one could
+    /// not be appended under the same id without conflicting.
+    async fn possible_duplicate(
+        &self,
+        tenant: TenantId,
+        document: DocId,
+        extraction: &Extraction,
+        earlier: &[Event],
+    ) -> Step<Option<Event>> {
+        if duplicate::already_flagged(earlier) {
+            return Ok(None);
+        }
+        let Some(key) = DuplicateKey::of_extraction(extraction) else {
+            return Ok(None);
+        };
+        // Advisory only: if the lookup fails, the document is finished without a warning rather
+        // than losing the events it did read. A failed lookup is logged, never dropped silently.
+        let candidates = match self
+            .store
+            .earlier_documents_with_invoice_number(tenant, document, &key.invoice_number)
+            .await
+        {
+            Ok(candidates) => candidates,
+            Err(error) => {
+                tracing::warn!(error = %error, "the duplicate lookup failed; finishing without it");
+                return Ok(None);
+            }
+        };
+        let earlier_documents: Vec<EarlierDocument> = candidates
+            .iter()
+            .filter_map(|(candidate, events)| EarlierDocument::read(&candidate.as_core_id(), events))
+            .collect();
+        let Some(matching) = duplicate::find(&key, &earlier_documents) else {
+            return Ok(None);
+        };
+        let current = document.as_core_id();
+        duplicate::possible_duplicate_event(&current, NonZeroU32::MIN, &key, matching)
+            .map(Some)
+            .map_err(|_| needs_review("a duplicate warning could not be made"))
     }
 }
 

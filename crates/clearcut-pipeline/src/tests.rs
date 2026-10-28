@@ -1046,8 +1046,11 @@ fn the_defaults_are_fifty_ocr_pages_and_a_hundred_mebibytes() {
 }
 
 #[test]
-fn the_reason_a_job_ends_for_review_says_that_more_stages_are_coming() {
-    assert_eq!(AFTER_ANALYSIS, "analysed; the later stages are not built yet");
+fn the_reason_a_job_ends_for_review_says_that_nothing_was_read() {
+    assert_eq!(
+        AFTER_ANALYSIS,
+        "analysed; no model provider was given, so nothing was read"
+    );
     assert_eq!(CHECKPOINT_STAGE, "analysed");
 }
 
