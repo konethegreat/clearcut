@@ -104,3 +104,13 @@ Built tests-first. What differs from, or is decided beyond, the text above:
 9. **Mutation check:** 36 deliberate breakages of the conversion code (caps, date rules, currency, tax mapping, group rules, page and confidence); the first run missed four (single-character date errors and a VAT number alone), tests were added, and every mutant is now caught.
 
 **Not done here, by design:** a prompt or context pack that uses this schema (P2-16b), merging pages of one document in production (P2-07; the round-trip test contains a test-only merge), the text-layer cross-check (P2-13c), and sending anything to Anthropic.
+
+## Amendment: `reading-v3` and the carried figures (ADR-0022, 28 Oct 2026)
+
+[ADR-0022](0022-carried-balances-across-pages.md) adds one required object to `PageReading`:
+
+```json
+"carried": { "brought_forward": "", "carried_forward": "" }
+```
+
+The two fields carry the page-continuation figures a long invoice prints at the top and foot of a page, written as decimal text and empty when not printed. Every field stays required, so the schema still has 0 optional and 0 union properties; the committed schema is `tests/reading-v3.schema.json` and `READING_SHAPE_VERSION` is `reading-v3`. The prompt is `prompt-v2` (the rules gain one section on carried figures and the continuation example carries a figure), and `prompt_version()` records `reading-v3/prompt-v2`. A stored reading written under `reading-v2` stays readable: `PageReading::from_stored_value` tries the current shape, then a frozen copy of the v2 shape, and lifts the old row with empty carried figures (`LEGACY_PROMPT_VERSION` keeps its original label). The rest of this ADR, including the conversion rules and the all-required principle, is unchanged.

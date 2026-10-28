@@ -12,7 +12,7 @@ use clearcut_core::Currency;
 use clearcut_pack::{prompt_version, static_prefix, PROMPT_VERSION};
 use std::num::NonZeroU32;
 
-const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/prefix-prompt-v1.txt");
+const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/prefix-prompt-v2.txt");
 
 #[test]
 fn the_prompt_has_not_changed_by_accident() {
@@ -22,7 +22,7 @@ fn the_prompt_has_not_changed_by_accident() {
         return;
     }
     let golden = std::fs::read_to_string(GOLDEN)
-        .expect("tests/prefix-prompt-v1.txt is missing; run with UPDATE_GOLDEN=1")
+        .expect("tests/prefix-prompt-v2.txt is missing; run with UPDATE_GOLDEN=1")
         .replace("\r\n", "\n");
     assert_eq!(
         current, golden,
@@ -32,10 +32,10 @@ fn the_prompt_has_not_changed_by_accident() {
 
 #[test]
 fn the_versions_are_named() {
-    assert_eq!(PROMPT_VERSION, "prompt-v1");
-    assert_eq!(prompt_version(), format!("{READING_SHAPE_VERSION}/prompt-v1"));
-    assert_eq!(prompt_version(), "reading-v2/prompt-v1");
-    assert!(GOLDEN.ends_with("prefix-prompt-v1.txt"));
+    assert_eq!(PROMPT_VERSION, "prompt-v2");
+    assert_eq!(prompt_version(), format!("{READING_SHAPE_VERSION}/prompt-v2"));
+    assert_eq!(prompt_version(), "reading-v3/prompt-v2");
+    assert!(GOLDEN.ends_with("prefix-prompt-v2.txt"));
 }
 
 #[test]

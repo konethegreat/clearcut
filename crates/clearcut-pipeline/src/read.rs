@@ -649,7 +649,11 @@ fn convert_stored(
     kept: &KeptReading,
     established: &Established,
 ) -> Option<Extraction> {
-    let reading: PageReading = serde_json::from_value(kept.reading.clone()).ok()?;
+    // A reading stored before the carried figures existed is still read (ADR-0022); it is
+    // labelled with the version it was written under, not with today's.
+    let stored = PageReading::from_stored_value(kept.reading.clone()).ok()?;
+    let legacy = stored.legacy;
+    let reading = stored.reading;
     let context = ConversionContext {
         document: document.as_core_id(),
         page: NonZeroU32::new(page)?,
@@ -661,7 +665,11 @@ fn convert_stored(
         } else {
             clearcut_core::event::Extractor::Model {
                 name: kept.model.clone(),
-                prompt_version: clearcut_pack::prompt_version(),
+                prompt_version: if legacy {
+                    clearcut_core::reading::LEGACY_PROMPT_VERSION.to_string()
+                } else {
+                    clearcut_pack::prompt_version()
+                },
             }
         },
         confidence: Confidence::new(kept.confidence.per_mille()).ok()?,

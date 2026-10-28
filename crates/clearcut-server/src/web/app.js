@@ -510,6 +510,10 @@ function normalise(draft) {
       line_total: l.line_total || "", tax: l.tax || "not_shown",
     })),
     totals: { net: (d.totals && d.totals.net) || "", vat: (d.totals && d.totals.vat) || "", gross: (d.totals && d.totals.gross) || "" },
+    carried: {
+      brought_forward: (d.carried && d.carried.brought_forward) || "",
+      carried_forward: (d.carried && d.carried.carried_forward) || "",
+    },
     due: { date: (d.due && d.due.date) || "", terms: (d.due && d.due.terms) || "" },
     credit_note: {
       original_invoice_number: (d.credit_note && d.credit_note.original_invoice_number) || "",
@@ -642,6 +646,9 @@ function pageForm(id, waiting, saved) {
     h("h3", {}, "Totals as printed"),
     h("p", { class: "small muted" }, "Fill in all three or none."),
     h("div", { class: "form-grid" }, textField("Net (before VAT)", r.totals, "net"), textField("VAT", r.totals, "vat"), textField("Gross (total)", r.totals, "gross")),
+    h("h3", {}, "Carried on this page"),
+    h("p", { class: "small muted" }, "For a long invoice: the amount brought forward at the top and the amount carried forward at the foot. Leave empty if not printed."),
+    h("div", { class: "form-grid" }, textField("Brought forward", r.carried, "brought_forward"), textField("Carried forward", r.carried, "carried_forward")),
     h("h3", {}, "Credit note"),
     h("div", { class: "form-grid" }, textField("Original invoice number", r.credit_note, "original_invoice_number"), textField("Amount", r.credit_note, "amount")),
     h("div", { class: "row actions" }, button),

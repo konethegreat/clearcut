@@ -241,6 +241,8 @@ export interface ReadLine {
 }
 
 export interface ReadTotals { net: string; vat: string; gross: string }
+/** The page-continuation figures a long invoice prints at the top and foot of a page. */
+export interface ReadCarried { brought_forward: string; carried_forward: string }
 export interface ReadDue { date: string; terms: string }
 export interface ReadCreditNote { original_invoice_number: string; amount: string }
 
@@ -257,6 +259,8 @@ export interface PageReading {
   recipient: ReadParty;
   lines: ReadLine[];
   totals: ReadTotals;
+  /** The page-continuation figures printed at the top and foot of the page (ADR-0022). */
+  carried: ReadCarried;
   due: ReadDue;
   credit_note: ReadCreditNote;
 }

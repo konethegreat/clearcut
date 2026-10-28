@@ -23,7 +23,7 @@ fn call(doc: DocId, page: u32, attempt: u32) -> NewModelCall {
             max_edge: 2000,
         },
         kind: CallKind::First,
-        prompt_version: "reading-v2/prompt-v1".to_string(),
+        prompt_version: "reading-v3/prompt-v2".to_string(),
         manifest: Some(
             json!({ "model": "claude-haiku-5-5", "sections": [{ "kind": "rules", "bytes": 40000 }] }),
         ),
@@ -122,7 +122,7 @@ async fn a_call_is_stored_with_every_field(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(second.0, "reading-v2/prompt-v1");
+    assert_eq!(second.0, "reading-v3/prompt-v2");
     assert_eq!(second.1.unwrap()["model"], "claude-haiku-5-5");
     assert_eq!(
         (second.2, second.3, second.4, second.5, second.6),

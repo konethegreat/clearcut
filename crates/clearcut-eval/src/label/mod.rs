@@ -537,6 +537,7 @@ impl Truth {
             recipient,
             lines,
             stated_totals,
+            carried: Vec::new(),
             due,
             credit_note,
         })

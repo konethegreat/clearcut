@@ -1,4 +1,4 @@
-// Written by Kone Tshivhinda & Claude
+﻿// Written by Kone Tshivhinda & Claude
 //! What the router recorded about a call, as a row of the call log (`model_calls`).
 //!
 //! A [`CallRecord`] holds no content and neither does the row: sizes, names, tokens and rand.
@@ -83,7 +83,7 @@ mod tests {
                 from: 0,
                 reason: EscalationReason::TotalsMismatch,
             },
-            prompt_version: "reading-v2/prompt-v1".to_string(),
+            prompt_version: "reading-v3/prompt-v2".to_string(),
             manifest: None,
             usage: TokenUsage {
                 input_tokens: 6_000,
@@ -124,7 +124,7 @@ mod tests {
                 reason: EscalationReason::TotalsMismatch
             }
         );
-        assert_eq!(row.prompt_version, "reading-v2/prompt-v1");
+        assert_eq!(row.prompt_version, "reading-v3/prompt-v2");
         assert_eq!(row.manifest, None);
         assert_eq!(row.usage.cache_write_1h_tokens, 500);
         assert_eq!(row.cost, Cost::from_nano_rand(19_800_000));
@@ -197,7 +197,7 @@ mod tests {
         use clearcut_pack::{ImageState, PackManifest, RedactionReport, Section};
         use std::collections::BTreeMap;
         let manifest = PackManifest {
-            prompt_version: "reading-v2/prompt-v1".to_string(),
+            prompt_version: "reading-v3/prompt-v2".to_string(),
             prefix_sha256: "ab".repeat(32),
             prefix_bytes: 40_000,
             schema_sha256: "cd".repeat(32),

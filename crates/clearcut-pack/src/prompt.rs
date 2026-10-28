@@ -1,7 +1,7 @@
 // Written by Kone Tshivhinda & Claude
 //! The static prompt: the same words for every call of one prompt version.
 //!
-//! The text lives in `prompts/prompt-v1/` and is compiled into the program with
+//! The text lives in `prompts/prompt-v2/` and is compiled into the program with
 //! `include_str!`, so it ships with the binary and cannot drift from what the
 //! tests check. Line endings are normalised, because a Windows checkout and a
 //! Linux build must produce the same bytes or the prompt cache never hits.
@@ -12,10 +12,10 @@
 use clearcut_core::reading::READING_SHAPE_VERSION;
 
 /// The version of the words below.
-pub const PROMPT_VERSION: &str = "prompt-v1";
+pub const PROMPT_VERSION: &str = "prompt-v2";
 
-const RULES: &str = include_str!("../prompts/prompt-v1/rules.md");
-const EXAMPLES: &str = include_str!("../prompts/prompt-v1/examples.md");
+const RULES: &str = include_str!("../prompts/prompt-v2/rules.md");
+const EXAMPLES: &str = include_str!("../prompts/prompt-v2/examples.md");
 
 /// The rules and worked examples, as the first (cached) system block.
 pub fn static_prefix() -> String {
@@ -24,7 +24,7 @@ pub fn static_prefix() -> String {
     format!("{}\n\n{}", rules.trim(), examples.trim())
 }
 
-/// `reading-v2/prompt-v1`, recorded as the extractor's `prompt_version`.
+/// `reading-v3/prompt-v2`, recorded as the extractor's `prompt_version`.
 pub fn prompt_version() -> String {
     format!("{READING_SHAPE_VERSION}/{PROMPT_VERSION}")
 }

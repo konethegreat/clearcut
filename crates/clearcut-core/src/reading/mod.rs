@@ -24,7 +24,7 @@
 
 use crate::decimal::{parse_money, parse_quantity_milli};
 use crate::event::{Confidence, DocumentId, Extractor};
-use crate::extraction::{CreditNoteRef, DueTerms, ExtractedLine, Extraction, Party, Sourced};
+use crate::extraction::{CarriedTotals, CreditNoteRef, DueTerms, ExtractedLine, Extraction, Party, Sourced};
 use crate::tax::ZA_STANDARD_VAT_BPS;
 use crate::{Currency, InvoiceTotals, TaxCategory};
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ use time::{Date, Month};
 
 /// The version of the shape and its descriptions. It goes into the extractor's
 /// `prompt_version`, so every stored extraction says which shape produced it.
-pub const READING_SHAPE_VERSION: &str = "reading-v2";
+pub const READING_SHAPE_VERSION: &str = "reading-v3";
 
 /// At most this many lines are kept from one page.
 pub const MAX_LINES_PER_PAGE: usize = 200;
@@ -135,6 +135,24 @@ pub struct ReadTotals {
     pub gross: String,
 }
 
+/// The page-continuation figures printed at the top and foot of a long invoice's page
+/// (ADR-0022). These are not the invoice's net, VAT or gross totals: they are the amount a page
+/// starts with and the amount it hands to the next page. Empty text for either that is not
+/// printed.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadCarried {
+    /// The amount brought forward at the top of this page, for example "Brought forward",
+    /// "Balance brought forward" or "B/F", written like a unit price. Empty if this page does
+    /// not print one.
+    pub brought_forward: String,
+    /// The amount carried forward at the foot of this page, for example "Carried forward",
+    /// "Balance carried forward" or "C/F", written like a unit price. Empty if this page does
+    /// not print one.
+    pub carried_forward: String,
+}
+
 /// The due date and payment terms as printed.
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,6 +200,8 @@ pub struct PageReading {
     pub lines: Vec<ReadLine>,
     /// The totals, if printed on this page.
     pub totals: ReadTotals,
+    /// The page-continuation figures, if this page prints any (ADR-0022).
+    pub carried: ReadCarried,
     /// The due date and terms, if printed on this page.
     pub due: ReadDue,
     /// The credited invoice, if this is a credit note.
@@ -286,6 +306,7 @@ impl PageReading {
         let derived_tax = converter.derive_tax(&self.lines, &self.totals);
         let lines = converter.lines(&self.lines, self.amounts_include_vat, derived_tax);
         let stated_totals = converter.totals(&self.totals);
+        let carried = converter.carried(&self.carried);
         let due = converter.due(&self.due);
         let credit_note = converter.credit_note(&self.credit_note);
 
@@ -299,6 +320,7 @@ impl PageReading {
             recipient: recipient.map(|v| sourced(context, v)),
             lines: lines.into_iter().map(|v| sourced(context, v)).collect(),
             stated_totals: stated_totals.map(|v| sourced(context, v)),
+            carried: carried.into_iter().map(|v| sourced(context, v)).collect(),
             due: due.map(|v| sourced(context, v)),
             credit_note: credit_note.map(|v| sourced(context, v)),
         };
@@ -548,6 +570,24 @@ impl Converter {
         }
     }
 
+    /// The page-continuation figures (ADR-0022). Each figure is independent, so a page may
+    /// print one and not the other; a figure that cannot be read is reported and left out.
+    /// No figure at all means no carried fact.
+    fn carried(&mut self, raw: &ReadCarried) -> Option<CarriedTotals> {
+        let brought_forward = self
+            .amount("carried/brought_forward", &raw.brought_forward)
+            .ok()
+            .flatten();
+        let carried_forward = self
+            .amount("carried/carried_forward", &raw.carried_forward)
+            .ok()
+            .flatten();
+        (brought_forward.is_some() || carried_forward.is_some()).then_some(CarriedTotals {
+            brought_forward,
+            carried_forward,
+        })
+    }
+
     fn due(&mut self, raw: &ReadDue) -> Option<DueTerms> {
         let terms = self.text("due/terms", &raw.terms, MAX_TERMS);
         if raw.date.trim().is_empty() {
@@ -607,3 +647,6 @@ fn parse_iso_date(text: &str) -> Option<Date> {
 
 #[cfg(test)]
 mod tests;
+
+mod legacy;
+pub use legacy::{StoredReading, LEGACY_PROMPT_VERSION};

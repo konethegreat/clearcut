@@ -19,6 +19,7 @@ const READING: PageReading = {
     { description: "Widget", quantity: "2", unit_price: "100.00", line_total: "200.00", tax: "standard" },
   ],
   totals: { net: "200.00", vat: "30.00", gross: "230.00" },
+  carried: { brought_forward: "", carried_forward: "" },
   due: { date: "2026-10-31", terms: "30 days" },
   credit_note: { original_invoice_number: "", amount: "" },
 };
@@ -78,7 +79,7 @@ test("getEvents returns both the stored events and the table rows", async () => 
         date: "2026-10-01",
         payload: { type: "totals_stated", net: { minor: 20000, currency: "ZAR" }, vat: { minor: 3000, currency: "ZAR" }, gross: { minor: 23000, currency: "ZAR" } },
         citation: { document: DOC, page: 1 },
-        extractor: { type: "model", name: "claude-haiku-5.5", prompt_version: "reading-v2" },
+        extractor: { type: "model", name: "claude-haiku-5.5", prompt_version: "reading-v3" },
         confidence: 990,
       },
     ],

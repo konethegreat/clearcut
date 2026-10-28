@@ -1,4 +1,4 @@
-﻿// Written by Kone Tshivhinda & Claude
+// Written by Kone Tshivhinda & Claude
 //! The read stage (ADR-0018 step 7) against a real Postgres, as the restricted `clearcut_app`
 //! role, a real object store on disk, a scripted `FakeWorker` and a scripted `FakeProvider`.
 //! No model, no key, no real invoice: every text here is invented.
@@ -68,6 +68,7 @@ fn empty_reading() -> PageReading {
         recipient: ReadParty::default(),
         lines: Vec::new(),
         totals: ReadTotals::default(),
+        carried: Default::default(),
         due: ReadDue::default(),
         credit_note: ReadCreditNote::default(),
     }
@@ -295,7 +296,7 @@ fn prior_call(doc: DocId, attempt: u32, nano: u64, label: &str) -> NewModelCall 
             max_edge: 2000,
         },
         kind: CallKind::First,
-        prompt_version: "reading-v2/prompt-v1".to_string(),
+        prompt_version: "reading-v3/prompt-v2".to_string(),
         manifest: None,
         usage: TokenUsage::default(),
         cost: Cost::from_nano_rand(nano),
@@ -1013,6 +1014,47 @@ async fn pages_that_ended_before_a_crash_are_not_read_again(pool: PgPool) {
     assert_eq!(worker.call_count() + provider.call_count(), 0);
     assert_eq!(w.job(job).await.state, JobState::Succeeded);
     assert_eq!(w.audit_actions(doc).await, ["document.read"]);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_page_read_before_the_carried_figures_existed_is_still_converted(pool: PgPool) {
+    // A page was read and stored under reading-v2 (no carried block); after the upgrade the
+    // document must still be converted from it rather than stranded (ADR-0022).
+    let w = world(&pool).await;
+    let doc = w.document(FILE).await;
+    let job = w.enqueue(doc).await;
+    w.store
+        .replace_page_reads(w.tenant, doc, &three_reads()[..1])
+        .await
+        .unwrap();
+    let mut old = serde_json::to_value(first_of_three()).unwrap();
+    old.as_object_mut().unwrap().remove("carried");
+    let kept = clearcut_store::page_readings::KeptReading {
+        rung: 0,
+        attempt: 1,
+        confidence: ConfidenceBasis::TextConfirmed,
+        model: HAIKU.to_string(),
+        reading: old,
+    };
+    w.store
+        .save_page_reading(
+            w.tenant,
+            doc,
+            1,
+            &PageState::Read(kept),
+            &clearcut_store::page_readings::PageDetails::default(),
+        )
+        .await
+        .unwrap();
+    abandoned_with(&w, job, analysed_checkpoint_pages(1)).await;
+
+    let worker = Arc::new(FakeWorker::scripted(vec![]));
+    let provider = FakeProvider::scripted(vec![]);
+    let report = w.run(w.read_handler(&worker, &provider, settings())).await;
+    assert_eq!(report.ended, Ended::Succeeded);
+    assert_eq!(worker.call_count() + provider.call_count(), 0);
+    let events = w.store.load_events(w.tenant, doc).await.unwrap();
+    assert!(!events.is_empty(), "the old reading still produced its events");
 }
 
 fn analysed_checkpoint_pages(pages: u32) -> serde_json::Value {

@@ -93,6 +93,17 @@ pub struct CreditNoteRef {
     pub amount: Money,
 }
 
+/// The page-continuation figures a page printed (ADR-0022). Either figure may be absent: a page
+/// may print only the amount it brought forward, or only the amount it carried forward.
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CarriedTotals {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brought_forward: Option<Money>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carried_forward: Option<Money>,
+}
+
 /// Everything an extractor read from one document. Only the document, the
 /// extractor and the currency are required; anything it could not find is
 /// simply absent, and `validate` reports what that means.
@@ -117,6 +128,11 @@ pub struct Extraction {
     /// The net, VAT and gross totals as printed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stated_totals: Option<Sourced<InvoiceTotals>>,
+    /// The page-continuation figures this page printed, if any (ADR-0022). A page extraction
+    /// holds at most its own pair; the assembled document holds one entry per page, in page
+    /// order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carried: Vec<Sourced<CarriedTotals>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due: Option<Sourced<DueTerms>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

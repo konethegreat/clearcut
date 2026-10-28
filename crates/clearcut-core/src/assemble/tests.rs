@@ -168,3 +168,56 @@ fn the_names_of_the_conflicts_are_fixed() {
         ]
     );
 }
+
+// ---------- carried figures per page (ADR-0022) ----------
+
+fn with_carried(
+    mut extraction: Extraction,
+    page: u32,
+    brought: Option<i64>,
+    carried: Option<i64>,
+) -> Extraction {
+    extraction.carried = vec![crate::extraction::Sourced {
+        value: crate::extraction::CarriedTotals {
+            brought_forward: brought.map(zar),
+            carried_forward: carried.map(zar),
+        },
+        page: NonZeroU32::new(page).unwrap(),
+        locator: None,
+        confidence: crate::event::Confidence::CERTAIN,
+    }];
+    extraction
+}
+
+#[test]
+fn carried_figures_are_kept_per_page_in_page_order() {
+    let first = with_carried(lines_only(&["One"], 1), 1, None, Some(100_000));
+    let second = with_carried(lines_only(&["Two"], 2), 2, Some(100_000), Some(250_000));
+    let third = with_carried(lines_only(&["Three"], 3), 3, Some(250_000), None);
+    let assembled = assemble(&[first, second, third]).unwrap();
+
+    let pages: Vec<(u32, Option<i64>, Option<i64>)> = assembled
+        .extraction
+        .carried
+        .iter()
+        .map(|c| {
+            (
+                c.page.get(),
+                c.value.brought_forward.map(|m| m.minor),
+                c.value.carried_forward.map(|m| m.minor),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pages,
+        [
+            (1, None, Some(100_000)),
+            (2, Some(100_000), Some(250_000)),
+            (3, Some(250_000), None)
+        ]
+    );
+    assert!(
+        assembled.conflicts.is_empty(),
+        "carried figures are not document-wide facts"
+    );
+}
