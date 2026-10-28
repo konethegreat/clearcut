@@ -2016,6 +2016,145 @@
         "x-required-scope": "documents:write"
       }
     },
+    "/v1/search": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "minLength": 2,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "matches": {
+                      "items": {
+                        "properties": {
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "document_id": {
+                            "type": "string"
+                          },
+                          "event_id": {
+                            "type": "string"
+                          },
+                          "excerpt": {
+                            "type": "string"
+                          },
+                          "original_filename": {
+                            "type": "string"
+                          },
+                          "page": {
+                            "type": "integer"
+                          },
+                          "page_count": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "query": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The matches"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The query is too short or too long, or the limit is not 1 to 200"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Where a name, number, description or term occurs in the account's documents; one row per matching event, newest document first",
+        "x-required-scope": "documents:read"
+      }
+    },
     "/v1/whoami": {
       "get": {
         "parameters": [],

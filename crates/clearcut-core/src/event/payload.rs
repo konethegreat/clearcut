@@ -36,8 +36,15 @@ pub enum DuplicateReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventPayload {
+    /// The invoice's own number as printed on the document.
+    InvoiceNumberStated { number: String },
     /// A supplier was identified on the document.
     SupplierIdentified {
+        name: String,
+        vat_number: Option<String>,
+    },
+    /// The recipient (the party the invoice is addressed to) was identified.
+    RecipientIdentified {
         name: String,
         vat_number: Option<String>,
     },
@@ -96,7 +103,9 @@ impl EventPayload {
     /// The kind of this payload.
     pub fn event_type(&self) -> EventType {
         match self {
+            EventPayload::InvoiceNumberStated { .. } => EventType::InvoiceNumberStated,
             EventPayload::SupplierIdentified { .. } => EventType::SupplierIdentified,
+            EventPayload::RecipientIdentified { .. } => EventType::RecipientIdentified,
             EventPayload::LineItemBilled { .. } => EventType::LineItemBilled,
             EventPayload::LineTotalMismatch { .. } => EventType::LineTotalMismatch,
             EventPayload::VatCalculated { .. } => EventType::VatCalculated,
@@ -128,8 +137,35 @@ impl EventPayload {
             } => vec![*stated, *recomputed],
             EventPayload::CreditNoteReferenced { amount, .. } => vec![*amount],
             EventPayload::SupplierIdentified { .. }
+            | EventPayload::RecipientIdentified { .. }
+            | EventPayload::InvoiceNumberStated { .. }
             | EventPayload::DueDateStated { .. }
             | EventPayload::ComplianceIssueFound { .. }
+            | EventPayload::PossibleDuplicate { .. } => Vec::new(),
+        }
+    }
+
+    /// The text in this payload a person may search for: what the document said, never a kind
+    /// name or an amount. The store's search matches the same fields.
+    pub fn searchable_text(&self) -> Vec<&str> {
+        match self {
+            EventPayload::InvoiceNumberStated { number } => vec![number],
+            EventPayload::SupplierIdentified { name, vat_number }
+            | EventPayload::RecipientIdentified { name, vat_number } => match vat_number {
+                Some(vat) => vec![name.as_str(), vat.as_str()],
+                None => vec![name.as_str()],
+            },
+            EventPayload::LineItemBilled { description, .. } => vec![description],
+            EventPayload::DueDateStated { terms, .. } => terms.as_deref().into_iter().collect(),
+            EventPayload::CreditNoteReferenced {
+                original_invoice_number,
+                ..
+            } => vec![original_invoice_number],
+            EventPayload::ComplianceIssueFound { message, .. } => vec![message],
+            EventPayload::LineTotalMismatch { .. }
+            | EventPayload::VatCalculated { .. }
+            | EventPayload::TotalsStated { .. }
+            | EventPayload::TotalsMismatch { .. }
             | EventPayload::PossibleDuplicate { .. } => Vec::new(),
         }
     }

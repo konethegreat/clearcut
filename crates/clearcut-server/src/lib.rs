@@ -48,6 +48,7 @@ pub fn routes() -> Router<AppState> {
             get(results::get_document).delete(documents::erase_document),
         )
         .route("/v1/documents/{id}/events", get(results::get_events))
+        .route("/v1/search", get(results::search))
         .route("/v1/documents/{id}/report", get(results::get_report))
         .route("/v1/documents/{id}/export", get(results::export_document))
         .route("/v1/documents/{id}/jobs", get(jobs::list_for_document))

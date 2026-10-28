@@ -175,6 +175,13 @@ pub fn document() -> Value {
             "delete": op("Erase the document, everything read from it and its file for good (POPIA)", Some("documents:write"), doc("id"), None,
                 responses(json!({ "204": { "description": "Gone" } }), &with_auth(&[("404", "No such document, or it belongs to another tenant"), ("409", "A job is running on it; try again when it has finished")]))),
         },
+        "/v1/search": { "get": op("Where a name, number, description or term occurs in the account's documents; one row per matching event, newest document first", Some("documents:read"),
+            vec![
+                json!({ "name": "q", "in": "query", "required": true, "schema": { "type": "string", "minLength": 2, "maxLength": 100 } }),
+                json!({ "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 } }),
+            ], None,
+            responses(ok_json("200", "The matches", json!({ "type": "object", "properties": { "query": { "type": "string" }, "matches": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "status": { "type": "string" }, "page_count": { "type": ["integer", "null"] }, "original_filename": { "type": "string" }, "created_at": { "type": "string" }, "event_id": { "type": "string" }, "type": { "type": "string" }, "page": { "type": "integer" }, "excerpt": { "type": "string" } } } } } })),
+                &with_auth(&[("400", "The query is too short or too long, or the limit is not 1 to 200")]))) },
         "/v1/documents/{id}/events": { "get": op("The events as stored: the source of truth", Some("documents:read"), doc("id"), None,
             responses(ok_json("200", "Events and a one-line-each table", json!({ "type": "object", "properties": { "events": { "type": "array", "items": { "type": "object" } }, "table": { "type": "array", "items": { "type": "object" } } } })), &with_auth(&[("404", "Not found")]))) },
         "/v1/documents/{id}/report": { "get": op("The cited narration; every sentence names the events it comes from", Some("documents:read"),

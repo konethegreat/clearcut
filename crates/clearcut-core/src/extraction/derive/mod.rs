@@ -66,6 +66,16 @@ pub fn derive_events(extraction: &Extraction, run: NonZeroU32, earlier: &[Event]
     };
     let x = extraction;
 
+    if let Some(number) = &x.invoice_number {
+        out.push(
+            "invoice-number",
+            EventPayload::InvoiceNumberStated {
+                number: number.value.clone(),
+            },
+            Origin::printed(x, number),
+        )?;
+    }
+
     if let Some(supplier) = &x.supplier {
         out.push(
             "supplier",
@@ -74,6 +84,17 @@ pub fn derive_events(extraction: &Extraction, run: NonZeroU32, earlier: &[Event]
                 vat_number: supplier.value.vat_number.clone(),
             },
             Origin::printed(x, supplier),
+        )?;
+    }
+
+    if let Some(recipient) = &x.recipient {
+        out.push(
+            "recipient",
+            EventPayload::RecipientIdentified {
+                name: recipient.value.name.clone(),
+                vat_number: recipient.value.vat_number.clone(),
+            },
+            Origin::printed(x, recipient),
         )?;
     }
 

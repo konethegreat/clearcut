@@ -48,7 +48,9 @@ fn every_event_type_maps_to_its_group() {
     use EventGroup::*;
     use EventType::*;
     let expected = [
+        (InvoiceNumberStated, Document),
         (SupplierIdentified, Parties),
+        (RecipientIdentified, Parties),
         (LineItemBilled, Charges),
         (LineTotalMismatch, Charges),
         (VatCalculated, Tax),
@@ -70,7 +72,9 @@ fn severity_is_derived_from_the_event_type() {
     use EventType::*;
     use Severity::*;
     let expected = [
+        (InvoiceNumberStated, Info),
         (SupplierIdentified, Info),
+        (RecipientIdentified, Info),
         (LineItemBilled, Info),
         (LineTotalMismatch, Critical),
         (VatCalculated, Info),
@@ -260,6 +264,30 @@ fn line_item_exposes_its_amounts_for_the_number_guard() {
 }
 
 #[test]
+fn searchable_text_is_what_the_document_said_and_nothing_else() {
+    let supplier = EventPayload::SupplierIdentified {
+        name: "Acme (Pty) Ltd".into(),
+        vat_number: Some("4123456789".into()),
+    };
+    assert_eq!(supplier.searchable_text(), ["Acme (Pty) Ltd", "4123456789"]);
+    let number = EventPayload::InvoiceNumberStated {
+        number: "INV-1".into(),
+    };
+    assert_eq!(number.searchable_text(), ["INV-1"]);
+    let recipient = EventPayload::RecipientIdentified {
+        name: "Client Co".into(),
+        vat_number: None,
+    };
+    assert_eq!(recipient.searchable_text(), ["Client Co"]);
+    let totals = EventPayload::TotalsStated {
+        net: zar(100),
+        vat: zar(15),
+        gross: zar(115),
+    };
+    assert!(totals.searchable_text().is_empty());
+}
+
+#[test]
 fn a_line_total_mismatch_exposes_both_amounts_and_names_its_line() {
     let mismatch = EventPayload::LineTotalMismatch {
         line: 2,
@@ -280,6 +308,17 @@ fn payloads_without_money_expose_no_amounts() {
         vat_number: Some("4123456789".into()),
     };
     assert!(supplier.money_fields().is_empty());
+    let recipient = EventPayload::RecipientIdentified {
+        name: "Client Co".into(),
+        vat_number: None,
+    };
+    assert!(recipient.money_fields().is_empty());
+    let number = EventPayload::InvoiceNumberStated {
+        number: "INV-000001".into(),
+    };
+    assert!(number.money_fields().is_empty());
+    assert_eq!(recipient.event_type(), EventType::RecipientIdentified);
+    assert_eq!(number.event_type(), EventType::InvoiceNumberStated);
 }
 
 // ---------- JSON ----------

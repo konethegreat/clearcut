@@ -3,7 +3,7 @@ use super::*;
 use crate::event::{
     Confidence, DocumentId, EventGroup, EventId, EventPayload, EventType, Extractor, Locator, TotalField,
 };
-use crate::extraction::fixtures::{at, clean, zar};
+use crate::extraction::fixtures::{at, clean, party, zar};
 use crate::extraction::{validate, CreditNoteRef, Sourced};
 use crate::narration::guard::check;
 use crate::narration::narrate_timeline;
@@ -101,7 +101,9 @@ fn a_clean_invoice_gives_one_event_per_fact_with_stable_ids() {
     assert_eq!(
         ids(&events),
         [
+            "doc_1:r1:invoice-number",
             "doc_1:r1:supplier",
+            "doc_1:r1:recipient",
             "doc_1:r1:line-1",
             "doc_1:r1:line-2",
             "doc_1:r1:vat-standard",
@@ -109,6 +111,57 @@ fn a_clean_invoice_gives_one_event_per_fact_with_stable_ids() {
             "doc_1:r1:totals-stated",
             "doc_1:r1:due",
         ]
+    );
+}
+
+#[test]
+fn the_invoice_number_and_recipient_are_events_with_their_page_and_confidence() {
+    let events = derive(&clean());
+    let number = find(&events, "doc_1:r1:invoice-number");
+    assert_eq!(
+        number.payload(),
+        &EventPayload::InvoiceNumberStated {
+            number: "INV-000001".into()
+        }
+    );
+    assert_eq!(number.citation().page.get(), 1);
+    assert_eq!(number.confidence().get(), 950);
+
+    let recipient = find(&events, "doc_1:r1:recipient");
+    assert_eq!(
+        recipient.payload(),
+        &EventPayload::RecipientIdentified {
+            name: "Client Co".into(),
+            vat_number: Some("4987654321".into()),
+        }
+    );
+    assert_eq!(recipient.group(), EventGroup::Parties);
+}
+
+#[test]
+fn a_missing_invoice_number_or_recipient_gives_no_event() {
+    let mut x = clean();
+    x.invoice_number = None;
+    x.recipient = None;
+    let events = derive(&x);
+    assert!(!has(&events, "doc_1:r1:invoice-number"));
+    assert!(!has(&events, "doc_1:r1:recipient"));
+}
+
+#[test]
+fn a_second_run_supersedes_the_invoice_number_and_recipient_too() {
+    let run1 = derive(&clean());
+    let mut x = clean();
+    x.invoice_number = Some(at("INV-000002".to_string()));
+    x.recipient = Some(party("Client Two", "4987654322"));
+    let run2 = derive_run(&x, 2, &run1);
+    assert_eq!(
+        supersedes_of(&run2, "doc_1:r2:invoice-number"),
+        Some("doc_1:r1:invoice-number")
+    );
+    assert_eq!(
+        supersedes_of(&run2, "doc_1:r2:recipient"),
+        Some("doc_1:r1:recipient")
     );
 }
 

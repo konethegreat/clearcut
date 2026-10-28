@@ -109,6 +109,31 @@ fn narrates_a_supplier() {
 }
 
 #[test]
+fn narrates_a_recipient() {
+    let with_vat = EventPayload::RecipientIdentified {
+        name: "Client Co".into(),
+        vat_number: Some("4987654321".into()),
+    };
+    assert_eq!(
+        say(with_vat),
+        "The recipient is Client Co (VAT number 4987654321)."
+    );
+    let without = EventPayload::RecipientIdentified {
+        name: "Client Co".into(),
+        vat_number: None,
+    };
+    assert_eq!(say(without), "The recipient is Client Co.");
+}
+
+#[test]
+fn narrates_an_invoice_number() {
+    let number = EventPayload::InvoiceNumberStated {
+        number: "INV-000001".into(),
+    };
+    assert_eq!(say(number), "The invoice number is INV-000001.");
+}
+
+#[test]
 fn narrates_a_line_item() {
     let line = EventPayload::LineItemBilled {
         description: "Consulting".into(),

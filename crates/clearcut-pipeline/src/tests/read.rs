@@ -349,8 +349,8 @@ async fn a_one_page_invoice_is_read_stored_logged_and_audited(pool: PgPool) {
     assert_eq!(w.status(doc).await, DocumentStatus::Done);
     let events = w.store.load_events(w.tenant, doc).await.unwrap();
     assert!(
-        events.len() >= 4,
-        "supplier, a line, the totals and the calculated VAT: {}",
+        events.len() >= 5,
+        "the invoice number, supplier, a line, the totals and the calculated VAT: {}",
         events.len()
     );
     assert_eq!(job.progress, Progress::new(1, Some(1)).unwrap());
@@ -384,7 +384,7 @@ async fn the_audit_of_the_reading_holds_counts_and_names_and_nothing_from_the_do
             "calls": 1,
             "cost_rand_cents": 2,
             "rungs": { "0": 1 },
-            "events": 4,
+            "events": 5,
             "blocking_findings": 0,
             "pages_with_orders_in_the_text": 0,
             "pages_with_unconfirmed_figures": 0,

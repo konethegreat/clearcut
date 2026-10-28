@@ -98,6 +98,7 @@ It answers with a `document_id` and a `job_id` straight away; the reading happen
 | What is happening? | `GET /v1/documents/{id}/jobs` |
 | The facts | `GET /v1/documents/{id}/events` |
 | The story | `GET /v1/documents/{id}/report?mode=summary` (or `timeline`, `grouped`) |
+| Who is named? | `GET /v1/search?q=Ndlovu` (names, invoice numbers, descriptions, terms and dates of the account's documents; 2 to 100 characters, newest document first) |
 | A file | `GET /v1/documents/{id}/export?format=pdf` (also `xlsx`, `docx`, `html`, `txt`, `md`, `csv`, `json`; or use the buttons on the page) |
 | Delete it (POPIA) | `DELETE /v1/documents/{id}` (needs `documents:write`; `409` while a job runs on it) |
 
