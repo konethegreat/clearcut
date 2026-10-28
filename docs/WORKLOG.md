@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-28 (part 62) — the TypeScript SDK catches up (TimeLex)
+**Done**
+- `packages/sdk` now covers every REST endpoint, not just upload and jobs: `listDocuments`, `getDocument`, `getEvents` (stored events and the table), `getReport` (summary, timeline or grouped), `exportDocument` (bytes, content type and safe file name; an error answer is a `ClearCutError`, never a broken file), `getReviewQueue`, `confirmPage`, `deleteDocument`, `getAnthropicKey`, `setAnthropicKey` and `removeAnthropicKey`. `UploadedDocument` now carries the server's `job_id`.
+- Types mirror the handlers: document status and summary, the ten event payload kinds with their amounts, citations and extractors, reports and citations, and the complete `PageReading` shape a person confirms. (`line_total` was already there.)
+- Same safety as the existing client: document ids must be UUIDs, page numbers whole and 1 or more, report modes and export formats are checked before a request, and the Anthropic key travels only in the JSON body (never a URL or header). The export file name is taken from the server only when it is a plain name.
+- Written test first (watched the build fail on each missing method), then implemented: **20 new tests, 56 in the SDK**, `npm run build && npm test` green. The request shapes come from the server handlers and the generated OpenAPI file; the new calls have not yet been driven against the running stack.
+- Updated `docs/ARCHITECTURE.md`, `docs/LAUNCH.md` (item 2) and this entry.
+**Not done:** idempotency keys (P1-05), `contracts/examples/`, a tenant-creation endpoint (all still in LAUNCH item 2). Next in the handover order: per-account storage quota and request rate limit.
+
 ## 2026-10-27 (part 61) — smaller build folder
 **Done**
 - `Cargo.toml`: `[profile.dev] debug = "line-tables-only"`. Dev and test builds (Cargo's test profile inherits dev, so `cargo test` too) keep file and line information for backtraces but drop full type and variable debug info. Release builds, including the Docker image, are unchanged.
