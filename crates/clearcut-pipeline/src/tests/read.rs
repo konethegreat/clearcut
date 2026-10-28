@@ -817,6 +817,68 @@ async fn a_provider_that_is_down_is_retried_without_using_up_an_attempt(pool: Pg
     );
 }
 
+/// P2-18's guarantee, seen from outside: the job is finished for a person, the document says the
+/// same, and nothing half-read was turned into events.
+async fn assert_handed_to_a_person(w: &World, doc: DocId, job: Uuid) -> String {
+    let stored = w.job(job).await;
+    assert_eq!(stored.state, JobState::NeedsReview);
+    assert!(stored.finished_at.is_some(), "the job is finished, not abandoned");
+    assert_eq!(w.status(doc).await, DocumentStatus::NeedsReview);
+    assert!(
+        w.store.load_events(w.tenant, doc).await.unwrap().is_empty(),
+        "no events from an unfinished read"
+    );
+    stored.last_error.unwrap_or_default()
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn an_outage_that_outlives_the_deadline_hands_the_document_to_a_person(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for(&[PAGE_ONE]);
+    let provider = FakeProvider::scripted(vec![Err(ProviderError::Unavailable { retry_after: None })]);
+    let (doc, job, report) = w.read(&worker, &provider, settings()).await;
+    assert!(matches!(report.ended, Ended::Retrying { counts: false, .. }));
+
+    // The provider is still down when the 48-hour deadline goes by.
+    sqlx::query("update jobs set deadline_at = now() - interval '1 second', run_after = now() where id = $1")
+        .bind(job)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let runner = Runner::new(
+        w.store.clone(),
+        w.read_handler(&worker, &provider, settings()),
+        fast(),
+    );
+    assert!(runner.run_once().await.unwrap().is_none(), "nothing was run");
+
+    let message = assert_handed_to_a_person(&w, doc, job).await;
+    assert_eq!(message, "deadline passed before the job could finish");
+    assert_eq!(provider.call_count(), 1, "no further call was made");
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn an_answer_cut_off_at_the_ceiling_hands_the_page_to_a_person(pool: PgPool) {
+    let w = world(&pool).await;
+    let worker = worker_for(&[PAGE_ONE]);
+    let provider = FakeProvider::scripted(vec![Err(ProviderError::Truncated { usage: usage() })]);
+    let (doc, job, report) = w.read(&worker, &provider, settings()).await;
+    assert_eq!(report.ended, Ended::NeedsReview);
+    // The first rung's cap is already the ceiling, so raising it would change nothing.
+    assert_eq!(provider.call_count(), 1);
+    assert!(matches!(
+        w.pages(doc).await[0].state,
+        PageState::NeedsReview {
+            reason: ReviewReason::TooLong,
+            draft: None
+        }
+    ));
+    let message = assert_handed_to_a_person(&w, doc, job).await;
+    assert_eq!(message, "1 of 1 pages need review");
+    let labels: Vec<String> = w.calls(doc).await.into_iter().map(|(label, ..)| label).collect();
+    assert_eq!(labels, ["truncated"]);
+}
+
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
 async fn a_key_problem_stops_the_document_and_keeps_what_was_read(pool: PgPool) {
     let w = world(&pool).await;

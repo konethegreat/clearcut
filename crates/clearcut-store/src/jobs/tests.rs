@@ -599,8 +599,53 @@ async fn a_job_past_its_deadline_is_handed_to_a_person_not_run(pool: PgPool) {
     assert!(claim(&store).await.is_none());
     let job = store.get_job(tenant, id).await.unwrap();
     assert_eq!(job.state, JobState::NeedsReview);
-    assert!(job.last_error.unwrap().contains("deadline"));
+    assert_eq!(job.attempts, 0, "it was never run");
+    assert!(job.finished_at.is_some() && job.leased_by.is_none());
+    assert_eq!(
+        job.last_error.as_deref(),
+        Some("deadline passed before the job could finish")
+    );
     assert_eq!(doc_status(&store, tenant, doc).await, DocumentStatus::NeedsReview);
+    assert_eq!(
+        audit_actions(&pool, id).await,
+        ["job.enqueued", "job.needs_review"]
+    );
+}
+
+#[sqlx::test]
+async fn a_running_job_whose_lease_and_deadline_passed_is_finished_not_reclaimed(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let id = enqueue(&store, tenant, doc).await;
+    let stale = claim_expect(&store).await;
+    expire_lease(&pool, id).await;
+    sqlx::query("update jobs set deadline_at = now() - interval '1 second' where id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert!(
+        claim(&store).await.is_none(),
+        "the deadline wins over another run"
+    );
+
+    let job = store.get_job(tenant, id).await.unwrap();
+    assert_eq!(job.state, JobState::NeedsReview);
+    assert_eq!(job.attempts, 1, "the sweep made no further attempt");
+    assert!(job.finished_at.is_some() && job.leased_by.is_none());
+    assert_eq!(
+        job.last_error.as_deref(),
+        Some("deadline passed before the job could finish")
+    );
+    assert_eq!(doc_status(&store, tenant, doc).await, DocumentStatus::NeedsReview);
+    assert_eq!(
+        audit_actions(&pool, id).await,
+        ["job.enqueued", "job.needs_review"]
+    );
+
+    // The worker that lost the job finds out instead of writing into a finished one.
+    let late = store.complete_job(&stale, Outcome::Succeeded, None).await;
+    assert!(matches!(late, Err(Error::LeaseLost)), "{late:?}");
 }
 
 #[sqlx::test]
