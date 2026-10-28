@@ -659,6 +659,69 @@ impl Store {
             .collect()
     }
 
+    /// The earlier documents of this account that state `invoice_number`, oldest first, with
+    /// their **current** events: the candidates a near-duplicate check looks through (P2-08).
+    /// The four-fact comparison itself is `clearcut_core::duplicate`; this only narrows by the
+    /// invoice number, which every duplicate must share anyway. A document created after this
+    /// one is never a candidate, so two reads cannot point at each other.
+    pub async fn earlier_documents_with_invoice_number(
+        &self,
+        tenant: TenantId,
+        document: DocId,
+        invoice_number: &str,
+    ) -> Result<Vec<(DocId, Vec<Event>)>> {
+        let mut tx = self.begin(tenant).await?;
+        require_document(&mut *tx, tenant, document).await?;
+        // "Earlier" is the document's (created_at, id) order, so it is total and deterministic:
+        // of two documents with the same timestamp, only the one that sorts first can ever be
+        // the other's candidate. Only documents that state the number are looked at, so the
+        // scan does not walk every event of the account; the other three facts are checked in
+        // the core.
+        let rows: Vec<(Uuid, serde_json::Value)> = sqlx::query_as(
+            "with earlier as ( \
+                 select d.id, d.created_at \
+                 from documents d \
+                 where d.tenant_id = $1 \
+                   and (d.created_at, d.id) < \
+                       (select created_at, id from documents where tenant_id = $1 and id = $2) \
+                   and exists ( \
+                       select 1 from events n \
+                       where n.tenant_id = $1 and n.document_id = d.id \
+                         and n.event_type = 'invoice_number_stated' \
+                         and not exists (select 1 from events s \
+                                         where s.tenant_id = $1 and s.document_id = n.document_id \
+                                           and s.supersedes = n.id) \
+                         and n.body -> 'payload' ->> 'number' = $3 \
+                   ) \
+             ) \
+             select e.document_id, e.body \
+             from events e \
+             join earlier d on d.id = e.document_id \
+             where e.tenant_id = $1 \
+               and not exists (select 1 from events s \
+                               where s.tenant_id = $1 and s.document_id = e.document_id \
+                                 and s.supersedes = e.id) \
+             order by d.created_at, d.id, e.seq",
+        )
+        .bind(tenant.0)
+        .bind(document.0)
+        .bind(invoice_number)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+
+        let mut documents: Vec<(DocId, Vec<Event>)> = Vec::new();
+        for (id, body) in rows {
+            let event = serde_json::from_value::<Event>(body)
+                .map_err(|e| Error::InvalidStoredEvent(e.to_string()))?;
+            match documents.last_mut() {
+                Some((last, events)) if *last == DocId(id) => events.push(event),
+                _ => documents.push((DocId(id), vec![event])),
+            }
+        }
+        Ok(documents)
+    }
+
     /// Documents older than `days`, across every account, oldest first, that no
     /// running job is using: the retention sweep's candidates. Only ids come
     /// back (the database function in migration 0011 is vetted for that);

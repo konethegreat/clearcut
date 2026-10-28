@@ -270,12 +270,14 @@ fn narrates_a_possible_duplicate() {
     };
     assert_eq!(
         say(dup(DuplicateReason::ContentHash)),
-        "This document may duplicate doc_9: identical content."
+        "This document may duplicate an earlier document: identical content."
     );
     assert_eq!(
         say(dup(DuplicateReason::SupplierNumberDateTotal)),
-        "This document may duplicate doc_9: same supplier, invoice number, date and total."
+        "This document may duplicate an earlier document: same supplier, invoice number, date and total."
     );
+    // The earlier document's id is in the event, never read out to a person as a UUID.
+    assert!(!say(dup(DuplicateReason::SupplierNumberDateTotal)).contains("doc_9"));
 }
 
 // ---------- citations ----------

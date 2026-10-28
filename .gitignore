@@ -14,6 +14,9 @@ __pycache__
 .ruff_cache
 .pytest_cache
 
+# The handover prompt is working notes, never part of the repository.
+HANDOVER-PROMPT.md
+
 # Private gold sets (real, anonymised invoices) must live outside the repository;
 # these entries are a second net. See docs/gold-set/README.md.
 /gold/

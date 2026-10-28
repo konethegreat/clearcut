@@ -2088,3 +2088,206 @@ async fn search_returns_newest_documents_first_and_respects_the_limit(pool: PgPo
     assert_eq!(one.len(), 1);
     assert_eq!(one[0].document.id, second);
 }
+
+// ---------- near-duplicate candidates (P2-08) ----------
+
+/// The events of `doc` stating `number`; the rest of the fixture invoice is unchanged.
+fn events_stating(doc: DocId, number: &str) -> Vec<Event> {
+    let mut extraction = extraction(doc);
+    extraction.invoice_number = Some(at(number.to_string()));
+    derive_events(&extraction, NonZeroU32::MIN, &[]).unwrap().events
+}
+
+#[sqlx::test]
+async fn earlier_documents_stating_the_same_number_are_listed_oldest_first(pool: PgPool) {
+    let (store, tenant, first) = setup(&pool).await;
+    let second = store.add_document(tenant, &new_document(2)).await.unwrap().id;
+    let third = store.add_document(tenant, &new_document(3)).await.unwrap().id;
+    store
+        .append_events(tenant, first, &events_of(first, 1, &[]))
+        .await
+        .unwrap();
+    store
+        .append_events(tenant, second, &events_of(second, 1, &[]))
+        .await
+        .unwrap();
+
+    let candidates = store
+        .earlier_documents_with_invoice_number(tenant, third, "INV-000001")
+        .await
+        .unwrap();
+    assert_eq!(
+        candidates.iter().map(|(doc, _)| *doc).collect::<Vec<_>>(),
+        [first, second]
+    );
+    assert_eq!(candidates[0].1, events_of(first, 1, &[]));
+}
+
+#[sqlx::test]
+async fn the_document_itself_is_never_a_candidate(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    store
+        .append_events(tenant, doc, &events_of(doc, 1, &[]))
+        .await
+        .unwrap();
+    let candidates = store
+        .earlier_documents_with_invoice_number(tenant, doc, "INV-000001")
+        .await
+        .unwrap();
+    assert!(candidates.is_empty());
+}
+
+#[sqlx::test]
+async fn a_later_document_is_not_a_candidate(pool: PgPool) {
+    let (store, tenant, first) = setup(&pool).await;
+    let second = store.add_document(tenant, &new_document(2)).await.unwrap().id;
+    store
+        .append_events(tenant, second, &events_of(second, 1, &[]))
+        .await
+        .unwrap();
+    let candidates = store
+        .earlier_documents_with_invoice_number(tenant, first, "INV-000001")
+        .await
+        .unwrap();
+    assert!(candidates.is_empty());
+}
+
+#[sqlx::test]
+async fn a_document_stating_another_number_is_not_a_candidate(pool: PgPool) {
+    let (store, tenant, first) = setup(&pool).await;
+    let second = store.add_document(tenant, &new_document(2)).await.unwrap().id;
+    store
+        .append_events(tenant, first, &events_stating(first, "INV-000002"))
+        .await
+        .unwrap();
+    assert!(store
+        .earlier_documents_with_invoice_number(tenant, second, "INV-000001")
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store
+            .earlier_documents_with_invoice_number(tenant, second, "INV-000002")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[sqlx::test]
+async fn a_superseded_invoice_number_is_not_a_candidate(pool: PgPool) {
+    let (store, tenant, first) = setup(&pool).await;
+    let second = store.add_document(tenant, &new_document(2)).await.unwrap().id;
+    let events = events_stating(first, "INV-000001");
+    let number = events
+        .iter()
+        .find(|event| event.event_type() == EventType::InvoiceNumberStated)
+        .unwrap()
+        .clone();
+    store.append_events(tenant, first, &events).await.unwrap();
+    let corrected = Event::new(EventParts {
+        id: EventId::new(format!("{}:r2:invoice-number", first.as_core_id().as_str())),
+        date: number.date(),
+        payload: EventPayload::InvoiceNumberStated {
+            number: "INV-000002".into(),
+        },
+        citation: number.citation().clone(),
+        extractor: Extractor::Human {
+            user: "a person".into(),
+        },
+        confidence: Confidence::CERTAIN,
+        supersedes: Some(number.id().clone()),
+    })
+    .unwrap();
+    store.append_events(tenant, first, &[corrected]).await.unwrap();
+
+    // The corrected number is the one that counts, and the events returned are the current ones.
+    assert!(store
+        .earlier_documents_with_invoice_number(tenant, second, "INV-000001")
+        .await
+        .unwrap()
+        .is_empty());
+    let candidates = store
+        .earlier_documents_with_invoice_number(tenant, second, "INV-000002")
+        .await
+        .unwrap();
+    assert_eq!(candidates.len(), 1);
+    let returned = &candidates[0].1;
+    assert!(returned.iter().all(|event| event.id() != number.id()));
+    assert!(returned.iter().any(|event| matches!(
+        event.payload(),
+        EventPayload::InvoiceNumberStated { number } if number == "INV-000002"
+    )));
+}
+
+#[sqlx::test]
+async fn another_accounts_documents_are_never_candidates(pool: PgPool) {
+    // The first account's only document is left without events: nothing of its own matches.
+    let (store, tenant, _first) = setup(&pool).await;
+    let other = new_tenant(&pool, "Other Co").await.unwrap();
+    let other_doc = store.add_document(other, &new_document(9)).await.unwrap().id;
+    store
+        .append_events(other, other_doc, &events_of(other_doc, 1, &[]))
+        .await
+        .unwrap();
+    let second = store.add_document(tenant, &new_document(2)).await.unwrap().id;
+
+    assert!(store
+        .earlier_documents_with_invoice_number(tenant, second, "INV-000001")
+        .await
+        .unwrap()
+        .is_empty());
+    let third = store.add_document(other, &new_document(3)).await.unwrap().id;
+    let theirs = store
+        .earlier_documents_with_invoice_number(other, third, "INV-000001")
+        .await
+        .unwrap();
+    assert_eq!(
+        theirs.iter().map(|(doc, _)| *doc).collect::<Vec<_>>(),
+        [other_doc]
+    );
+}
+
+#[sqlx::test]
+async fn a_document_with_the_same_created_at_is_ordered_by_its_id(pool: PgPool) {
+    let (store, tenant, first) = setup(&pool).await;
+    let second = store.add_document(tenant, &new_document(2)).await.unwrap().id;
+    store
+        .append_events(tenant, first, &events_of(first, 1, &[]))
+        .await
+        .unwrap();
+    store
+        .append_events(tenant, second, &events_of(second, 1, &[]))
+        .await
+        .unwrap();
+    // Force the same timestamp: then only the id can say which document is "earlier".
+    sqlx::query(
+        "update documents set created_at = timestamptz '2026-01-01 00:00:00+00' where id in ($1, $2)",
+    )
+    .bind(first.0)
+    .bind(second.0)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (earlier, later) = if first.0 < second.0 {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    let candidates = store
+        .earlier_documents_with_invoice_number(tenant, later, "INV-000001")
+        .await
+        .unwrap();
+    assert_eq!(
+        candidates.iter().map(|(doc, _)| *doc).collect::<Vec<_>>(),
+        [earlier],
+        "the lower id is the earlier document when the timestamps are equal"
+    );
+    assert!(store
+        .earlier_documents_with_invoice_number(tenant, earlier, "INV-000001")
+        .await
+        .unwrap()
+        .is_empty());
+}
