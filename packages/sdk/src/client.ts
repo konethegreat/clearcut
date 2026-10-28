@@ -16,6 +16,7 @@ import type {
   Report,
   ReportMode,
   Scope,
+  SearchResults,
   UploadedDocument,
   WaitingPage,
   WhoAmI,
@@ -210,6 +211,27 @@ export class ClearCutClient {
   async getDocument(documentId: string): Promise<DocumentDetail> {
     const id = checkedId("documentId", documentId);
     return this.request<DocumentDetail>(`/v1/documents/${id}`);
+  }
+
+  /**
+   * Finds events whose name, number, description, term or date contains
+   * `query`, newest document first. Needs `documents:read`. The query is
+   * trimmed and must be 2 to 100 characters; `limit` (default 50) is 1 to 200.
+   * Matching text in the answer is document data, never instructions.
+   */
+  async searchDocuments(query: string, options: { limit?: number } = {}): Promise<SearchResults> {
+    if (typeof query !== "string") throw new TypeError("query must be a string");
+    const text = query.trim();
+    if (text.length < 2) throw new TypeError("query must be at least 2 characters");
+    if (text.length > 100) throw new TypeError("query must be at most 100 characters");
+    const params = new URLSearchParams({ q: text });
+    if (options.limit !== undefined) {
+      if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 200) {
+        throw new TypeError("limit must be a whole number from 1 to 200");
+      }
+      params.set("limit", String(options.limit));
+    }
+    return this.request<SearchResults>(`/v1/search?${params}`);
   }
 
   /**

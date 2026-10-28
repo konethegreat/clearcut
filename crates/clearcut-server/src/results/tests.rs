@@ -21,17 +21,41 @@ struct Fake {
     missing: bool,
 }
 
+impl Fake {
+    fn summary(&self) -> DocumentSummary {
+        DocumentSummary {
+            id: DocId(Uuid::from_u128(DOC)),
+            status: DocumentStatus::Done,
+            page_count: Some(2),
+            original_filename: "invoice.pdf".into(),
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn event(&self) -> Event {
+        Event::new(EventParts {
+            id: EventId::new("doc_1:r1:supplier"),
+            date: None,
+            payload: EventPayload::SupplierIdentified {
+                name: self.supplier.clone(),
+                vat_number: Some("4123456789".into()),
+            },
+            citation: Citation {
+                document: DocumentId::new("doc_1"),
+                page: NonZeroU32::new(1).unwrap(),
+                locator: None,
+            },
+            extractor: Extractor::System,
+            confidence: Confidence::new(950).unwrap(),
+            supersedes: None,
+        })
+        .unwrap()
+    }
+}
+
 impl Results for Arc<Fake> {
     fn list<'a>(&'a self, _tenant: TenantId, _limit: u32) -> ResultsFuture<'a, Vec<DocumentSummary>> {
-        Box::pin(async move {
-            Ok(vec![DocumentSummary {
-                id: DocId(Uuid::from_u128(DOC)),
-                status: DocumentStatus::Done,
-                page_count: Some(2),
-                original_filename: "invoice.pdf".into(),
-                created_at: time::OffsetDateTime::UNIX_EPOCH,
-            }])
-        })
+        Box::pin(async move { Ok(vec![self.summary()]) })
     }
 
     fn info<'a>(&'a self, _tenant: TenantId, _document: DocId) -> ResultsFuture<'a, DocumentInfo> {
@@ -48,25 +72,31 @@ impl Results for Arc<Fake> {
     }
 
     fn events<'a>(&'a self, _tenant: TenantId, _document: DocId) -> ResultsFuture<'a, Vec<Event>> {
+        Box::pin(async move { Ok(vec![self.event()]) })
+    }
+
+    fn search<'a>(
+        &'a self,
+        _tenant: TenantId,
+        query: &'a str,
+        _limit: u32,
+    ) -> ResultsFuture<'a, Vec<SearchHit>> {
         Box::pin(async move {
-            let event = Event::new(EventParts {
-                id: EventId::new("doc_1:r1:supplier"),
-                date: None,
-                payload: EventPayload::SupplierIdentified {
-                    name: self.supplier.clone(),
-                    vat_number: Some("4123456789".into()),
-                },
-                citation: Citation {
-                    document: DocumentId::new("doc_1"),
-                    page: NonZeroU32::new(1).unwrap(),
-                    locator: None,
-                },
-                extractor: Extractor::System,
-                confidence: Confidence::new(950).unwrap(),
-                supersedes: None,
+            let event = self.event();
+            let needle = query.to_lowercase();
+            let found = event
+                .payload()
+                .searchable_text()
+                .iter()
+                .any(|text| text.to_lowercase().contains(&needle));
+            Ok(if found {
+                vec![SearchHit {
+                    document: self.summary(),
+                    event,
+                }]
+            } else {
+                Vec::new()
             })
-            .unwrap();
-            Ok(vec![event])
         })
     }
 }
@@ -281,4 +311,89 @@ async fn every_export_format_comes_back_as_its_own_kind_of_file() {
             .unwrap();
         assert!(bytes.starts_with(magic), "{format}");
     }
+}
+
+// ---------- search ----------
+
+fn search(token: Option<&str>, query: &str) -> Request<Body> {
+    let mut builder = Request::get(format!("/v1/search{query}"));
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, bearer(token));
+    }
+    builder.body(Body::empty()).unwrap()
+}
+
+#[tokio::test]
+async fn search_needs_documents_read_and_returns_where_the_text_was_found() {
+    let app = app(&fake("Acme (Pty) Ltd"));
+    let (status, _, body) = send(&app, search(Some(READER), "?q=acme")).await;
+    assert_eq!(status, StatusCode::OK);
+    let view = json(&body);
+    assert_eq!(view["query"], "acme");
+    let hit = &view["matches"][0];
+    assert_eq!(hit["document_id"], Uuid::from_u128(DOC).to_string());
+    assert_eq!(hit["original_filename"], "invoice.pdf");
+    assert_eq!(hit["type"], "supplier_identified");
+    assert_eq!(hit["page"], 1);
+    assert_eq!(hit["excerpt"], "Acme (Pty) Ltd");
+
+    assert_eq!(
+        send(&app, search(None, "?q=acme")).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send(&app, search(Some(ADMIN_ONLY), "?q=acme")).await.0,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn the_excerpt_is_the_field_that_matched_not_always_the_name() {
+    let app = app(&fake("Acme (Pty) Ltd"));
+    let (status, _, body) = send(&app, search(Some(READER), "?q=4123")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json(&body)["matches"][0]["excerpt"], "4123456789");
+}
+
+#[tokio::test]
+async fn a_search_with_no_match_is_an_empty_list_not_an_error() {
+    let app = app(&fake("Acme (Pty) Ltd"));
+    let (status, _, body) = send(&app, search(Some(READER), "?q=nobody")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json(&body)["matches"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn a_query_that_is_too_short_or_too_long_is_refused() {
+    let app = app(&fake("Acme (Pty) Ltd"));
+    for query in ["", "?q=", "?q=a", "?q=%20%20a%20%20"] {
+        assert_eq!(
+            send(&app, search(Some(READER), query)).await.0,
+            StatusCode::BAD_REQUEST,
+            "{query}"
+        );
+    }
+    let long = format!("?q={}", "a".repeat(101));
+    assert_eq!(
+        send(&app, search(Some(READER), &long)).await.0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn a_limit_that_is_not_a_number_or_out_of_range_is_refused() {
+    let app = app(&fake("Acme (Pty) Ltd"));
+    for limit in ["0", "201", "many"] {
+        assert_eq!(
+            send(&app, search(Some(READER), &format!("?q=acme&limit={limit}")))
+                .await
+                .0,
+            StatusCode::BAD_REQUEST,
+            "{limit}"
+        );
+    }
+    assert_eq!(
+        send(&app, search(Some(READER), "?q=acme&limit=5")).await.0,
+        StatusCode::OK
+    );
 }

@@ -30,7 +30,7 @@ Taken from [research 06 section 8](../research/06-anthropic-api.md), read from A
 
 ## 4. How a request about a person's information is handled (the procedure to write)
 1. The data subject asks the **responsible party** (the account holder), not necessarily the operator.
-2. **Access / a copy:** the account exports the document (`export` as PDF, Excel, Word, JSON...). The events are cited to pages, so the answer to "what do you hold about me" is the set of documents that name them: ClearCut has **no search across documents by a person's name yet** (a gap to be aware of: finding every document naming someone currently means looking through the account's documents).
+2. **Access / a copy:** the account exports the document (`export` as PDF, Excel, Word, JSON...). The events are cited to pages, so the answer to "what do you hold about me" starts with the documents that name the person: **search** (`GET /v1/search?q=<name>`) returns one row per matching event, across the account's documents, newest document first. It matches the text of events (supplier and recipient names, VAT and invoice numbers, line descriptions, due terms and dates), never amounts or kind names, and does not stem words, so check likely spellings and partial names too.
 3. **Correction:** a reviewed page can be corrected and confirmed; the original reading stays in the audit trail only as a record that a change was made.
 4. **Deletion:** delete the document (section 1); then note it will persist in backups until they expire.
 5. **Record** the request and the answer yourself: ClearCut records only that a deletion happened.

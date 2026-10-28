@@ -7,7 +7,7 @@ use super::*;
 use clearcut_core::auth::{Principal, Scope};
 use clearcut_core::event::{
     view, Citation, Confidence, DocumentId as CoreDocumentId, Event, EventId, EventParts, EventPayload,
-    Extractor,
+    EventType, Extractor,
 };
 use clearcut_core::extraction::{derive_events, DueTerms, ExtractedLine, Extraction, Party, Sourced};
 use clearcut_core::{Currency, InvoiceTotals, Money, TaxCategory};
@@ -434,7 +434,9 @@ async fn the_event_type_column_is_generated_from_the_stored_json(pool: PgPool) {
         types,
         [
             "due_date_stated",
+            "invoice_number_stated",
             "line_item_billed",
+            "recipient_identified",
             "supplier_identified",
             "totals_stated",
             "vat_calculated"
@@ -1904,4 +1906,185 @@ async fn only_the_application_role_may_call_expired_documents(pool: PgPool) {
         .unwrap();
     assert!(!can_probe, "an arbitrary role must not list aged documents");
     assert!(can_app);
+}
+
+// ---------- search ----------
+
+/// A hand-built event with a deterministic id, for the fields the fixture does not derive.
+fn ev(doc: DocId, slug: &str, payload: EventPayload) -> Event {
+    Event::new(EventParts {
+        id: EventId::new(format!("{}:{}", doc.0, slug)),
+        date: Some(d!(2026 - 03 - 31)),
+        payload,
+        citation: Citation {
+            document: doc.as_core_id(),
+            page: NonZeroU32::new(1).unwrap(),
+            locator: None,
+        },
+        extractor: Extractor::System,
+        confidence: Confidence::CERTAIN,
+        supersedes: None,
+    })
+    .unwrap()
+}
+
+#[sqlx::test]
+async fn search_finds_text_from_every_kind_of_event(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let mut events = events_of(doc, 1, &[]);
+    events.push(ev(
+        doc,
+        "credit-note",
+        EventPayload::CreditNoteReferenced {
+            original_invoice_number: "CN-7788".into(),
+            amount: zar(50_000),
+        },
+    ));
+    events.push(ev(
+        doc,
+        "issue-1",
+        EventPayload::ComplianceIssueFound {
+            field: "serial_number".into(),
+            message: "a sequential serial number is required".into(),
+        },
+    ));
+    store.append_events(tenant, doc, &events).await.unwrap();
+
+    for (needle, kind) in [
+        ("inv-000001", EventType::InvoiceNumberStated),
+        ("acme", EventType::SupplierIdentified),
+        ("client co", EventType::RecipientIdentified),
+        ("consulting", EventType::LineItemBilled),
+        ("30 days", EventType::DueDateStated),
+        ("cn-7788", EventType::CreditNoteReferenced),
+        ("serial number", EventType::ComplianceIssueFound),
+    ] {
+        let hits = store.search_events(tenant, needle, 50).await.unwrap();
+        assert_eq!(hits.len(), 1, "{needle}");
+        assert_eq!(hits[0].event.event_type(), kind, "{needle}");
+        assert_eq!(hits[0].document.id, doc);
+    }
+}
+
+#[sqlx::test]
+async fn search_is_case_insensitive_and_treats_wildcards_as_text(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let events = vec![
+        ev(
+            doc,
+            "supplier",
+            EventPayload::SupplierIdentified {
+                name: "100% Wired_Ltd".into(),
+                vat_number: None,
+            },
+        ),
+        ev(
+            doc,
+            "issue-1",
+            EventPayload::ComplianceIssueFound {
+                field: "address".into(),
+                message: "no address was printed".into(),
+            },
+        ),
+    ];
+    store.append_events(tenant, doc, &events).await.unwrap();
+
+    assert_eq!(store.search_events(tenant, "WIRED", 50).await.unwrap().len(), 1);
+    assert_eq!(store.search_events(tenant, "0% wi", 50).await.unwrap().len(), 1);
+    assert_eq!(store.search_events(tenant, "_ltd", 50).await.unwrap().len(), 1);
+    // A wildcard is a character to find, not a match-everything: only the one name holds them.
+    let percent = store.search_events(tenant, "%", 50).await.unwrap();
+    assert_eq!(percent.len(), 1);
+    assert_eq!(percent[0].event.id().as_str(), format!("{}:supplier", doc.0));
+    assert_eq!(store.search_events(tenant, "_", 50).await.unwrap().len(), 1);
+}
+
+#[sqlx::test]
+async fn search_never_matches_a_kind_name_or_an_amount(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let events = events_of(doc, 1, &[]);
+    store.append_events(tenant, doc, &events).await.unwrap();
+    for needle in ["supplier", "identified", "150000", "line_item_billed", "zar"] {
+        assert!(
+            store.search_events(tenant, needle, 50).await.unwrap().is_empty(),
+            "{needle}"
+        );
+    }
+}
+
+#[sqlx::test]
+async fn search_never_shows_another_tenants_events(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    store
+        .append_events(tenant, doc, &events_of(doc, 1, &[]))
+        .await
+        .unwrap();
+
+    let other = new_tenant(&pool, "Other Co").await.unwrap();
+    let other_doc = store.add_document(other, &new_document(2)).await.unwrap().id;
+    let theirs = vec![ev(
+        other_doc,
+        "supplier",
+        EventPayload::SupplierIdentified {
+            name: "Other Supplier".into(),
+            vat_number: None,
+        },
+    )];
+    store.append_events(other, other_doc, &theirs).await.unwrap();
+
+    assert_eq!(
+        store
+            .search_events(other, "other supplier", 50)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(store
+        .search_events(tenant, "other supplier", 50)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(store.search_events(tenant, "acme", 50).await.unwrap().len(), 1);
+    assert!(store.search_events(other, "acme", 50).await.unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn search_leaves_out_an_event_that_was_superseded(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    let run1 = events_of(doc, 1, &[]);
+    let run2 = events_of(doc, 2, &run1);
+    store.append_events(tenant, doc, &run1).await.unwrap();
+    store.append_events(tenant, doc, &run2).await.unwrap();
+
+    // Run 2 supersedes run 1's supplier event, which carries the same name.
+    let hits = store.search_events(tenant, "acme", 50).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].event.id().as_str().contains(":r2:supplier"));
+}
+
+#[sqlx::test]
+async fn search_returns_newest_documents_first_and_respects_the_limit(pool: PgPool) {
+    let (store, tenant, first) = setup(&pool).await;
+    store
+        .append_events(tenant, first, &events_of(first, 1, &[]))
+        .await
+        .unwrap();
+    let second = store.add_document(tenant, &new_document(2)).await.unwrap().id;
+    store
+        .append_events(tenant, second, &events_of(second, 1, &[]))
+        .await
+        .unwrap();
+    sqlx::query("update documents set created_at = now() - interval '1 hour' where id = $1")
+        .bind(first.0)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let hits = store.search_events(tenant, "acme", 50).await.unwrap();
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].document.id, second);
+    let one = store.search_events(tenant, "acme", 1).await.unwrap();
+    assert_eq!(one.len(), 1);
+    assert_eq!(one[0].document.id, second);
 }

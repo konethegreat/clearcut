@@ -157,6 +157,21 @@ fn parse_status(text: &str) -> Result<DocumentStatus> {
     DocumentStatus::parse(text).ok_or_else(|| Error::UnknownStatus(text.to_string()))
 }
 
+/// Wraps `query` as a `LIKE`/`ILIKE` pattern that contains it literally, so a search for
+/// `100%` or `_ltd` finds those characters instead of matching everything.
+fn like_pattern(query: &str) -> String {
+    let mut pattern = String::with_capacity(query.len() + 2);
+    pattern.push('%');
+    for ch in query.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            pattern.push('\\');
+        }
+        pattern.push(ch);
+    }
+    pattern.push('%');
+    pattern
+}
+
 /// One line of a tenant's list of documents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DocumentSummary {
@@ -173,6 +188,13 @@ pub struct DocumentInfo {
     pub status: DocumentStatus,
     pub page_count: Option<i32>,
     pub original_filename: String,
+}
+
+/// One event that matched a search, with the document it belongs to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub document: DocumentSummary,
+    pub event: Event,
 }
 
 /// What is known about an uploaded file.
@@ -652,6 +674,65 @@ impl Store {
             .into_iter()
             .map(|(tenant, document)| (TenantId(tenant), DocId(document)))
             .collect())
+    }
+
+    /// Events of this account whose text contains `query`, case-insensitively: the search a
+    /// person runs to find a name (or a number, a description, a term) across their documents.
+    /// Only the text an event carries is searched, never a kind name or an amount, and an
+    /// event that a later one superseded is left out. Newest document first, at most `limit`
+    /// (never more than 200).
+    pub async fn search_events(&self, tenant: TenantId, query: &str, limit: u32) -> Result<Vec<SearchHit>> {
+        let limit = i64::from(limit.clamp(1, 200));
+        let pattern = like_pattern(query);
+        let mut tx = self.begin(tenant).await?;
+        let rows: Vec<(
+            Uuid,
+            String,
+            Option<i32>,
+            String,
+            OffsetDateTime,
+            serde_json::Value,
+        )> = sqlx::query_as(
+            "select d.id, d.status, d.page_count, d.original_filename, d.created_at, e.body \
+                 from events e \
+                 join documents d on d.tenant_id = e.tenant_id and d.id = e.document_id \
+                 where e.tenant_id = $1 \
+                   and not exists (select 1 from events s \
+                                   where s.tenant_id = e.tenant_id and s.document_id = e.document_id \
+                                     and s.supersedes = e.id) \
+                   and (e.body -> 'payload' ->> 'name' ilike $2 escape '\\' \
+                     or e.body -> 'payload' ->> 'vat_number' ilike $2 escape '\\' \
+                     or e.body -> 'payload' ->> 'number' ilike $2 escape '\\' \
+                     or e.body -> 'payload' ->> 'description' ilike $2 escape '\\' \
+                     or e.body -> 'payload' ->> 'terms' ilike $2 escape '\\' \
+                     or e.body -> 'payload' ->> 'original_invoice_number' ilike $2 escape '\\' \
+                     or e.body -> 'payload' ->> 'message' ilike $2 escape '\\' \
+                     or e.body ->> 'date' ilike $2 escape '\\') \
+                 order by d.created_at desc, d.id, e.seq \
+                 limit $3",
+        )
+        .bind(tenant.0)
+        .bind(&pattern)
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        rows.into_iter()
+            .map(|(id, status, page_count, original_filename, created_at, body)| {
+                let event = serde_json::from_value::<Event>(body)
+                    .map_err(|e| Error::InvalidStoredEvent(e.to_string()))?;
+                Ok(SearchHit {
+                    document: DocumentSummary {
+                        id: DocId(id),
+                        status: parse_status(&status)?,
+                        page_count,
+                        original_filename,
+                        created_at,
+                    },
+                    event,
+                })
+            })
+            .collect()
     }
 
     /// Erases one document for a data-subject request (POPIA): its events and its

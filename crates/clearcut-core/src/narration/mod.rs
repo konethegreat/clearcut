@@ -87,9 +87,16 @@ pub fn narrate_timeline(events: &[Event]) -> Narrative {
 fn template(payload: &EventPayload) -> String {
     use format::{amount, date, duplicate_reason, quantity_milli, rate_bps, tax_category, total_field};
     match payload {
+        EventPayload::InvoiceNumberStated { number } => {
+            format!("The invoice number is {number}.")
+        }
         EventPayload::SupplierIdentified { name, vat_number } => match vat_number {
             Some(vat) => format!("The supplier is {name} (VAT number {vat})."),
             None => format!("The supplier is {name}."),
+        },
+        EventPayload::RecipientIdentified { name, vat_number } => match vat_number {
+            Some(vat) => format!("The recipient is {name} (VAT number {vat})."),
+            None => format!("The recipient is {name}."),
         },
         EventPayload::LineItemBilled {
             description,

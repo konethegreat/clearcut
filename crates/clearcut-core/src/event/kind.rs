@@ -90,7 +90,9 @@ pub enum Severity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
+    InvoiceNumberStated,
     SupplierIdentified,
+    RecipientIdentified,
     LineItemBilled,
     LineTotalMismatch,
     VatCalculated,
@@ -106,7 +108,9 @@ impl EventType {
     /// The name used in files and the API (the same as the serialised form).
     pub fn as_str(self) -> &'static str {
         match self {
+            EventType::InvoiceNumberStated => "invoice_number_stated",
             EventType::SupplierIdentified => "supplier_identified",
+            EventType::RecipientIdentified => "recipient_identified",
             EventType::LineItemBilled => "line_item_billed",
             EventType::LineTotalMismatch => "line_total_mismatch",
             EventType::VatCalculated => "vat_calculated",
@@ -120,8 +124,10 @@ impl EventType {
     }
 
     /// Every kind currently defined.
-    pub const ALL: [EventType; 10] = [
+    pub const ALL: [EventType; 12] = [
+        EventType::InvoiceNumberStated,
         EventType::SupplierIdentified,
+        EventType::RecipientIdentified,
         EventType::LineItemBilled,
         EventType::LineTotalMismatch,
         EventType::VatCalculated,
@@ -137,7 +143,8 @@ impl EventType {
     /// adding a new `EventType` without choosing a group will not compile.
     pub fn group(self) -> EventGroup {
         match self {
-            EventType::SupplierIdentified => EventGroup::Parties,
+            EventType::InvoiceNumberStated => EventGroup::Document,
+            EventType::SupplierIdentified | EventType::RecipientIdentified => EventGroup::Parties,
             EventType::LineItemBilled | EventType::LineTotalMismatch => EventGroup::Charges,
             EventType::VatCalculated => EventGroup::Tax,
             EventType::TotalsStated | EventType::TotalsMismatch => EventGroup::Totals,
@@ -154,7 +161,9 @@ impl EventType {
         match self {
             EventType::TotalsMismatch | EventType::LineTotalMismatch => Severity::Critical,
             EventType::ComplianceIssueFound | EventType::PossibleDuplicate => Severity::Warning,
-            EventType::SupplierIdentified
+            EventType::InvoiceNumberStated
+            | EventType::SupplierIdentified
+            | EventType::RecipientIdentified
             | EventType::LineItemBilled
             | EventType::VatCalculated
             | EventType::TotalsStated

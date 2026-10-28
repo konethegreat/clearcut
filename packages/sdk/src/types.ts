@@ -85,7 +85,8 @@ export type EventGroup =
   | "terms" | "adjustments" | "payments" | "compliance" | "risk";
 
 export type EventType =
-  | "supplier_identified" | "line_item_billed" | "line_total_mismatch" | "vat_calculated"
+  | "invoice_number_stated" | "supplier_identified" | "recipient_identified"
+  | "line_item_billed" | "line_total_mismatch" | "vat_calculated"
   | "totals_stated" | "totals_mismatch" | "due_date_stated" | "credit_note_referenced"
   | "compliance_issue_found" | "possible_duplicate";
 
@@ -112,7 +113,9 @@ export interface Citation {
 
 /** The data of one event. Amounts are integer minor units (cents). */
 export type EventPayload =
+  | { type: "invoice_number_stated"; number: string }
   | { type: "supplier_identified"; name: string; vat_number: string | null }
+  | { type: "recipient_identified"; name: string; vat_number: string | null }
   | {
       type: "line_item_billed";
       description: string;
@@ -165,6 +168,27 @@ export interface EventRow {
 export interface DocumentEvents {
   events: Event[];
   table: EventRow[];
+}
+
+/** One event that matched a search, with the document it belongs to. */
+export interface SearchMatch {
+  document_id: string;
+  status: DocumentStatus;
+  page_count: number | null;
+  original_filename: string;
+  created_at: string;
+  event_id: string;
+  type: EventType;
+  /** 1-based page number. */
+  page: number;
+  /** The text that matched, cut to a readable length. */
+  excerpt: string;
+}
+
+/** GET /v1/search. The query as the server understood it (trimmed), and the matches. */
+export interface SearchResults {
+  query: string;
+  matches: SearchMatch[];
 }
 
 /** The report query accepts `grouped`; the answer names the mode `grouped_report`. */

@@ -23,7 +23,7 @@ use clearcut_core::auth::Scope;
 use clearcut_core::event::Event;
 use clearcut_core::narration::report::{narrate, NarrationMode};
 use clearcut_export::{render, DocumentFacts, ExportInput, Format};
-use clearcut_store::{DocId, DocumentInfo, DocumentSummary, Store, TenantId};
+use clearcut_store::{DocId, DocumentInfo, DocumentSummary, SearchHit, Store, TenantId};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -43,6 +43,14 @@ pub trait Results: Send + Sync + 'static {
 
     /// Every event of the document, oldest first.
     fn events<'a>(&'a self, tenant: TenantId, document: DocId) -> ResultsFuture<'a, Vec<Event>>;
+
+    /// The account's current events whose text contains `query`, newest document first.
+    fn search<'a>(
+        &'a self,
+        tenant: TenantId,
+        query: &'a str,
+        limit: u32,
+    ) -> ResultsFuture<'a, Vec<SearchHit>>;
 }
 
 impl Results for Store {
@@ -56,6 +64,15 @@ impl Results for Store {
 
     fn events<'a>(&'a self, tenant: TenantId, document: DocId) -> ResultsFuture<'a, Vec<Event>> {
         Box::pin(async move { self.load_events(tenant, document).await })
+    }
+
+    fn search<'a>(
+        &'a self,
+        tenant: TenantId,
+        query: &'a str,
+        limit: u32,
+    ) -> ResultsFuture<'a, Vec<SearchHit>> {
+        Box::pin(async move { self.search_events(tenant, query, limit).await })
     }
 }
 
@@ -166,6 +183,86 @@ pub(crate) async fn list_documents(
         })
         .collect();
     Ok(Json(json!({ "documents": documents })))
+}
+
+/// `GET /v1/search?q=<text>&limit=<n>`: where a name (or a number, a description, a term) occurs
+/// in the account's documents, one row per matching event, newest document first.
+pub(crate) async fn search(
+    State(state): State<AppState>,
+    auth: Authed,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, ResultsProblem> {
+    let principal = auth.require(Scope::DocumentsRead)?;
+    let text = query.get("q").map_or("", String::as_str).trim();
+    let length = text.chars().count();
+    if length < 2 {
+        return Err(ResultsProblem::BadChoice("q must be at least 2 characters"));
+    }
+    if length > 100 {
+        return Err(ResultsProblem::BadChoice("q must be at most 100 characters"));
+    }
+    let limit = match query.get("limit") {
+        None => 50,
+        Some(value) => value
+            .parse::<u32>()
+            .map_err(|_| ResultsProblem::BadChoice("limit must be a whole number from 1 to 200"))?,
+    };
+    if !(1..=200).contains(&limit) {
+        return Err(ResultsProblem::BadChoice(
+            "limit must be a whole number from 1 to 200",
+        ));
+    }
+    let results = state.results().ok_or(ResultsProblem::NotConfigured)?;
+    let hits = results.search(TenantId(principal.tenant()), text, limit).await?;
+    let matches: Vec<serde_json::Value> = hits
+        .iter()
+        .map(|hit| {
+            json!({
+                "document_id": hit.document.id.0.to_string(),
+                "status": hit.document.status.as_str(),
+                "page_count": hit.document.page_count,
+                "original_filename": hit.document.original_filename,
+                "created_at": hit
+                    .document
+                    .created_at
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_default(),
+                "event_id": hit.event.id().as_str(),
+                "type": hit.event.event_type().as_str(),
+                "page": hit.event.citation().page.get(),
+                "excerpt": excerpt(&hit.event, text),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "query": text, "matches": matches })))
+}
+
+/// The text that matched, cut to a readable length. Falls back to the event's first text (or its
+/// date) when the match was on a field this function does not pick out.
+fn excerpt(event: &Event, needle: &str) -> String {
+    let needle = needle.to_lowercase();
+    let mut texts: Vec<String> = event
+        .payload()
+        .searchable_text()
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    if let Some(date) = event.date() {
+        texts.push(date.to_string());
+    }
+    let chosen = texts
+        .iter()
+        .find(|text| text.to_lowercase().contains(&needle))
+        .or_else(|| texts.first());
+    chosen.map(|text| truncate(text, 200)).unwrap_or_default()
+}
+
+/// At most `max` characters, marked when something was cut.
+fn truncate(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((end, _)) => format!("{}...", &text[..end]),
+        None => text.to_string(),
+    }
 }
 
 /// `GET /v1/documents/{id}`
