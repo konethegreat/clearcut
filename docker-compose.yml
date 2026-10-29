@@ -95,11 +95,23 @@ services:
       PGPASSWORD: ${DB_APP_PASSWORD}
       CLEARCUT_WORKER_URL: http://worker:8090
       CLEARCUT_WORKER_TOKEN: ${CLEARCUT_WORKER_TOKEN:?put CLEARCUT_WORKER_TOKEN=some-long-random-text in the .env file}
-      CLEARCUT_ENV_FILE: /run/clearcut.env
+      # The rest of .env, passed explicitly. The server must not need to read the file:
+      # it runs as its own user inside the container, so a 0600 .env would be unreadable.
+      CLEARCUT_MASTER_KEY: ${CLEARCUT_MASTER_KEY:-}
+      CLEARCUT_MASTER_KEY_FILE: ${CLEARCUT_MASTER_KEY_FILE:-}
+      CLEARCUT_MASTER_KEY_ID: ${CLEARCUT_MASTER_KEY_ID:-}
+      CLEARCUT_KEY_MODE: ${CLEARCUT_KEY_MODE:-}
+      CLEARCUT_RETENTION_DAYS: ${CLEARCUT_RETENTION_DAYS:-}
+      CLEARCUT_RUNNER_CONCURRENCY: ${CLEARCUT_RUNNER_CONCURRENCY:-}
+      CLEARCUT_TENANT_QUOTA_BYTES: ${CLEARCUT_TENANT_QUOTA_BYTES:-}
+      CLEARCUT_RATE_LIMIT_PER_MINUTE: ${CLEARCUT_RATE_LIMIT_PER_MINUTE:-}
+      CLEARCUT_MAX_UPLOAD_BYTES: ${CLEARCUT_MAX_UPLOAD_BYTES:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLEARCUT_ANTHROPIC_BASE_URL: ${CLEARCUT_ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
+      RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - files:/data
-      # Your settings, read-only (the key is read from here; it is not copied into the image).
-      - ./.env:/run/clearcut.env:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
