@@ -82,14 +82,17 @@ if ! grep -q '^CLEARCUT_MASTER_KEY=' .env; then
 fi
 
 if [ -n "$DOMAIN" ]; then
-    say "Starting ClearCut with HTTPS for $DOMAIN (the first build takes minutes)"
-    $DOCKER compose --profile https up -d --build
+    say "Opening 80 and 443 for $DOMAIN"
+    # Oracle's Ubuntu image filters 80 and 443 itself; keep the rules across a reboot.
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent >/dev/null
     for port in 80 443; do
         sudo iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
             || sudo iptables -I INPUT 1 -p tcp --dport "$port" -j ACCEPT
     done
     if command -v netfilter-persistent >/dev/null; then sudo netfilter-persistent save >/dev/null; fi
     echo "Reminder: the Oracle security list must also allow TCP 80 and 443 from 0.0.0.0/0."
+    say "Starting ClearCut with HTTPS for $DOMAIN (the first build takes minutes)"
+    $DOCKER compose --profile https up -d --build
 else
     say "Starting ClearCut privately on this machine (127.0.0.1:8099)"
     $DOCKER compose up -d --build
