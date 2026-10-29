@@ -15,3 +15,6 @@ crates/clearcut-store/migrations/*.sql text eol=lf
 
 # Generated contract files are compared byte for byte by a test.
 contracts/*.json text eol=lf
+
+# Shell scripts run on Linux servers, where a CRLF checkout fails at the first line.
+*.sh text eol=lf
