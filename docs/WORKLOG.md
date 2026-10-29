@@ -5,6 +5,8 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 ## 2026-10-30 (part 72) — a tab mark instead of a 404
 **Done**
 - The live page rendered with one console error: Chrome asked for `/favicon.ico` and the server has no such file. There is now a `/favicon.svg` (the same mark as the header, paper and ink with one blue slash) served by the same runner as the other three files, with a `link rel="icon"` in the page so the `.ico` request never happens. The CSP and the file test cover it.
+- Both changes are live: the merge was pulled on 145.241.100.85 and the server image rebuilt; `/favicon.svg` answers `200 image/svg+xml`, the page links it, `/health` is ok, `/v1/whoami` still answers with the admin key, and a reload leaves the console empty.
+- The Oracle runbook now says what to do when Arm capacity stays full: the trial-credit E5 path the hosted trial is on, what it costs, that a trial is not a free host, and how to move to the A1 when one lands.
 
 ## 2026-10-30 (part 71) — ClearCut is live, and the page now says what it is
 **Done**

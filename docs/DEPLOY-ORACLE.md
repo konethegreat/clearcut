@@ -31,6 +31,8 @@ One always-on Arm virtual machine in Oracle's **Johannesburg** region, running t
 3. Wait for **RUNNING**, then note the public IP.
 4. Reserve the IP (instance, Attached VNICs, the public IP, Edit, **Reserved**). Without this, stopping and starting the instance can change it. With the tunnel it does not matter.
 
+**If Arm capacity stays full.** Johannesburg has one availability domain and its A1 pool can be empty for days. The hosted trial at https://145-241-100-85.sslip.io/ is running this way: a **trial-credit** `VM.Standard.E5.Flex`, 2 OCPUs and 8 GB, on the x86 Ubuntu 24.04 image, with the same steps from section 3 onward. It costs roughly R27 a day out of the trial credit, and the credit and the trial's length are Oracle's to set, so read your own account's terms: a trial is a way to be live now, not a free host, and the paid instance does not outlive it. Keep asking for the A1: `oci compute instance launch` in a loop until it answers with a running instance, then move the stack (clone, `pg_dump` and restore, copy the uploaded files, repoint DNS) and delete the trial VM. `deploy/oracle-install.sh` does not care which shape it starts on.
+
 ## 2. Choose how HTTPS reaches it
 Two ways. The tunnel is the safer default because nothing but SSH is open to the internet.
 
