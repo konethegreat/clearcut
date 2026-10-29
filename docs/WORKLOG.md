@@ -2,6 +2,10 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 72) — a tab mark instead of a 404
+**Done**
+- The live page rendered with one console error: Chrome asked for `/favicon.ico` and the server has no such file. There is now a `/favicon.svg` (the same mark as the header, paper and ink with one blue slash) served by the same runner as the other three files, with a `link rel="icon"` in the page so the `.ico` request never happens. The CSP and the file test cover it.
+
 ## 2026-10-30 (part 71) — ClearCut is live, and the page now says what it is
 **Done**
 - **Live at https://145-241-100-85.sslip.io.** Oracle Always Free Ampere had no capacity after about thirty tries (1/6, 2/12 and 4/24 in the single Johannesburg AD), so with Kone's approval the stack went onto a trial-credit `VM.Standard.E5.Flex` (2 OCPU, 8 GB). Cloud-init cloned `main` on first boot and ran `deploy/oracle-install.sh`: Docker, `.env`, master key, the first tenant and admin key, Caddy with a real certificate. `/health`, `/` and `/v1/whoami` were checked from outside the VM, and caddy, db (healthy), server and worker were all up. The Ampere retry loop stays running; the stack moves when it lands and the trial VM goes away.

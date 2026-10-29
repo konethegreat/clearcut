@@ -1,8 +1,9 @@
 // Written by Kone Tshivhinda & Claude
-//! The web page: three small files served by the server itself, with no build step and nothing
+//! The web page: four small files served by the server itself, with no build step and nothing
 //! loaded from anywhere else.
 //!
-//! - `/` the page, `/app.css` its look, `/app.js` its behaviour. None of them needs a key (they
+//! - `/` the page, `/app.css` its look, `/app.js` its behaviour, `/favicon.svg` the tab's mark.
+//!   None of them needs a key (they
 //!   hold nothing private); the page asks for the key and sends it to the API itself.
 //! - **A strict content security policy**: scripts and styles only from this server, no inline
 //!   script, nothing embedded, no other origin to talk to. Text that comes off an uploaded
@@ -47,6 +48,10 @@ pub(crate) async fn script() -> impl IntoResponse {
     file("text/javascript; charset=utf-8", include_str!("web/app.js"))
 }
 
+pub(crate) async fn favicon() -> impl IntoResponse {
+    file("image/svg+xml", include_str!("web/favicon.svg"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,11 +66,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_page_and_its_two_files_are_served_without_a_key_and_locked_down() {
+    async fn the_page_and_its_files_are_served_without_a_key_and_locked_down() {
         for (path, kind) in [
             ("/", "text/html"),
             ("/app.css", "text/css"),
             ("/app.js", "text/javascript"),
+            ("/favicon.svg", "image/svg+xml"),
         ] {
             let (status, headers, body) = fetch(path).await;
             assert_eq!(status, StatusCode::OK, "{path}");
@@ -90,7 +96,11 @@ mod tests {
     #[tokio::test]
     async fn the_page_loads_only_its_own_files_and_has_no_inline_script() {
         let (_, _, html) = fetch("/").await;
-        assert!(html.contains("src=\"/app.js\"") && html.contains("href=\"/app.css\""));
+        assert!(
+            html.contains("src=\"/app.js\"")
+                && html.contains("href=\"/app.css\"")
+                && html.contains("href=\"/favicon.svg\"")
+        );
         assert!(
             !html.contains("http://") && !html.contains("https://"),
             "nothing from elsewhere"
