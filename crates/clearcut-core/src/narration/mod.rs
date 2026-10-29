@@ -85,7 +85,9 @@ pub fn narrate_timeline(events: &[Event]) -> Narrative {
 /// The wording for each kind of event. No wildcard arm: a new `EventPayload`
 /// variant will not compile until it has a template.
 fn template(payload: &EventPayload) -> String {
-    use format::{amount, date, duplicate_reason, quantity_milli, rate_bps, tax_category, total_field};
+    use format::{
+        amount, balance_role, date, duplicate_reason, quantity_milli, rate_bps, tax_category, total_field,
+    };
     match payload {
         EventPayload::InvoiceNumberStated { number } => {
             format!("The invoice number is {number}.")
@@ -147,6 +149,20 @@ fn template(payload: &EventPayload) -> String {
             total_field(*field),
             amount(*stated),
             amount(*recomputed),
+        ),
+        EventPayload::BalanceStated { role, amount: figure } => format!(
+            "The amount {} is {}.",
+            balance_role(*role),
+            amount(*figure),
+        ),
+        EventPayload::BalanceMismatch {
+            carried_forward,
+            brought_forward,
+            ..
+        } => format!(
+            "The amount carried forward does not match the amount brought forward on the next page: {} and {}.",
+            amount(*carried_forward),
+            amount(*brought_forward),
         ),
         EventPayload::DueDateStated { due, terms } => match terms {
             Some(terms) => format!("Payment is due on {} (terms: {terms}).", date(*due)),

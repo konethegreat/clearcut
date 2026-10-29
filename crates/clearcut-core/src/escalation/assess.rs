@@ -124,6 +124,13 @@ pub fn assess(evidence: &ReadingEvidence<'_>) -> Assessment {
                     totals_findings += 1;
                 }
             }
+            // A carried-balance mismatch is only found once the pages are put together, so a
+            // single page's extraction cannot raise it; if it ever does, treat it like a total.
+            Finding::CarriedBalanceMismatch { .. } => {
+                if evidence.whole_document && !tax_not_shown {
+                    totals_findings += 1;
+                }
+            }
             // A terms page or a continuation page has no lines. Whether the document has any
             // is decided after its pages are put together.
             Finding::NoLines => {}

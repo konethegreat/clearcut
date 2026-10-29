@@ -4,7 +4,7 @@ use crate::event::{
     Confidence, DocumentId, EventGroup, EventId, EventPayload, EventType, Extractor, Locator, TotalField,
 };
 use crate::extraction::fixtures::{at, clean, party, zar};
-use crate::extraction::{validate, CreditNoteRef, Sourced};
+use crate::extraction::{validate, CarriedTotals, CreditNoteRef, Sourced};
 use crate::narration::guard::check;
 use crate::narration::narrate_timeline;
 use crate::{Currency, Error, InvoiceTotals, Money, TaxCategory};
@@ -667,4 +667,76 @@ fn derived_events_can_be_corrected_by_a_later_event() {
     assert!(current
         .iter()
         .any(|e| e.id().as_str() == "doc_1:r1:supplier-corrected"));
+}
+
+// ---------- carried figures across pages (ADR-0022) ----------
+
+fn carried_on(page: u32, brought: Option<i64>, forward: Option<i64>) -> Sourced<CarriedTotals> {
+    Sourced {
+        value: CarriedTotals {
+            brought_forward: brought.map(zar),
+            carried_forward: forward.map(zar),
+        },
+        page: NonZeroU32::new(page).unwrap(),
+        locator: None,
+        confidence: Confidence::new(950).unwrap(),
+    }
+}
+
+#[test]
+fn the_printed_carried_figures_become_info_events_cited_to_their_page() {
+    let mut x = clean();
+    x.carried = vec![
+        carried_on(1, None, Some(100_000)),
+        carried_on(2, Some(100_000), None),
+    ];
+    let events = derive(&x);
+    let forwarded = find(&events, "doc_1:r1:carried-forward-1");
+    assert_eq!(
+        forwarded.payload(),
+        &EventPayload::BalanceStated {
+            role: crate::event::BalanceRole::CarriedForward,
+            amount: zar(100_000),
+        }
+    );
+    assert_eq!(forwarded.citation().page.get(), 1);
+    assert_eq!(forwarded.severity(), crate::event::Severity::Info);
+    let brought = find(&events, "doc_1:r1:brought-forward-2");
+    assert_eq!(
+        brought.payload(),
+        &EventPayload::BalanceStated {
+            role: crate::event::BalanceRole::BroughtForward,
+            amount: zar(100_000),
+        }
+    );
+    assert_eq!(brought.citation().page.get(), 2);
+}
+
+#[test]
+fn a_broken_carried_chain_becomes_a_critical_mismatch_event() {
+    let mut x = clean();
+    x.carried = vec![
+        carried_on(1, None, Some(100_000)),
+        carried_on(2, Some(99_999), None),
+    ];
+    let derived = derive_events(&x, run(1), &[]).unwrap();
+    assert_eq!(
+        derived.validation.findings,
+        [Finding::CarriedBalanceMismatch {
+            after_page: 1,
+            carried_forward: zar(100_000),
+            brought_forward: zar(99_999),
+        }]
+    );
+    let event = find(&derived.events, "doc_1:r1:carried-mismatch-1");
+    assert_eq!(
+        event.payload(),
+        &EventPayload::BalanceMismatch {
+            after_page: 1,
+            carried_forward: zar(100_000),
+            brought_forward: zar(99_999),
+        }
+    );
+    assert_eq!(event.severity(), crate::event::Severity::Critical);
+    assert_eq!(event.citation().page.get(), 1);
 }

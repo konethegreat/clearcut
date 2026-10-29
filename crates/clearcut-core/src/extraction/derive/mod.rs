@@ -34,7 +34,7 @@
 use super::{validate, Extraction, Finding, Sourced, Validation};
 use crate::error::Result;
 use crate::event::{
-    Citation, Confidence, DocumentId, Event, EventId, EventParts, EventPayload, Extractor, TotalField,
+    BalanceRole, Citation, Confidence, DocumentId, Event, EventId, EventParts, EventPayload, Extractor, TotalField,
 };
 use crate::{Money, TaxCategory};
 use std::collections::HashMap;
@@ -185,6 +185,32 @@ pub fn derive_events(extraction: &Extraction, run: NonZeroU32, earlier: &[Event]
         )?;
     }
 
+    // The page-continuation figures a long invoice prints (ADR-0022): one Info event per printed
+    // figure, in page order, each cited to the page that printed it.
+    for carried in &x.carried {
+        let page = carried.page.get();
+        if let Some(amount) = carried.value.brought_forward {
+            out.push(
+                &format!("brought-forward-{page}"),
+                EventPayload::BalanceStated {
+                    role: BalanceRole::BroughtForward,
+                    amount,
+                },
+                Origin::printed(x, carried),
+            )?;
+        }
+        if let Some(amount) = carried.value.carried_forward {
+            out.push(
+                &format!("carried-forward-{page}"),
+                EventPayload::BalanceStated {
+                    role: BalanceRole::CarriedForward,
+                    amount,
+                },
+                Origin::printed(x, carried),
+            )?;
+        }
+    }
+
     // One event per finding. Findings that are not about a printed value are
     // compliance issues, numbered in the order they were found.
     let mut issues = 0;
@@ -221,6 +247,26 @@ pub fn derive_events(extraction: &Extraction, run: NonZeroU32, earlier: &[Event]
                         .map(|t| (t.citation(&x.document), t.confidence)),
                 ),
             )?,
+            Finding::CarriedBalanceMismatch {
+                after_page,
+                carried_forward,
+                brought_forward,
+            } => {
+                let source = x
+                    .carried
+                    .iter()
+                    .find(|c| c.page.get() == *after_page)
+                    .map(|c| (c.citation(&x.document), c.confidence));
+                out.push(
+                    &format!("carried-mismatch-{after_page}"),
+                    EventPayload::BalanceMismatch {
+                        after_page: *after_page,
+                        carried_forward: *carried_forward,
+                        brought_forward: *brought_forward,
+                    },
+                    Origin::about(x, source),
+                )?
+            }
             other => {
                 if let Some((field, message, source)) = issue_of(x, other) {
                     issues += 1;
@@ -417,7 +463,9 @@ fn issue_of(x: &Extraction, finding: &Finding) -> Option<IssueText> {
             x.due.as_ref().map(|d| (d.citation(&x.document), d.confidence)),
         ),
         Finding::Compliance(issue) => (issue.field.into(), issue.message.into(), None),
-        Finding::LineTotalMismatch { .. } | Finding::TotalsMismatch { .. } => return None,
+        Finding::LineTotalMismatch { .. }
+        | Finding::TotalsMismatch { .. }
+        | Finding::CarriedBalanceMismatch { .. } => return None,
     })
 }
 

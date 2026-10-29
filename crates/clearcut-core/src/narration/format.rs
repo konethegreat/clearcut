@@ -10,7 +10,7 @@
 //! - Dates are written out in full (`31 March 2026`), never `03/04/2026`.
 //! - Rates are percentages with no trailing zeros (`15%`, `7.5%`).
 
-use crate::event::{DuplicateReason, TotalField};
+use crate::event::{BalanceRole, DuplicateReason, TotalField};
 use crate::{Currency, Money, TaxCategory};
 use time::Date;
 
@@ -99,5 +99,13 @@ pub fn duplicate_reason(reason: DuplicateReason) -> &'static str {
     match reason {
         DuplicateReason::ContentHash => "identical content",
         DuplicateReason::SupplierNumberDateTotal => "same supplier, invoice number, date and total",
+    }
+}
+
+/// How a page-continuation figure reads in a sentence.
+pub fn balance_role(role: BalanceRole) -> &'static str {
+    match role {
+        BalanceRole::BroughtForward => "brought forward",
+        BalanceRole::CarriedForward => "carried forward",
     }
 }

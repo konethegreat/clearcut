@@ -42,6 +42,14 @@ pub enum Finding {
     },
     /// The lines are individually fine but their sum is too large to calculate.
     TotalsOutOfRange,
+    /// A page's carried-forward figure differs from the next page's brought-forward figure
+    /// (ADR-0022). Only checked when both sides are printed.
+    CarriedBalanceMismatch {
+        /// The page whose carried-forward figure was compared (1-based).
+        after_page: u32,
+        carried_forward: Money,
+        brought_forward: Money,
+    },
     /// The due date is earlier than the invoice date.
     DueBeforeIssue,
     /// A South African tax-invoice field rule failed (`compliance_za`).
@@ -61,7 +69,8 @@ impl Finding {
             | Finding::AmountOutOfRange { .. }
             | Finding::LineTotalMismatch { .. }
             | Finding::TotalsMismatch { .. }
-            | Finding::TotalsOutOfRange => true,
+            | Finding::TotalsOutOfRange
+            | Finding::CarriedBalanceMismatch { .. } => true,
             Finding::DueBeforeIssue | Finding::Compliance(_) => false,
         }
     }
@@ -166,6 +175,28 @@ pub fn validate(extraction: &Extraction) -> Validation {
     if let (Some(due), Some(issued)) = (&extraction.due, &extraction.invoice_date) {
         if due.value.due < issued.value {
             findings.push(Finding::DueBeforeIssue);
+        }
+    }
+
+    // Page-continuation figures (ADR-0022): what one page carried forward must be what the
+    // next page brought forward, exactly. A gap between the pages means no claim is made.
+    let mut carried: Vec<_> = extraction.carried.iter().collect();
+    carried.sort_by_key(|c| c.page.get());
+    for pair in carried.windows(2) {
+        let (left, right) = (&pair[0], &pair[1]);
+        if right.page.get() != left.page.get().saturating_add(1) {
+            continue;
+        }
+        if let (Some(carried_forward), Some(brought_forward)) =
+            (left.value.carried_forward, right.value.brought_forward)
+        {
+            if carried_forward != brought_forward {
+                findings.push(Finding::CarriedBalanceMismatch {
+                    after_page: left.page.get(),
+                    carried_forward,
+                    brought_forward,
+                });
+            }
         }
     }
 
