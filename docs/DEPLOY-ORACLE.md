@@ -54,7 +54,7 @@ Two ways. The tunnel is the safer default because nothing but SSH is open to the
 ssh ubuntu@<the public IP>
 sudo apt update && sudo apt full-upgrade -y
 sudo apt install -y ca-certificates curl gnupg unattended-upgrades
-sudo dpkg-reconfigure -plow unattended-upgrades
+sudo systemctl enable --now unattended-upgrades
 sudo timedatectl set-timezone Africa/Johannesburg
 ```
 Keep swap **off** so a stored Anthropic key is never written to disk:
