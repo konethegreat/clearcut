@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 71) — ClearCut is live, and the page now says what it is
+**Done**
+- **Live at https://145-241-100-85.sslip.io.** Oracle Always Free Ampere had no capacity after about thirty tries (1/6, 2/12 and 4/24 in the single Johannesburg AD), so with Kone's approval the stack went onto a trial-credit `VM.Standard.E5.Flex` (2 OCPU, 8 GB). Cloud-init cloned `main` on first boot and ran `deploy/oracle-install.sh`: Docker, `.env`, master key, the first tenant and admin key, Caddy with a real certificate. `/health`, `/` and `/v1/whoami` were checked from outside the VM, and caddy, db (healthy), server and worker were all up. The Ampere retry loop stays running; the stack moves when it lands and the trial VM goes away.
+- **A homepage that says what the product is.** `/` signed out is a landing page now: the headline, a sign-in card, how it works in three steps, the SA VAT thresholds as facts (15%, R5 000, R50), an agent-native panel (REST, MCP, Claude plugin) and what open source means here. Signed-in users reach it again from About. Every claim is one the repository already makes; there are no invented statistics or logos.
+- **Editorial ledger design.** Warm paper, ink, one deep blue, serif headings for reading copy and system sans for the work; a masked dot grid behind the hero, a calm marquee, one slow glint on the alpha line, and number tickers for real figures only. Light and dark, reduced motion respected. The dot grid, marquee, ticker and shiny text adapt Magic UI's MIT components via the UI vault (magicui.design); the CSS and JS here are ours and the credit sits in the stylesheet.
+- **The app screens share the tokens:** documents, one document, settings, review and every state, with a real drop zone, status pills, ruled tables and one ink panel. No new server route and no API change: it is still three files under a strict CSP with no inline script or style.
+- Checked in a browser at 1280 and 390 wide, light and dark, and with fixture data for the signed-in screens. The CSP tests still hold: one script tag, no external origin in the page, and no `innerHTML`, storage or cookie use in the script.
+**Not done:** the About page was checked through its shared components rather than a fresh screenshot after reload, and there are no automated visual tests.
+
 ## 2026-10-29 (part 70) — a free path to a running deployment (Oracle Always Free)
 **Done**
 - **The free-host recommendation became a runbook.** [DEPLOY-ORACLE.md](DEPLOY-ORACLE.md) puts the whole compose stack on one Ampere A1 VM in Johannesburg under Oracle's Always Free allowance (up to 4 OCPUs and 24 GB, one always-on instance). It covers the account and VM, Ubuntu and Docker, `.env` and the master key, the first tenant, backups, upgrades, the usual free-tier failures, and what must happen before other people's invoices.
