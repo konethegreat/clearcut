@@ -154,6 +154,11 @@ fn every_key_the_system_produces_is_accepted_in_a_label() {
             recomputed: amount,
         },
         Finding::TotalsOutOfRange,
+        Finding::CarriedBalanceMismatch {
+            after_page: 2,
+            carried_forward: amount,
+            brought_forward: amount,
+        },
         Finding::DueBeforeIssue,
         Finding::Compliance(Issue {
             field: "recipient_vat_number",

@@ -28,6 +28,17 @@ pub enum DuplicateReason {
     SupplierNumberDateTotal,
 }
 
+/// Which page-continuation figure a [`EventPayload::BalanceStated`] event is about (ADR-0022).
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BalanceRole {
+    /// The amount the page brought forward at its head.
+    BroughtForward,
+    /// The amount the page carried forward at its foot.
+    CarriedForward,
+}
+
 /// The data of an event. In Rust an `enum` can carry different fields in each
 /// variant, so the compiler checks every place that handles an event kind.
 ///
@@ -79,6 +90,15 @@ pub enum EventPayload {
         stated: Money,
         recomputed: Money,
     },
+    /// A page-continuation figure printed at the top or foot of a long invoice's page.
+    BalanceStated { role: BalanceRole, amount: Money },
+    /// This page's carried-forward figure differs from the next page's brought-forward figure.
+    BalanceMismatch {
+        /// The page whose carried-forward figure was compared.
+        after_page: u32,
+        carried_forward: Money,
+        brought_forward: Money,
+    },
     /// A due date or payment terms printed on the document.
     DueDateStated {
         #[cfg_attr(feature = "schemars", schemars(with = "String"))]
@@ -111,6 +131,8 @@ impl EventPayload {
             EventPayload::VatCalculated { .. } => EventType::VatCalculated,
             EventPayload::TotalsStated { .. } => EventType::TotalsStated,
             EventPayload::TotalsMismatch { .. } => EventType::TotalsMismatch,
+            EventPayload::BalanceStated { .. } => EventType::BalanceStated,
+            EventPayload::BalanceMismatch { .. } => EventType::BalanceMismatch,
             EventPayload::DueDateStated { .. } => EventType::DueDateStated,
             EventPayload::CreditNoteReferenced { .. } => EventType::CreditNoteReferenced,
             EventPayload::ComplianceIssueFound { .. } => EventType::ComplianceIssueFound,
@@ -135,6 +157,12 @@ impl EventPayload {
             EventPayload::TotalsMismatch {
                 stated, recomputed, ..
             } => vec![*stated, *recomputed],
+            EventPayload::BalanceStated { amount, .. } => vec![*amount],
+            EventPayload::BalanceMismatch {
+                carried_forward,
+                brought_forward,
+                ..
+            } => vec![*carried_forward, *brought_forward],
             EventPayload::CreditNoteReferenced { amount, .. } => vec![*amount],
             EventPayload::SupplierIdentified { .. }
             | EventPayload::RecipientIdentified { .. }
@@ -166,6 +194,8 @@ impl EventPayload {
             | EventPayload::VatCalculated { .. }
             | EventPayload::TotalsStated { .. }
             | EventPayload::TotalsMismatch { .. }
+            | EventPayload::BalanceStated { .. }
+            | EventPayload::BalanceMismatch { .. }
             | EventPayload::PossibleDuplicate { .. } => Vec::new(),
         }
     }

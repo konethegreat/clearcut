@@ -88,6 +88,7 @@ should say so, and you list it:
 |---|---|
 | `line_total_mismatch:N` | line N's printed total is not quantity x unit price |
 | `totals_mismatch:net`, `:vat`, `:gross` | a printed total differs from the total rebuilt from the lines |
+| `balance_mismatch:N` | page N carries forward an amount that is not exactly the amount page N+1 brings forward (ADR-0022; both must be printed) |
 | `due_before_issue` | the due date is before the invoice date |
 | `no_lines` | no line items |
 | `compliance:supplier_address` (and `supplier_name`, `supplier_vat_number`, `serial_number`, `date_of_issue`, `description`, `recipient_name`, `recipient_address`, `recipient_vat_number`) | a field South African tax-invoice rules require is missing |

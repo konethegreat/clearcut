@@ -392,3 +392,78 @@ fn a_sourced_value_makes_a_citation_for_a_document() {
     assert_eq!(citation.page.get(), 4);
     assert_eq!(citation.locator, Some(Locator::TextSpan { start: 1, end: 2 }));
 }
+
+// ---------- carried figures across pages (ADR-0022) ----------
+
+fn carried_figure(page: u32, brought: Option<i64>, forward: Option<i64>) -> Sourced<CarriedTotals> {
+    Sourced {
+        value: CarriedTotals {
+            brought_forward: brought.map(zar),
+            carried_forward: forward.map(zar),
+        },
+        page: NonZeroU32::new(page).unwrap(),
+        locator: None,
+        confidence: crate::event::Confidence::new(950).unwrap(),
+    }
+}
+
+#[test]
+fn a_carried_chain_that_agrees_is_clean() {
+    let mut x = clean();
+    x.carried = vec![
+        carried_figure(1, None, Some(100_000)),
+        carried_figure(2, Some(100_000), Some(250_000)),
+        carried_figure(3, Some(250_000), None),
+    ];
+    assert_eq!(validate(&x).findings, []);
+}
+
+#[test]
+fn a_carried_chain_that_breaks_is_a_blocking_finding() {
+    let mut x = clean();
+    x.carried = vec![
+        carried_figure(2, Some(99_999), Some(250_000)),
+        carried_figure(1, None, Some(100_000)),
+    ];
+    let result = validate(&x);
+    assert_eq!(
+        result.findings,
+        [Finding::CarriedBalanceMismatch {
+            after_page: 1,
+            carried_forward: zar(100_000),
+            brought_forward: zar(99_999),
+        }],
+        "the pages are sorted, so the finding is in page order"
+    );
+    assert!(result.findings[0].is_blocking());
+}
+
+#[test]
+fn a_missing_side_or_a_gap_between_pages_makes_no_claim() {
+    let cases: [(&str, Vec<Sourced<CarriedTotals>>); 2] = [
+        (
+            "the next page prints no brought forward",
+            vec![
+                carried_figure(1, None, Some(100_000)),
+                carried_figure(2, None, Some(250_000)),
+            ],
+        ),
+        (
+            "the page after is not the next page",
+            vec![
+                carried_figure(1, None, Some(100_000)),
+                carried_figure(3, Some(99_999), None),
+            ],
+        ),
+    ];
+    for (case, figures) in cases {
+        let mut x = clean();
+        x.carried = figures;
+        let found: Vec<Finding> = validate(&x)
+            .findings
+            .into_iter()
+            .filter(|f| matches!(f, Finding::CarriedBalanceMismatch { .. }))
+            .collect();
+        assert!(found.is_empty(), "{case}: {found:?}");
+    }
+}

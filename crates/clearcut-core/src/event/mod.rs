@@ -13,7 +13,7 @@ mod payload;
 pub mod view;
 
 pub use kind::{EventGroup, EventType, Severity};
-pub use payload::{DuplicateReason, EventPayload, TotalField};
+pub use payload::{BalanceRole, DuplicateReason, EventPayload, TotalField};
 
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};

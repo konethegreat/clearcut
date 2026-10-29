@@ -98,6 +98,10 @@ pub enum EventType {
     VatCalculated,
     TotalsStated,
     TotalsMismatch,
+    /// A page-continuation figure printed on a long invoice's page (ADR-0022).
+    BalanceStated,
+    /// A carried-forward figure that does not match the next page's brought-forward one.
+    BalanceMismatch,
     DueDateStated,
     CreditNoteReferenced,
     ComplianceIssueFound,
@@ -116,6 +120,8 @@ impl EventType {
             EventType::VatCalculated => "vat_calculated",
             EventType::TotalsStated => "totals_stated",
             EventType::TotalsMismatch => "totals_mismatch",
+            EventType::BalanceStated => "balance_stated",
+            EventType::BalanceMismatch => "balance_mismatch",
             EventType::DueDateStated => "due_date_stated",
             EventType::CreditNoteReferenced => "credit_note_referenced",
             EventType::ComplianceIssueFound => "compliance_issue_found",
@@ -124,7 +130,7 @@ impl EventType {
     }
 
     /// Every kind currently defined.
-    pub const ALL: [EventType; 12] = [
+    pub const ALL: [EventType; 14] = [
         EventType::InvoiceNumberStated,
         EventType::SupplierIdentified,
         EventType::RecipientIdentified,
@@ -133,6 +139,8 @@ impl EventType {
         EventType::VatCalculated,
         EventType::TotalsStated,
         EventType::TotalsMismatch,
+        EventType::BalanceStated,
+        EventType::BalanceMismatch,
         EventType::DueDateStated,
         EventType::CreditNoteReferenced,
         EventType::ComplianceIssueFound,
@@ -148,6 +156,7 @@ impl EventType {
             EventType::LineItemBilled | EventType::LineTotalMismatch => EventGroup::Charges,
             EventType::VatCalculated => EventGroup::Tax,
             EventType::TotalsStated | EventType::TotalsMismatch => EventGroup::Totals,
+            EventType::BalanceStated | EventType::BalanceMismatch => EventGroup::Totals,
             EventType::DueDateStated => EventGroup::Terms,
             EventType::CreditNoteReferenced => EventGroup::Adjustments,
             EventType::ComplianceIssueFound => EventGroup::Compliance,
@@ -159,7 +168,9 @@ impl EventType {
     /// no wildcard arm, so every new kind must be given a severity.
     pub fn severity(self) -> Severity {
         match self {
-            EventType::TotalsMismatch | EventType::LineTotalMismatch => Severity::Critical,
+            EventType::TotalsMismatch | EventType::LineTotalMismatch | EventType::BalanceMismatch => {
+                Severity::Critical
+            }
             EventType::ComplianceIssueFound | EventType::PossibleDuplicate => Severity::Warning,
             EventType::InvoiceNumberStated
             | EventType::SupplierIdentified
@@ -167,6 +178,7 @@ impl EventType {
             | EventType::LineItemBilled
             | EventType::VatCalculated
             | EventType::TotalsStated
+            | EventType::BalanceStated
             | EventType::DueDateStated
             | EventType::CreditNoteReferenced => Severity::Info,
         }

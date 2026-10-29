@@ -377,3 +377,30 @@ fn a_narrative_serialises_with_text_and_citations() {
         })
     );
 }
+
+// ---------- carried figures (ADR-0022) ----------
+
+#[test]
+fn narrates_a_carried_figure() {
+    let say = |role, amount| template(&EventPayload::BalanceStated { role, amount });
+    assert_eq!(
+        say(crate::event::BalanceRole::BroughtForward, Money::zar(5_000)),
+        "The amount brought forward is R50.00."
+    );
+    assert_eq!(
+        say(crate::event::BalanceRole::CarriedForward, Money::zar(250_000)),
+        "The amount carried forward is R2\u{a0}500.00."
+    );
+}
+
+#[test]
+fn narrates_a_carried_balance_mismatch() {
+    assert_eq!(
+        template(&EventPayload::BalanceMismatch {
+            after_page: 1,
+            carried_forward: Money::zar(100_000),
+            brought_forward: Money::zar(99_999),
+        }),
+        "The amount carried forward does not match the amount brought forward on the next page: R1\u{a0}000.00 and R999.99."
+    );
+}

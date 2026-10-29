@@ -8,8 +8,8 @@ use clearcut_core::cost::{BudgetPolicy, Cost, TokenUsage};
 use clearcut_core::escalation::{CallKind, ConfidenceBasis, Picture, ReviewReason, ThinkingEffort};
 use clearcut_core::event::{DuplicateReason, Event, EventPayload, EventType, Severity};
 use clearcut_core::reading::{
-    PageReading, ReadCreditNote, ReadCurrency, ReadDue, ReadLine, ReadParty, ReadTax, ReadTotals,
-    ReadVatBasis,
+    PageReading, ReadCarried, ReadCreditNote, ReadCurrency, ReadDue, ReadLine, ReadParty, ReadTax,
+    ReadTotals, ReadVatBasis,
 };
 use clearcut_provider::{
     Block, FakeProvider, ImageType, KeyProblem, ModelProvider, ModelRequest, ModelResponse, ProviderError,
@@ -31,6 +31,16 @@ const FIRST_OF_THREE: &str = "TAX INVOICE\nInvoice No: INV-2024-001\nDate: 2024-
                               Consulting 1 R1,000.00 R1,000.00";
 const SECOND_OF_THREE: &str = "Training 1 R1,000.00 R1,000.00";
 const THIRD_OF_THREE: &str = "Net R2,000.00 VAT R300.00 Total R2,300.00";
+/// A three-page invoice that prints continuation figures (ADR-0022).
+const CARRIED_ONE: &str = "TAX INVOICE\nInvoice No: INV-2024-001\nDate: 2024-03-01\n\
+                           Supplier: Acme (Pty) Ltd VAT No 4123456789\nDescription Quantity Price Amount\n\
+                           Consulting 1 R1,000.00 R1,000.00\nCarried forward R1,000.00";
+const CARRIED_TWO: &str = "Brought forward R1,000.00\nTraining 1 R1,000.00 R1,000.00\n\
+                           Carried forward R2,000.00";
+/// The same second page, but it brings forward a cent less than page one carried.
+const CARRIED_TWO_BROKEN: &str = "Brought forward R999.99\nTraining 1 R1,000.00 R1,000.00\n\
+                                   Carried forward R2,000.00";
+const CARRIED_THREE: &str = "Brought forward R2,000.00\nNet R2,000.00 VAT R300.00 Total R2,300.00";
 
 fn usage() -> Usage {
     Usage {
@@ -1649,6 +1659,124 @@ async fn totals_that_do_not_match_the_lines_of_the_whole_document_are_an_event_a
             .iter()
             .map(|e| e.id().as_str().to_string())
             .collect::<Vec<_>>()
+    );
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_long_invoice_whose_carried_chain_holds_ends_done_with_its_figures(pool: PgPool) {
+    // Three pages, two links: page one carries R1 000.00, page two brings it forward and
+    // carries R2 000.00, page three brings that forward and prints the invoice totals.
+    let w = world(&pool).await;
+    let worker = worker_for(&[CARRIED_ONE, CARRIED_TWO, CARRIED_THREE]);
+    let mut first = first_of_three();
+    first.carried = ReadCarried {
+        brought_forward: String::new(),
+        carried_forward: "1000.00".into(),
+    };
+    let mut second = second_of_three();
+    second.carried = ReadCarried {
+        brought_forward: "1000.00".into(),
+        carried_forward: "2000.00".into(),
+    };
+    let mut third = third_of_three();
+    third.carried = ReadCarried {
+        brought_forward: "2000.00".into(),
+        carried_forward: String::new(),
+    };
+    let provider = FakeProvider::scripted(vec![
+        answer(HAIKU, &first),
+        answer(HAIKU, &second),
+        answer(HAIKU, &third),
+    ]);
+    let (doc, job, report) = w.read(&worker, &provider, settings()).await;
+    let message = w.job(job).await.last_error;
+    assert_eq!(report.ended, Ended::Succeeded, "{message:?}");
+    assert_eq!(w.status(doc).await, DocumentStatus::Done);
+
+    let events = w.store.load_events(w.tenant, doc).await.unwrap();
+    let stated: Vec<String> = events
+        .iter()
+        .filter(|e| matches!(e.payload(), EventPayload::BalanceStated { .. }))
+        .map(|e| e.id().as_str().to_string())
+        .collect();
+    assert_eq!(stated.len(), 4, "{stated:?}");
+    for expected in [
+        "carried-forward-1",
+        "brought-forward-2",
+        "carried-forward-2",
+        "brought-forward-3",
+    ] {
+        assert!(
+            stated.iter().any(|id| id.ends_with(expected)),
+            "{expected} not in {stated:?}"
+        );
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e.payload(), EventPayload::BalanceMismatch { .. })),
+        "the chain holds, so nothing is flagged"
+    );
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_long_invoice_whose_carried_chain_breaks_ends_in_review_with_the_events_stored(pool: PgPool) {
+    // Page two brings forward R999.99, a cent less than page one carried: the chain is broken.
+    let w = world(&pool).await;
+    let worker = worker_for(&[CARRIED_ONE, CARRIED_TWO_BROKEN, CARRIED_THREE]);
+    let mut first = first_of_three();
+    first.carried = ReadCarried {
+        brought_forward: String::new(),
+        carried_forward: "1000.00".into(),
+    };
+    let mut second = second_of_three();
+    second.carried = ReadCarried {
+        brought_forward: "999.99".into(),
+        carried_forward: "2000.00".into(),
+    };
+    let mut third = third_of_three();
+    third.carried = ReadCarried {
+        brought_forward: "2000.00".into(),
+        carried_forward: String::new(),
+    };
+    let provider = FakeProvider::scripted(vec![
+        answer(HAIKU, &first),
+        answer(HAIKU, &second),
+        answer(HAIKU, &third),
+    ]);
+    let (doc, job, report) = w.read(&worker, &provider, settings()).await;
+    assert_eq!(report.ended, Ended::NeedsReview);
+    let message = w.job(job).await.last_error.unwrap();
+    assert!(message.starts_with("the checks found"), "{message}");
+    assert_eq!(w.status(doc).await, DocumentStatus::NeedsReview);
+
+    let events = w.store.load_events(w.tenant, doc).await.unwrap();
+    let mismatch = events
+        .iter()
+        .find(|e| matches!(e.payload(), EventPayload::BalanceMismatch { .. }))
+        .expect("the broken link is an event");
+    assert_eq!(mismatch.severity(), Severity::Critical);
+    assert_eq!(mismatch.citation().page.get(), 1);
+    match mismatch.payload() {
+        EventPayload::BalanceMismatch {
+            after_page,
+            carried_forward,
+            brought_forward,
+        } => {
+            assert_eq!(
+                (*after_page, carried_forward.minor, brought_forward.minor),
+                (1, 100_000, 99_999)
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    // The figures that were read are stored too, so the person can see the chain.
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e.payload(), EventPayload::BalanceStated { .. }))
+            .count(),
+        4
     );
 }
 

@@ -28,6 +28,8 @@ pub fn is_about(finding: &Finding, field: Field) -> bool {
             field == Field::Total(TotalPart::from(*total)) || field.is_line_amount()
         }
         Finding::TotalsOutOfRange => matches!(field, Field::Total(_)) || field.is_line_amount(),
+        // A carried figure is not a field a label records yet (ADR-0022), so it flags nothing.
+        Finding::CarriedBalanceMismatch { .. } => false,
         Finding::DueBeforeIssue => matches!(field, Field::InvoiceDate | Field::DueDate),
         Finding::Compliance(issue) => match issue.field {
             "supplier_name" => field == Field::Supplier(PartyPart::Name),

@@ -412,3 +412,37 @@ fn nothing_is_found_for_an_empty_target() {
     assert!(!stands_alone("anything 123", "", char::is_alphanumeric));
     assert!(!stands_alone("", "", char::is_alphanumeric));
 }
+
+// ---------- carried figures (ADR-0022) ----------
+
+fn carried_only(brought: Option<i64>, forward: Option<i64>) -> Extraction {
+    let mut e = clean();
+    e.invoice_number = None;
+    e.supplier = None;
+    e.lines.clear();
+    e.stated_totals = None;
+    e.carried = vec![at(crate::extraction::CarriedTotals {
+        brought_forward: brought.map(zar),
+        carried_forward: forward.map(zar),
+    })];
+    e
+}
+
+#[test]
+fn a_carried_figure_is_looked_for_on_the_page() {
+    let extraction = carried_only(Some(100_000), Some(250_000));
+    let report = trusted(
+        &extraction,
+        "Brought forward R1 000.00\nCarried forward R2 500.00",
+    );
+    assert_eq!(report.result, TextCheck::Passed);
+    assert_eq!(report.checked, 2);
+}
+
+#[test]
+fn a_carried_figure_the_page_does_not_show_is_flagged() {
+    let extraction = carried_only(Some(100_000), Some(250_000));
+    let report = trusted(&extraction, "Brought forward R1 000.00"); // carried forward invented
+    assert_eq!(report.result, TextCheck::Failed { missing: 1 });
+    assert_eq!(report.unconfirmed, vec!["carried/carried_forward".to_string()]);
+}

@@ -227,6 +227,11 @@ pub fn build(document: DocumentFacts, events: &[Event]) -> ExportModel {
                     });
                 }
             }
+            EventPayload::BalanceStated { role, amount: figure } => totals.push(TotalRow {
+                label: format!("Amount {} (page {page})", format::balance_role(*role)),
+                amount: amount(*figure),
+                basis: "stated on the document",
+            }),
             EventPayload::VatCalculated {
                 category,
                 taxable,

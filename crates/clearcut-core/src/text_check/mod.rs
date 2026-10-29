@@ -122,6 +122,14 @@ fn wanted(extraction: &Extraction) -> Vec<(String, Wanted)> {
     if let Some(credit) = &extraction.credit_note {
         amount("credit_note/amount".to_string(), credit.value.amount);
     }
+    for carried in &extraction.carried {
+        if let Some(figure) = carried.value.brought_forward {
+            amount("carried/brought_forward".to_string(), figure);
+        }
+        if let Some(figure) = carried.value.carried_forward {
+            amount("carried/carried_forward".to_string(), figure);
+        }
+    }
     out
 }
 
