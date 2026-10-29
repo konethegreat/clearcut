@@ -16,7 +16,7 @@ One always-on Arm virtual machine in Oracle's **Johannesburg** region, running t
 
 ## Before you start
 - An Oracle Cloud account with a card for identity verification (a small temporary hold).
-- A **domain name** for HTTPS. A cheap one is fine; a real domain in Cloudflare (free plan) is needed for the tunnel path. The Caddy path also accepts a free DuckDNS subdomain.
+- A **domain name** for HTTPS. A cheap one is fine; a real domain in Cloudflare (free plan) is needed for the tunnel path. With no domain at all, the Caddy path can use a free `sslip.io` name made from the VM's IP (`169-0-0-1.sslip.io` for `169.0.0.1`), which needs ports 80 and 443 open like any other Caddy name.
 - Your SSH public key on the computer you will use to log in.
 
 ## 1. Create the account and the VM
@@ -41,7 +41,7 @@ Two ways. The tunnel is the safer default because nothing but SSH is open to the
 
 ### B. Caddy with a public port
 - Add ingress rules to the subnet's security list for **TCP 80 and 443 from 0.0.0.0/0**.
-- Point an `A` record at the reserved public IP.
+- Point an `A` record at the reserved public IP, or skip DNS and use the `sslip.io` name above.
 - Oracle's Ubuntu image also filters ports in its own firewall. Allow them:
   ```bash
   sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
