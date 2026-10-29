@@ -91,6 +91,67 @@ fn every_sentence_cites_events_that_are_in_the_events_table() {
     assert!(cited.iter().all(|id| ids.contains(&id.as_str())));
 }
 
+fn carried_on(
+    page: u32,
+    brought: Option<i64>,
+    forward: Option<i64>,
+) -> crate::extraction::Sourced<crate::extraction::CarriedTotals> {
+    crate::extraction::Sourced {
+        value: crate::extraction::CarriedTotals {
+            brought_forward: brought.map(fixtures::zar),
+            carried_forward: forward.map(fixtures::zar),
+        },
+        page: NonZeroU32::new(page).unwrap(),
+        locator: None,
+        confidence: crate::event::Confidence::new(950).unwrap(),
+    }
+}
+
+#[test]
+fn the_carried_figures_are_shown_in_totals_with_their_page_and_no_check() {
+    let mut agreeing = fixtures::clean();
+    agreeing.carried = vec![
+        carried_on(1, None, Some(100_000)),
+        carried_on(2, Some(100_000), None),
+    ];
+    let model = model_of(&agreeing);
+
+    let carried: Vec<_> = model
+        .totals
+        .iter()
+        .filter(|t| t.label.starts_with("Amount "))
+        .collect();
+    assert_eq!(carried.len(), 2, "{:?}", model.totals);
+    assert_eq!(
+        (carried[0].label.as_str(), carried[0].amount.minor),
+        ("Amount carried forward (page 1)", 100_000)
+    );
+    assert_eq!(
+        (carried[1].label.as_str(), carried[1].amount.minor),
+        ("Amount brought forward (page 2)", 100_000)
+    );
+    assert_eq!(carried[0].basis, "stated on the document");
+    assert!(model.checks.is_empty(), "{:?}", model.checks);
+}
+
+#[test]
+fn a_broken_carried_chain_is_a_critical_check_on_the_page_that_carried_it() {
+    let mut broken = fixtures::clean();
+    broken.carried = vec![
+        carried_on(1, None, Some(100_000)),
+        carried_on(2, Some(99_999), None),
+    ];
+    let model = model_of(&broken);
+
+    let check = model
+        .checks
+        .iter()
+        .find(|c| c.severity == "critical")
+        .unwrap_or_else(|| panic!("no critical check: {:?}", model.checks));
+    assert_eq!(check.page, 1);
+    assert!(check.text.contains("does not match"), "{}", check.text);
+}
+
 #[test]
 fn the_event_names_in_files_are_the_serialised_names() {
     use crate::event::{EventGroup, EventType, Severity};

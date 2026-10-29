@@ -1,4 +1,4 @@
-﻿// Written by Kone Tshivhinda & Claude
+// Written by Kone Tshivhinda & Claude
 use super::*;
 use crate::extraction::fixtures::{at, clean, line, zar};
 use crate::extraction::CreditNoteRef;
@@ -431,7 +431,10 @@ fn carried_only(brought: Option<i64>, forward: Option<i64>) -> Extraction {
 #[test]
 fn a_carried_figure_is_looked_for_on_the_page() {
     let extraction = carried_only(Some(100_000), Some(250_000));
-    let report = trusted(&extraction, "Brought forward R1 000.00\nCarried forward R2 500.00");
+    let report = trusted(
+        &extraction,
+        "Brought forward R1 000.00\nCarried forward R2 500.00",
+    );
     assert_eq!(report.result, TextCheck::Passed);
     assert_eq!(report.checked, 2);
 }

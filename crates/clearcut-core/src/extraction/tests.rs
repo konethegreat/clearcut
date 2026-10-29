@@ -443,11 +443,17 @@ fn a_missing_side_or_a_gap_between_pages_makes_no_claim() {
     let cases: [(&str, Vec<Sourced<CarriedTotals>>); 2] = [
         (
             "the next page prints no brought forward",
-            vec![carried_figure(1, None, Some(100_000)), carried_figure(2, None, Some(250_000))],
+            vec![
+                carried_figure(1, None, Some(100_000)),
+                carried_figure(2, None, Some(250_000)),
+            ],
         ),
         (
             "the page after is not the next page",
-            vec![carried_figure(1, None, Some(100_000)), carried_figure(3, Some(99_999), None)],
+            vec![
+                carried_figure(1, None, Some(100_000)),
+                carried_figure(3, Some(99_999), None),
+            ],
         ),
     ];
     for (case, figures) in cases {

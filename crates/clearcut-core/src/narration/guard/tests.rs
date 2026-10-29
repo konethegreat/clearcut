@@ -230,6 +230,37 @@ fn the_template_narrative_always_passes() {
 }
 
 #[test]
+fn the_narrated_carried_figures_pass_the_number_guard_and_an_invented_one_is_caught() {
+    use crate::event::BalanceRole;
+    let events = vec![
+        mk(
+            "e1",
+            None,
+            EventPayload::BalanceStated {
+                role: BalanceRole::CarriedForward,
+                amount: zar(100_000),
+            },
+            None,
+        ),
+        mk(
+            "e2",
+            None,
+            EventPayload::BalanceStated {
+                role: BalanceRole::BroughtForward,
+                amount: zar(100_000),
+            },
+            None,
+        ),
+    ];
+    assert_eq!(
+        check(&narrate_timeline(&events), &events),
+        Vec::<Violation>::new()
+    );
+    let invented = candidate("The amount carried forward is R1\u{a0}001.00.", &["e1"]);
+    assert_eq!(kinds(&check(&invented, &events)), [&unverified_number("1001.00")]);
+}
+
+#[test]
 fn smoothed_prose_that_keeps_the_facts_passes() {
     let events = vec![mk("e1", None, line_item(), None)];
     let story = candidate(

@@ -337,9 +337,11 @@ pub fn is_finding_key(key: &str) -> bool {
     match key.split_once(':') {
         None => matches!(key, "no_lines" | "totals_out_of_range" | "due_before_issue"),
         Some((kind, rest)) => match kind {
-            "currency_mismatch" | "non_positive_quantity" | "amount_out_of_range" | "line_total_mismatch" => {
-                digits(rest)
-            }
+            "currency_mismatch"
+            | "non_positive_quantity"
+            | "amount_out_of_range"
+            | "line_total_mismatch"
+            | "balance_mismatch" => digits(rest),
             "totals_mismatch" => matches!(rest, "net" | "vat" | "gross"),
             "compliance" => {
                 (1..=40).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')

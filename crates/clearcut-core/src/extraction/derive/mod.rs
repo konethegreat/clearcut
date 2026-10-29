@@ -34,7 +34,8 @@
 use super::{validate, Extraction, Finding, Sourced, Validation};
 use crate::error::Result;
 use crate::event::{
-    BalanceRole, Citation, Confidence, DocumentId, Event, EventId, EventParts, EventPayload, Extractor, TotalField,
+    BalanceRole, Citation, Confidence, DocumentId, Event, EventId, EventParts, EventPayload, Extractor,
+    TotalField,
 };
 use crate::{Money, TaxCategory};
 use std::collections::HashMap;

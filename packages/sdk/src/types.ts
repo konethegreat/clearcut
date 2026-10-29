@@ -87,7 +87,8 @@ export type EventGroup =
 export type EventType =
   | "invoice_number_stated" | "supplier_identified" | "recipient_identified"
   | "line_item_billed" | "line_total_mismatch" | "vat_calculated"
-  | "totals_stated" | "totals_mismatch" | "due_date_stated" | "credit_note_referenced"
+  | "totals_stated" | "totals_mismatch" | "balance_stated" | "balance_mismatch"
+  | "due_date_stated" | "credit_note_referenced"
   | "compliance_issue_found" | "possible_duplicate";
 
 export type EventSeverity = "info" | "warning" | "critical";
@@ -128,6 +129,17 @@ export type EventPayload =
   | { type: "vat_calculated"; category: TaxCategory; taxable: Money; rate_bps: number; vat: Money }
   | { type: "totals_stated"; net: Money; vat: Money; gross: Money }
   | { type: "totals_mismatch"; field: "net" | "vat" | "gross"; stated: Money; recomputed: Money }
+  | {
+      type: "balance_stated";
+      role: "brought_forward" | "carried_forward";
+      amount: Money;
+    }
+  | {
+      type: "balance_mismatch";
+      after_page: number;
+      carried_forward: Money;
+      brought_forward: Money;
+    }
   | { type: "due_date_stated"; due: string; terms: string | null }
   | { type: "credit_note_referenced"; original_invoice_number: string; amount: Money }
   | { type: "compliance_issue_found"; field: string; message: string }

@@ -467,7 +467,10 @@ fn failure_report(task: &PageTask, material: &Material, last: Option<&Kept>) -> 
             | Finding::AmountOutOfRange { .. }
             | Finding::CurrencyMismatch { .. } => true,
             Finding::TotalsMismatch { .. } | Finding::TotalsOutOfRange => whole,
-            Finding::NoLines | Finding::DueBeforeIssue | Finding::Compliance(_) => false,
+            Finding::NoLines
+            | Finding::DueBeforeIssue
+            | Finding::CarriedBalanceMismatch { .. }
+            | Finding::Compliance(_) => false,
         })
         .collect();
     Some(FailureReport {

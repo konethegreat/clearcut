@@ -168,9 +168,9 @@ impl EventType {
     /// no wildcard arm, so every new kind must be given a severity.
     pub fn severity(self) -> Severity {
         match self {
-            EventType::TotalsMismatch
-            | EventType::LineTotalMismatch
-            | EventType::BalanceMismatch => Severity::Critical,
+            EventType::TotalsMismatch | EventType::LineTotalMismatch | EventType::BalanceMismatch => {
+                Severity::Critical
+            }
             EventType::ComplianceIssueFound | EventType::PossibleDuplicate => Severity::Warning,
             EventType::InvoiceNumberStated
             | EventType::SupplierIdentified

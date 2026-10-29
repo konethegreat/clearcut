@@ -25,6 +25,9 @@ pub fn finding_key(finding: &Finding) -> String {
             format!("totals_mismatch:{field}")
         }
         Finding::TotalsOutOfRange => "totals_out_of_range".to_string(),
+        Finding::CarriedBalanceMismatch { after_page, .. } => {
+            format!("balance_mismatch:{after_page}")
+        }
         Finding::DueBeforeIssue => "due_before_issue".to_string(),
         Finding::Compliance(issue) => format!("compliance:{}", issue.field),
     }
