@@ -2,6 +2,17 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-29 (part 70) — a free path to a running deployment (Oracle Always Free)
+**Done**
+- **The free-host recommendation became a runbook.** [DEPLOY-ORACLE.md](DEPLOY-ORACLE.md) puts the whole compose stack on one Ampere A1 VM in Johannesburg under Oracle's Always Free allowance (up to 4 OCPUs and 24 GB, one always-on instance). It covers the account and VM, Ubuntu and Docker, `.env` and the master key, the first tenant, backups, upgrades, the usual free-tier failures, and what must happen before other people's invoices.
+- **Two HTTPS paths.** Cloudflare Tunnel is the default (only SSH open, the origin never published, a domain on Cloudflare's free plan needed); Caddy with ports 80 and 443 is the alternative for a domain that already points at the VM, including the extra iptables rules Oracle's Ubuntu image needs.
+- **Arm was measured, not assumed.** Buildx built both images for `linux/arm64`; the worker starts under emulation and `/health` reports inspect, text, render, mask and OCR, which proves Tesseract (English and Afrikaans), the `pypdfium2` aarch64 wheel and Pillow on Arm. The server image builds for arm64 too, so the VM can build both natively.
+- **A one-shot installer.** [deploy/oracle-install.sh](deploy/oracle-install.sh) does the Ubuntu and Docker preparation, turns swap off (so a stored Anthropic key is never paged to disk), writes `.env` with fresh secrets, makes the master key, opens 80 and 443 in the image's firewall, starts the stack (Caddy when a hostname is given, private otherwise), waits for `/health`, and creates the first account and admin key once, saving the key to a 0600 file.
+- **A latent deployment fault, found and fixed.** The compose file mounted `.env` into the server, which runs as its own unprivileged user, so the documented `chmod 600 .env` would have made a tenant-only server refuse to start. The settings the server reads are now passed to it explicitly as environment variables, the file stays 0600 and unmounted, and the compose CI job sets a random master key and `CLEARCUT_KEY_MODE=tenant-only` so that this documented mode is exercised on every run.
+- **Why not the other free tiers:** they sleep (Render), are too small for OCR (Koyeb), or have no free tier for new accounts (Fly.io). ADR-0015 reached the same conclusion; this turns it into steps somebody can follow.
+- Docs: DEPLOY.md links the runbook; LAUNCH item 7 records the free path (S3, the hosted trial and backup automation still remain).
+**Not done:** the instance is not deployed yet (it needs the Oracle account, a card for verification and a domain, Kone's to create); no image registry, because the VM builds from source; off-site backups are still manual.
+
 ## 2026-10-29 (part 69) — a long invoice's carried chain is checked and recorded (ADR-0022 step 2)
 **Done**
 - **The chain is checked only where the document prints both sides.** After `assemble`, `validate` reads the per-page carried pairs in page order and compares page N's carried-forward figure with page N+1's brought-forward figure. It is exact to the cent, it only compares **adjacent** pages (a gap in the page numbers makes no claim), and it only compares when both figures were printed; a missing side means no finding. A mismatch is `Finding::CarriedBalanceMismatch` (Critical), so the document still ends `needs_review` and the job `succeeded` with a person-readable reason; a clean chain changes nothing and the document ends `done`.
