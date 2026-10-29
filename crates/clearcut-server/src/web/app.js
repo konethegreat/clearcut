@@ -6,9 +6,23 @@
 
 let key = null;
 let timer = null;
+const REPO = "https://github.com/konethegreat/clearcut";
 const main = document.getElementById("main");
 const signoutButton = document.getElementById("signout");
 const settingsLink = document.getElementById("settings-link");
+const aboutLink = document.getElementById("about-link");
+const footerLinks = document.getElementById("footer-links");
+
+function setSignedIn(signedIn) {
+  signoutButton.hidden = !signedIn;
+  settingsLink.hidden = !signedIn;
+  aboutLink.hidden = !signedIn;
+}
+
+footerLinks.append(
+  h("a", { href: REPO, rel: "noreferrer" }, "Source on GitHub"),
+  document.createTextNode(" · Apache-2.0"),
+);
 
 // ---------------------------------------------------------------- helpers ----
 
@@ -80,19 +94,111 @@ function failure(error, retry) {
   );
 }
 
-// ---------------------------------------------------------------- 1. sign in ----
+// ---------------------------------------------------------------- 1. home and sign in ----
 
-function signIn(message) {
+function ticker(el, to, prefix, suffix) {
+  const format = new Intl.NumberFormat("en-ZA");
+  const done = () => { el.textContent = prefix + format.format(to) + suffix; };
+  done();
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) return;
+  const watch = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return;
+    watch.disconnect();
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / 900);
+      const eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = prefix + format.format(Math.round(to * eased)) + suffix;
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }, { threshold: 0.4 });
+  watch.observe(el);
+}
+
+function marquee() {
+  const items = ["Integer cents", "Cited figures", "15% VAT", "R5 000 and R50 thresholds", "REST and MCP", "Apache-2.0", "Self-hosted"];
+  const group = (hidden) =>
+    h("div", { class: "marquee-group", "aria-hidden": hidden ? "true" : null }, items.map((text) => h("span", {}, text)));
+  return h("div", { class: "marquee", "aria-label": "What ClearCut is made of" },
+    h("div", { class: "marquee-track" }, group(false), group(true)));
+}
+
+function sectionHead(eyebrow, title, sub) {
+  return h("div", { class: "section-head" }, h("p", { class: "eyebrow" }, eyebrow), h("h2", {}, title), sub ? h("p", {}, sub) : null);
+}
+
+function stepsSection() {
+  const steps = [
+    ["Upload the invoice", "One PDF, PNG or JPEG. ClearCut keeps the file, the pages it read and the figures it took from each one."],
+    ["ClearCut reads and checks", "Every figure is tied to the page it came from, then the report is checked against the source numbers before you see it."],
+    ["You review and export", "Confirm anything the rules flag as uncertain, then export JSON, CSV, XLSX or PDF for your books."],
+  ];
+  const list = h("div", { class: "steps", id: "how" },
+    steps.map(([title, copy], i) =>
+      h("div", { class: "step" },
+        h("span", { class: "step-num" }, String(i + 1).padStart(2, "0")),
+        h("h3", {}, title),
+        h("p", {}, copy))));
+  return h("section", { class: "section" },
+    sectionHead("How it works", "Three steps, and the source stays in view.", "ClearCut does not guess at an invoice. What it cannot read with confidence is handed to a person."),
+    list);
+}
+
+function factsSection() {
+  const facts = [
+    [15, "%", "The standard VAT rate ClearCut applies, and states on every total."],
+    [5000, "", "Above this, South African rules require a full tax invoice."],
+    [50, "", "At or below this, a till slip is enough. The band between gets a simplified invoice."],
+    [3, "", "File types read today: PDF, PNG and JPEG. Amounts stay integer cents end to end."],
+  ];
+  return h("section", { class: "section" },
+    sectionHead("Built for South African invoicing", "Rules as tested code, not a footnote.", "The thresholds and rates come from the VAT Act and live in the same tests that check every total."),
+    h("div", { class: "facts" },
+      facts.map(([to, suffix, label]) => {
+        const value = h("div", { class: "fact-value" });
+        const prefix = suffix === "" && to >= 50 ? "R " : "";
+        ticker(value, to, prefix, suffix);
+        return h("div", { class: "fact" }, value, h("p", { class: "fact-label" }, label));
+      })));
+}
+
+function agentSection() {
+  return h("section", { class: "section" },
+    h("div", { class: "panel-ink" },
+      h("div", { class: "inner" },
+        h("p", { class: "eyebrow" }, "Agent native"),
+        h("h2", {}, "Built for agents, governed for finance."),
+        h("p", {}, "The same Rust core answers a person in this page, a script over REST and an assistant over MCP. Agents can draft and calculate. Deleting a document, or anything a person must confirm, stays with a person."),
+        h("ul", { class: "panel-grid" },
+          h("li", {}, h("strong", {}, "REST API"), h("span", {}, "Uploads are idempotent: sending the same file twice gives one document. Typed errors, no silent rewrites.")),
+          h("li", {}, h("strong", {}, "MCP server"), h("span", {}, "calculate_invoice, za_required_tax_invoice and check_status_transition, over stdio.")),
+          h("li", {}, h("strong", {}, "Claude plugin"), h("span", {}, "The same tools announced to an assistant, so it can price an invoice without a browser.")))),
+      h("pre", { class: "code" }, "curl -s https://your-clear-cut/v1/whoami \\\n  -H \"Authorization: Bearer $CLEARCUT_KEY\"\n\n", h("b", {}, "{ \"tenant\": \"...\", \"scopes\": [\"documents:read\", \"documents:write\"] }"))));
+}
+
+function openSection() {
+  return h("section", { class: "section open" },
+    h("div", {},
+      h("p", { class: "eyebrow" }, "Open"),
+      h("h2", {}, "Open, and yours to host."),
+      h("p", { class: "lede" }, "ClearCut is Apache-2.0. The page loads nothing from anywhere else: no analytics, no third-party scripts, no fonts from a CDN. Your key stays in the page and your documents are read through your own Anthropic key.")),
+    h("ul", { class: "license-list" },
+      h("li", {}, h("b", {}, "Apache-2.0"), "Read it, run it, change it."),
+      h("li", {}, h("b", {}, "One VM"), "Docker Compose on a single small server, with PostgreSQL beside it."),
+      h("li", {}, h("b", {}, "Your data"), "Documents live on your disk, and deletion removes the file and everything read from it.")));
+}
+
+function home(message) {
   stopPolling();
   key = null;
-  signoutButton.hidden = true;
-  settingsLink.hidden = true;
+  setSignedIn(false);
   const input = h("input", { type: "password", id: "key", autocomplete: "off", spellcheck: "false", required: true });
   const error = h("p", { class: "error small", role: "alert" }, message || "");
   const form = h(
     "form",
     {
-      class: "card narrow",
+      class: "card",
       onsubmit: async (event) => {
         event.preventDefault();
         key = input.value.trim();
@@ -100,8 +206,7 @@ function signIn(message) {
         try {
           const response = await api("/v1/whoami");
           if (!response.ok) throw new AuthError("The key was not accepted.");
-          signoutButton.hidden = false;
-          settingsLink.hidden = false;
+          setSignedIn(true);
           location.hash = "#/";
           route();
         } catch (e) {
@@ -110,20 +215,58 @@ function signIn(message) {
         }
       },
     },
-    h("h1", {}, "Sign in"),
-    h("p", { class: "muted" }, "Paste your ClearCut key. It stays in this page only: reloading the page signs you out."),
+    h("h2", {}, "Sign in"),
+    h("p", { class: "muted" }, "Paste your ClearCut key to open your documents."),
     h("label", { for: "key" }, "ClearCut key"),
     input,
+    h("p", { class: "field-help" }, "The key stays in this page only. Reloading signs you out."),
     error,
-    h("button", { type: "submit" }, "Sign in"),
+    h("div", { class: "actions" }, h("button", { type: "submit" }, "Sign in")),
   );
-  show(form);
-  input.focus();
+  const hero = h("section", { class: "hero" },
+    h("div", { class: "hero-inner" },
+      h("div", {},
+        h("span", { class: "chip" }, "Alpha · South African invoicing"),
+        h("h1", {}, "Invoices in. ", h("em", {}, "Clear answers out.")),
+        h("p", { class: "lede" }, "ClearCut reads a supplier invoice, checks every figure against the page it came from, and turns it into a record you can review, export and trust."),
+        h("div", { class: "ctas" },
+          h("a", { class: "button secondary", href: "#how" }, "See how it works"),
+          h("a", { href: REPO, rel: "noreferrer" }, "Read the source")),
+        h("p", { class: "cta-note shine" }, "Open source, Apache-2.0, and small enough to read.")),
+      h("div", { class: "signin" }, form,
+        h("div", { class: "trust-line" }, h("span", {}, "Integer cents"), h("span", {}, "Cited pages"), h("span", {}, "Your own Anthropic key")))));
+  show(h("div", { class: "home" }, hero, marquee(), stepsSection(), factsSection(), agentSection(), openSection()));
+}
+
+function aboutPage() {
+  stopPolling();
+  setSignedIn(true);
+  const hero = h("section", { class: "hero" },
+    h("div", { class: "hero-inner" },
+      h("div", {},
+        h("span", { class: "chip" }, "Alpha · South African invoicing"),
+        h("h1", {}, "Invoices in. ", h("em", {}, "Clear answers out.")),
+        h("p", { class: "lede" }, "ClearCut reads a supplier invoice, checks every figure against the page it came from, and turns it into a record you can review, export and trust."),
+        h("div", { class: "ctas" },
+          h("a", { class: "button", href: "#/" }, "Open your documents"),
+          h("a", { href: REPO, rel: "noreferrer" }, "Read the source"))),
+      h("div", { class: "signin" },
+        h("div", { class: "card" },
+          h("h2", {}, "Where things are"),
+          h("ul", { class: "license-list" },
+            h("li", {}, h("b", {}, "Documents"), "Upload and follow what was read."),
+            h("li", {}, h("b", {}, "Settings"), "Your Anthropic key and its limits."),
+            h("li", {}, h("b", {}, "Report"), "Each document opens onto its own report."))))));
+  show(h("div", { class: "home" }, hero, marquee(), stepsSection(), factsSection(), agentSection(), openSection()));
+}
+
+function signIn(message) {
+  home(message);
 }
 
 signoutButton.addEventListener("click", () => {
   location.hash = "#/";
-  signIn("");
+  home("");
 });
 
 // ---------------------------------------------------------------- 2. documents ----
@@ -168,7 +311,14 @@ async function documents() {
   });
 
   const list = h("div", {}, h("div", { class: "states" }, "Loading…"));
-  show(h("h1", {}, "Documents"), h("p", { class: "muted" }, "Upload an invoice to have it read."), h("div", { class: "card" }, drop, status), h("h2", {}, "Your documents"), list);
+  show(h("div", { class: "page" },
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Workspace"),
+      h("h1", {}, "Documents"),
+      h("p", { class: "lede" }, "Upload an invoice to have it read. Everything shown here is checked against the page it came from.")),
+    h("div", { class: "card" }, drop, status),
+    h("h2", {}, "Your documents"),
+    list));
 
   async function load() {
     try {
@@ -216,7 +366,7 @@ async function documents() {
 async function documentPage(id) {
   stopPolling();
   const body = h("div", {}, h("div", { class: "states" }, "Loading…"));
-  show(h("p", {}, h("a", { href: "#/" }, "← All documents")), body);
+  show(h("div", { class: "page" }, h("p", { class: "small" }, h("a", { href: "#/" }, "← All documents")), body));
   let mode = "summary";
   let finishing = null; // the job queued by a confirmation, until it has ended
 
@@ -664,7 +814,13 @@ function pageForm(id, waiting, saved) {
 async function settingsPage() {
   stopPolling();
   const body = h("div", {}, h("div", { class: "states" }, "Loading…"));
-  show(h("p", {}, h("a", { href: "#/" }, "← All documents")), h("h1", {}, "Your Anthropic key"), body);
+  show(h("div", { class: "page" },
+    h("p", { class: "small" }, h("a", { href: "#/" }, "← All documents")),
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Workspace"),
+      h("h1", {}, "Your Anthropic key"),
+      h("p", { class: "lede" }, "ClearCut reads your documents with a key you own, set to a limit you choose.")),
+    body));
 
   async function draw(savedNote) {
     let view;
@@ -758,13 +914,15 @@ async function settingsPage() {
 // ---------------------------------------------------------------- routing ----
 
 function route() {
-  if (!key) return signIn("");
+  if (!key) return home("");
+  setSignedIn(true);
   const hash = location.hash || "#/";
   const match = hash.match(/^#\/d\/([0-9a-f-]{36})$/i);
   if (match) documentPage(match[1]);
   else if (hash === "#/settings") settingsPage();
+  else if (hash === "#/about") aboutPage();
   else documents();
 }
 
 window.addEventListener("hashchange", route);
-signIn("");
+route();

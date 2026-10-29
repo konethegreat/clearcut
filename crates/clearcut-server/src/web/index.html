@@ -3,21 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ClearCut</title>
+<title>ClearCut · South African invoice reading</title>
+<meta name="description" content="ClearCut reads a supplier invoice, checks every figure against the page it came from, and turns it into a record you can review and export.">
+<meta name="theme-color" content="#f7f3ea">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <header class="bar">
-  <a class="brand" href="#/">ClearCut</a>
+  <a class="brand" href="#/">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="1.5" y="4.5" width="15" height="15" rx="1.5"></rect>
+      <path d="M22.5 4.5v15h-6"></path>
+      <path d="M11.5 4.5l-4 15"></path>
+    </svg>
+    <span class="wordmark">ClearCut</span>
+  </a>
   <span class="bar-space"></span>
+  <a id="about-link" class="nav" href="#/about" hidden>About</a>
   <a id="settings-link" class="nav" href="#/settings" hidden>Settings</a>
   <button id="signout" class="link" type="button" hidden>Sign out</button>
 </header>
 <main id="main">
-  <p class="muted">Loading…</p>
+  <p class="states">Loading&hellip;</p>
 </main>
-<footer>
-  Documents are read by an AI model and checked by ClearCut's own rules. Check figures that matter against the original.
+<footer class="foot">
+  <div class="foot-inner">
+    <p>Documents are read by an AI model and checked by ClearCut's own rules. Check figures that matter against the original. Not tax advice.</p>
+    <p class="foot-meta"><span>ClearCut is alpha software.</span> <span id="footer-links"></span></p>
+  </div>
 </footer>
 <script src="/app.js"></script>
 </body>
