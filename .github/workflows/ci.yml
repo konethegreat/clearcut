@@ -96,6 +96,12 @@ jobs:
             echo "$name=$value" >> .env
           done
           echo "CLEARCUT_DOMAIN=clearcut.example.test" >> .env
+          # The documented deployment: every account brings its own key. This proves the
+          # master key and key mode reach the server (the file itself is 0600 and unmounted).
+          master=$(openssl rand -base64 32)
+          echo "::add-mask::$master"
+          echo "CLEARCUT_MASTER_KEY=$master" >> .env
+          echo "CLEARCUT_KEY_MODE=tenant-only" >> .env
       - name: The compose files are valid, with and without HTTPS
         run: |
           docker compose config -q
