@@ -79,7 +79,46 @@ Correct output (the amounts are written as printed; the page says they include V
 }
 ```
 
-### Example 3: a continuation page that carries a balance forward
+### Example 3: a till slip with standard and zero-rated goods whose prices include VAT
+
+<page_text id="example" source="ocr">
+CORNER STORE
+14 Kerk Street, Stellenbosch, 7600
+VAT No 4111222333
+TAX INVOICE
+Slip 0098741    2026-05-02
+2 x Bread          16,99     33,98
+1 x Milk 2l        31,99     31,99
+1 x Brown rice (zero-rated)  42,50  42,50
+All prices include VAT
+Total excl VAT              99,86
+VAT 15%                      8,60
+TOTAL                R 108,46
+</page_text id="example">
+
+Correct output (write every amount as printed; the rice is zero-rated, so its printed price already carries no VAT and is not divided later):
+
+```json
+{
+  "currency": "ZAR",
+  "amounts_include_vat": "yes",
+  "invoice_number": "0098741",
+  "invoice_date": "2026-05-02",
+  "supplier": { "name": "Corner Store", "address": "14 Kerk Street, Stellenbosch, 7600", "vat_number": "4111222333" },
+  "recipient": { "name": "", "address": "", "vat_number": "" },
+  "lines": [
+    { "description": "Bread", "quantity": "2", "unit_price": "16.99", "line_total": "33.98", "tax": "standard" },
+    { "description": "Milk 2l", "quantity": "1", "unit_price": "31.99", "line_total": "31.99", "tax": "standard" },
+    { "description": "Brown rice (zero-rated)", "quantity": "1", "unit_price": "42.50", "line_total": "42.50", "tax": "zero_rated" }
+  ],
+  "totals": { "net": "99.86", "vat": "8.60", "gross": "108.46" },
+  "carried": { "brought_forward": "", "carried_forward": "" },
+  "due": { "date": "", "terms": "" },
+  "credit_note": { "original_invoice_number": "", "amount": "" }
+}
+```
+
+### Example 4: a continuation page that carries a balance forward
 
 <page_text id="example" source="text_layer">
 Page 2 of 3

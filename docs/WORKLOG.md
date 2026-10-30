@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 80) — the model gets a worked mixed till slip
+**Done**
+- **`prompt-v3` adds a fourth example: a slip where standard goods and a zero-rated staple carry one "all prices include VAT" statement.** The output marks the two standard lines `standard` and the rice `zero_rated`, with every amount as printed. That is the classification the new mixed-page rule depends on, shown rather than only described. The rules are unchanged; only the examples gain one. The renamed golden is `prefix-prompt-v3.txt`, 12 031 bytes, still one cached block.
+- **The example is checkable, not decorative.** A test converts it through the real converter and asserts the exact arithmetic: R16.99 becomes R14.77 and R31.99 becomes R27.82, the zero-rated rice stays R42.50, the net reconciles to the printed R99.86, and the printed VAT and gross agree to the cent, so validation reports nothing. It still reports `amounts_include_vat`, so the page goes to a person.
+- **The prompt version moves, deliberately.** `PROMPT_VERSION` becomes `prompt-v3` and `prompt_version()` records `reading-v3/prompt-v3`; the manifest and call log carry it, so a call under the old prompt stays distinguishable. Gold-set scores taken under `prompt-v2` are not comparable with scores under `prompt-v3`.
+- **Tests:** the pack suite now proves four examples, their inputs are clean, the first and last convert with no arithmetic findings, the second is still the inclusive division case, and the third is the new mixed slip. Pack 66 tests, whole workspace green against local Postgres, clippy and fmt clean.
+- **Docs:** ADR-0024 gains a followed-up note and its rule 6 now records that the prompt version moves for the example alone; ARCHITECTURE and CLAUDE.md carry the new pack count.
+**Not done:** no gold-set re-run under `prompt-v3` (the synthetic sample set has no mixed inclusive case); the example shows one currency and one jurisdiction.
+
 ## 2026-10-30 (part 79) — a mixed page divides only the lines that bear VAT
 **Done**
 - **[ADR-0024](adr/0024-mixed-inclusive-pages.md) replaces ADR-0023's all-or-nothing rule.** On a page that says its amounts include VAT, each line is now treated by what it bears: a standard-rated line is divided at the profile's rate, while a zero-rated, exempt or out-of-scope line was charged no VAT, so its printed amount is already the net and it is read as printed with its own category. The refusal that made a common grocery slip unread is gone.
