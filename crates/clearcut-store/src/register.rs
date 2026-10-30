@@ -86,20 +86,24 @@ impl Store {
             }
         };
 
-        // A document whose current events all lack a date is one the period can never take.
+        // Every document the tenant has with no invoice date, including one that has no events
+        // at all: a period can never select it, so it must not disappear without a count.
         let undated: i64 = sqlx::query_scalar(
-            "with current_events as ( \
-                 select e.document_id, e.event_date \
-                 from events e \
-                 where e.tenant_id = $1 \
-                   and not exists (select 1 from events s \
-                                   where s.tenant_id = $1 and s.document_id = e.document_id \
-                                     and s.supersedes = e.id) \
-             ) \
-             select count(*) from ( \
-                 select document_id from current_events \
-                 group by document_id having count(event_date) = 0 \
-             ) undated",
+            "select count(*) \
+             from documents d \
+             where d.tenant_id = $1 \
+               and not exists ( \
+                   select 1 \
+                   from events e \
+                   where e.tenant_id = $1 \
+                     and e.document_id = d.id \
+                     and e.event_date is not null \
+                     and not exists ( \
+                         select 1 from events s \
+                         where s.tenant_id = $1 and s.document_id = e.document_id \
+                           and s.supersedes = e.id \
+                     ) \
+               )",
         )
         .bind(tenant.0)
         .fetch_one(&mut *tx)

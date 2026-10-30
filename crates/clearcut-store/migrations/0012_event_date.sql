@@ -1,4 +1,8 @@
 -- Written by Kone Tshivhinda & Claude
+-- Deploy note: `add column ... stored` rewrites `events` under an exclusive lock, and the index
+-- build rewrites it again. Apply this migration with the server stopped, and do not retry it
+-- under traffic.
+--
 -- The date a fact belongs to (the invoice date on a reading, not the day it was recorded), copied
 -- out of the event body so a period can be selected without reading every body.
 --

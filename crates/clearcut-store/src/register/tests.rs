@@ -73,6 +73,8 @@ async fn a_period_takes_the_documents_dated_in_it(pool: PgPool) {
 async fn a_period_leaves_undated_documents_out_and_counts_them(pool: PgPool) {
     let (store, tenant, dated_document) = setup(&pool).await;
     let undated = second_document(&store, tenant, 2).await;
+    // No events at all: still a document of the tenant with no invoice date.
+    second_document(&store, tenant, 3).await;
     store
         .append_events(
             tenant,
@@ -96,7 +98,32 @@ async fn a_period_leaves_undated_documents_out_and_counts_them(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(input.facts.len(), 1);
-    assert_eq!(input.undated_in_tenant, 1);
+    assert_eq!(input.undated_in_tenant, 2);
+}
+
+#[sqlx::test]
+async fn an_undated_document_of_another_tenant_is_not_counted(pool: PgPool) {
+    let (store, tenant, doc) = setup(&pool).await;
+    store
+        .append_events(
+            tenant,
+            doc,
+            &[dated(doc, "n", Some(d!(2026 - 03 - 31)), "INV-1", None)],
+        )
+        .await
+        .unwrap();
+    let other = new_tenant(&pool, "Other").await.unwrap();
+    let other_doc = store.add_document(other, &new_document(2)).await.unwrap().id;
+    store
+        .append_events(other, other_doc, &[dated(other_doc, "n", None, "INV-2", None)])
+        .await
+        .unwrap();
+    let input = store
+        .register_sources(tenant, &period(d!(2026 - 03 - 01), d!(2026 - 03 - 31)), false)
+        .await
+        .unwrap();
+    assert_eq!(input.facts.len(), 1);
+    assert_eq!(input.undated_in_tenant, 0);
 }
 
 #[sqlx::test]
@@ -148,15 +175,16 @@ async fn a_named_selection_takes_documents_whatever_their_date(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_named_document_of_another_tenant_is_not_returned(pool: PgPool) {
+async fn a_named_document_of_another_tenant_or_a_missing_id_is_not_returned(pool: PgPool) {
     let (store, tenant, _doc) = setup(&pool).await;
     let other = new_tenant(&pool, "Other").await.unwrap();
     let other_doc = store.add_document(other, &new_document(2)).await.unwrap().id;
+    let missing = Uuid::new_v4();
     let input = store
         .register_sources(
             tenant,
             &Selection::Documents {
-                ids: vec![other_doc.0.to_string()],
+                ids: vec![other_doc.0.to_string(), missing.to_string()],
             },
             false,
         )
