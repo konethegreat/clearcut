@@ -24,6 +24,7 @@
 
 use crate::anthropic_key::KeyAdmin;
 use crate::documents::Ingest;
+use crate::guard::{ClientAddr, Guard, GuardConfig};
 use crate::jobs::JobQueue;
 use crate::rate_limit::RateLimiter;
 use crate::results::Results;
@@ -86,6 +87,7 @@ pub struct AppState {
     reviews: Option<Arc<dyn Reviews>>,
     keys: Option<Arc<dyn KeyAdmin>>,
     rate_limit: Option<Arc<RateLimiter>>,
+    guard: Option<Arc<Guard>>,
 }
 
 impl AppState {
@@ -98,6 +100,7 @@ impl AppState {
             reviews: None,
             keys: None,
             rate_limit: None,
+            guard: None,
         }
     }
 
@@ -110,6 +113,7 @@ impl AppState {
             reviews: None,
             keys: None,
             rate_limit: None,
+            guard: None,
         }
     }
 
@@ -148,6 +152,17 @@ impl AppState {
     pub fn with_rate_limit(mut self, per_minute: NonZeroU32) -> Self {
         self.rate_limit = Some(Arc::new(RateLimiter::new(per_minute)));
         self
+    }
+
+    /// Turns on the limits in front of authentication, the concurrency cap,
+    /// the request timeout, the security headers and the access log.
+    pub fn with_guard(mut self, config: GuardConfig) -> Self {
+        self.guard = Some(Arc::new(Guard::new(config)));
+        self
+    }
+
+    pub(crate) fn guard(&self) -> Option<&Guard> {
+        self.guard.as_deref()
     }
 
     pub(crate) fn rate_limit(&self) -> Option<&RateLimiter> {
@@ -241,7 +256,20 @@ impl FromRequestParts<AppState> for Authed {
     type Rejection = ApiProblem;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiProblem> {
+        // The address limits come before the key lookup, so a flood of wrong keys costs a map
+        // lookup, not a database one. Without an address (a directly built request in a test,
+        // or a transport that cannot say) there is nothing to count against.
+        let ip = parts.extensions.get::<ClientAddr>().and_then(|address| address.0);
+        if let (Some(guard), Some(ip)) = (state.guard(), ip) {
+            if let Err(retry_after_seconds) = guard.before_auth(ip, Instant::now()) {
+                return Err(ApiProblem::RateLimited { retry_after_seconds });
+            }
+        }
+
         let Some(token) = bearer_token(&parts.headers) else {
+            if let (Some(guard), Some(ip)) = (state.guard(), ip) {
+                guard.record_failure(ip, Instant::now());
+            }
             tracing::warn!(
                 reason = "missing or malformed credentials",
                 "authentication failed"
@@ -262,6 +290,9 @@ impl FromRequestParts<AppState> for Authed {
                 Ok(Authed(principal))
             }
             Err(AuthFailure::Rejected) => {
+                if let (Some(guard), Some(ip)) = (state.guard(), ip) {
+                    guard.record_failure(ip, Instant::now());
+                }
                 tracing::warn!(reason = "credentials rejected", "authentication failed");
                 Err(ApiProblem::Unauthorized)
             }

@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -108,11 +109,16 @@ fn test_routes() -> Router<AppState> {
             .is_some_and(|v| v.is_sensitive());
         format!("sensitive={sensitive}; debug={headers:?}")
     }
+    async fn slow() -> &'static str {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        "slow"
+    }
     routes()
         .route("/test/write", get(needs_write))
         .route("/test/read", get(needs_read))
         .route("/test/admin", get(needs_admin))
         .route("/test/headers", get(show_headers))
+        .route("/test/slow", get(slow))
 }
 
 fn router_with(fake: &Arc<FakeAuth>) -> Router {
@@ -124,6 +130,36 @@ fn router_with_rate_limit(fake: &Arc<FakeAuth>, per_minute: u32) -> Router {
         test_routes(),
         AppState::shared(fake.clone()).with_rate_limit(std::num::NonZeroU32::new(per_minute).unwrap()),
     )
+}
+
+fn guard_config(
+    per_ip: u32,
+    failures: u32,
+    max_concurrent: usize,
+    timeout: std::time::Duration,
+) -> GuardConfig {
+    GuardConfig {
+        per_ip_per_minute: std::num::NonZeroU32::new(per_ip).unwrap(),
+        failures_per_minute: std::num::NonZeroU32::new(failures).unwrap(),
+        block: std::time::Duration::from_secs(60),
+        max_concurrent: std::num::NonZeroUsize::new(max_concurrent).unwrap(),
+        timeout,
+        trust_proxy: false,
+    }
+}
+
+fn router_with_guard(fake: &Arc<FakeAuth>, config: GuardConfig) -> Router {
+    finish(test_routes(), AppState::shared(fake.clone()).with_guard(config))
+}
+
+/// Gives a request the socket address the transport would set.
+fn with_ip(mut request: Request<Body>, ip: [u8; 4]) -> Request<Body> {
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            ip, 40_000,
+        ))));
+    request
 }
 
 fn app_with_fake() -> (Router, Arc<FakeAuth>) {
@@ -244,6 +280,147 @@ async fn a_bad_key_is_refused_as_unauthorized_before_any_allowance_is_used() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer(READER)))).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+// ---------- the guard in front of the API ----------
+
+#[tokio::test]
+async fn an_address_over_its_minute_is_refused_before_the_key_is_looked_up() {
+    let fake = FakeAuth::new();
+    let app = router_with_guard(&fake, guard_config(2, 100, 64, Duration::from_secs(5)));
+    for _ in 0..2 {
+        let (status, ..) = send(
+            &app,
+            with_ip(get_with("/v1/whoami", Some(&bearer(READER))), [10, 0, 0, 1]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, headers, _) = send(
+        &app,
+        with_ip(get_with("/v1/whoami", Some(&bearer(READER))), [10, 0, 0, 1]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(headers.contains_key(header::RETRY_AFTER));
+    assert_eq!(
+        fake.asked().len(),
+        2,
+        "the refused request never reached the authenticator"
+    );
+}
+
+#[tokio::test]
+async fn too_many_wrong_keys_block_the_address_even_from_a_good_key() {
+    let fake = FakeAuth::new();
+    let app = router_with_guard(&fake, guard_config(100, 2, 64, Duration::from_secs(5)));
+    for _ in 0..2 {
+        let (status, ..) = send(
+            &app,
+            with_ip(get_with("/v1/whoami", Some(&bearer("ccut_wrong"))), [10, 0, 0, 2]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    let (status, headers, _) = send(
+        &app,
+        with_ip(get_with("/v1/whoami", Some(&bearer(READER))), [10, 0, 0, 2]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(headers.contains_key(header::RETRY_AFTER));
+    assert_eq!(fake.asked().len(), 2);
+}
+
+#[tokio::test]
+async fn requests_without_a_key_count_against_the_failure_budget() {
+    let fake = FakeAuth::new();
+    let app = router_with_guard(&fake, guard_config(100, 2, 64, Duration::from_secs(5)));
+    for _ in 0..2 {
+        let (status, ..) = send(&app, with_ip(get_with("/v1/whoami", None), [10, 0, 0, 6])).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    let (status, ..) = send(
+        &app,
+        with_ip(get_with("/v1/whoami", Some(&bearer(READER))), [10, 0, 0, 6]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn a_request_that_runs_too_long_is_stopped() {
+    let fake = FakeAuth::new();
+    let app = router_with_guard(&fake, guard_config(100, 100, 64, Duration::from_millis(50)));
+    let (status, ..) = send(&app, with_ip(get_with("/test/slow", None), [10, 0, 0, 3])).await;
+    assert_eq!(status, StatusCode::REQUEST_TIMEOUT);
+}
+
+#[tokio::test]
+async fn a_request_beyond_the_concurrency_cap_is_shed() {
+    let fake = FakeAuth::new();
+    let app = router_with_guard(&fake, guard_config(100, 100, 1, Duration::from_secs(5)));
+    let first = tokio::spawn({
+        let app = app.clone();
+        async move { send(&app, with_ip(get_with("/test/slow", None), [10, 0, 0, 4])).await }
+    });
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    let (status, headers, _) = send(&app, with_ip(get_with("/health", None), [10, 0, 0, 5])).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(headers.contains_key(header::RETRY_AFTER));
+    assert_eq!(first.await.unwrap().0, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn without_an_address_the_limits_do_not_apply() {
+    // A request the transport cannot attribute (a directly built one) is let through rather
+    // than refused: the guard needs an address to count against.
+    let fake = FakeAuth::new();
+    let app = router_with_guard(&fake, guard_config(1, 1, 64, Duration::from_secs(5)));
+    for _ in 0..3 {
+        let (status, ..) = send(&app, get_with("/v1/whoami", Some(&bearer(READER)))).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+}
+
+#[tokio::test]
+async fn every_answer_carries_the_security_headers_and_a_request_id() {
+    let (app, _) = app_with_fake();
+    let (status, headers, _) = send(&app, get_with("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers["x-content-type-options"], "nosniff");
+    assert_eq!(headers["referrer-policy"], "no-referrer");
+    assert_eq!(
+        headers["permissions-policy"],
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    );
+    assert_eq!(headers["cross-origin-opener-policy"], "same-origin");
+    assert_eq!(headers["cross-origin-resource-policy"], "same-origin");
+    assert_eq!(
+        headers["x-request-id"].to_str().unwrap().len(),
+        36,
+        "a UUID when the caller sent none"
+    );
+}
+
+#[tokio::test]
+async fn a_well_formed_request_id_is_kept_and_a_hostile_one_is_replaced() {
+    let (app, _) = app_with_fake();
+    let request = Request::get("/health")
+        .header("x-request-id", "abc-123")
+        .body(Body::empty())
+        .unwrap();
+    let (_, headers, _) = send(&app, request).await;
+    assert_eq!(headers["x-request-id"], "abc-123");
+
+    let request = Request::get("/health")
+        .header("x-request-id", "abc def")
+        .body(Body::empty())
+        .unwrap();
+    let (_, headers, _) = send(&app, request).await;
+    let id = headers["x-request-id"].to_str().unwrap();
+    assert_ne!(id, "abc def");
+    assert_eq!(id.len(), 36);
 }
 
 #[tokio::test]

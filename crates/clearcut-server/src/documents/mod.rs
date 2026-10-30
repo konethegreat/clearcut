@@ -233,6 +233,10 @@ fn explain(error: IntakeError) -> Response {
         )
             .into_response(),
         IntakeError::Empty => problem(StatusCode::BAD_REQUEST, "the file is empty"),
+        IntakeError::ContentMismatch => problem(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "the file's first bytes are not the declared type",
+        ),
         IntakeError::Interrupted => problem(StatusCode::BAD_REQUEST, "the upload was interrupted"),
         IntakeError::Busy => problem(
             StatusCode::CONFLICT,

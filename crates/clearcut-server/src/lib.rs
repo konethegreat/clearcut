@@ -7,6 +7,7 @@
 mod anthropic_key;
 mod auth;
 mod documents;
+mod guard;
 mod jobs;
 pub mod openapi;
 mod rate_limit;
@@ -17,6 +18,7 @@ mod web;
 pub use anthropic_key::{KeyAdmin, KeysFuture};
 pub use auth::{ApiProblem, AppState, AuthFailure, Authed, Authenticator};
 pub use documents::{EraseFuture, Ingest, IngestFuture, UploadBody};
+pub use guard::{ClientAddr, Guard, GuardConfig};
 pub use jobs::{JobQueue, QueueFuture};
 pub use results::{Results, ResultsFuture};
 pub use review::{ReviewError, ReviewFuture, Reviewer, Reviews, WaitingPage};
@@ -67,10 +69,15 @@ pub fn routes() -> Router<AppState> {
 
 /// Attaches the middleware and state. The `Authorization` header is marked
 /// sensitive for everything downstream, so it prints as redacted if a request
-/// is ever logged or debug-printed.
+/// is ever logged or debug-printed. The guard runs outermost, so its timeout
+/// and concurrency cap cover authentication and the handler alike.
 pub fn finish(routes: Router<AppState>, state: AppState) -> Router {
     routes
         .layer(SetSensitiveRequestHeadersLayer::new([header::AUTHORIZATION]))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            guard::guard_request,
+        ))
         .with_state(state)
 }
 
