@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 73) — a public demo that cannot touch an account
+**Done**
+- **`#/demo`, open without a key.** Two synthetic samples from `crates/clearcut-eval/sample`: Tafelberg TP-4410 (three pages, nine standard-rated lines, ends done) and Bergsig BST-221 (one exempt line, held because the reading says R 12 501.00 where the page prints R 12 500.00). Each plays a short, skippable timeline, then shows the checks, the report and an export built in the browser. The timeline's last step is the status the real lifecycle would give it: Done or Needs review.
+- **The review is the point of the second sample.** The sheet recreates the page, the reading sits beside it with the R1.00 difference named, and Confirm settles it locally: status Done, every check passes, the report changes, and the export uses the printed R 12 500.00. The screen says the real app records a confirmation as the person's, against their key, with no model call.
+- **Why it cannot mix with live data.** The demo is data and state in `app.js`: no `api()` call, no key, no tenant, no database, no model. `#/demo*` is routed before the key check. All document text still goes through `h()`; the CSP and the one-script rule are unchanged. Checked with the network panel open: zero `/v1` requests from either sample, signed out and signed in.
+- **Entry stays invite-only.** The hero has a glowing "Try the live demo" button and the header a Demo link; the demo strip and the header button exit to `#/`, and the header hides the Demo link while you are inside it. A new Rust test asserts the page links `#/demo` and that `app.js` carries the prepared samples and the "Nothing here is saved" line.
+- **ADMIN.md now has the invite steps**, and its first-admin command gained `documents:read` (the web page cannot list documents without it) and lost the claim that tenants manage keys through an API that does not exist. LAUNCH records the demo and the demo-is-not-a-live-reading limit.
+**Not done:** the demo is not a live reading, so it says nothing about accuracy; that waits on the gold set.
+
 ## 2026-10-30 (part 72) — a tab mark instead of a 404
 **Done**
 - The live page rendered with one console error: Chrome asked for `/favicon.ico` and the server has no such file. There is now a `/favicon.svg` (the same mark as the header, paper and ink with one blue slash) served by the same runner as the other three files, with a `link rel="icon"` in the page so the `.ico` request never happens. The CSP and the file test cover it.

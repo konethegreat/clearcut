@@ -11,6 +11,7 @@ _Kone Tshivhinda & Claude, 26 Oct 2026. The one place that says what is done, wh
 - **Review:** a person corrects and confirms a page the reader could not settle; recorded as theirs, no model call.
 - **Delete:** a document, everything read from it and its file are erased for good (POPIA); a content-free record of the deletion stays.
 - Tenants, API keys with scopes, row-level security, audit log; the web page (a public homepage that says what ClearCut is, then sign in, upload, list, report, review, delete); `docker compose up` on your own computer with the worker and database isolated.
+- **A public demo** at `#/demo`: two synthetic invoices read end to end, one clean and one held for a person, with a played-back timeline, the checks, the report, a browser-built export and a review that confirms. It needs no key, calls no model, stores nothing and cannot reach a tenant; accounts remain invite-only.
 - Your own key on your own computer (mode A): environment or file, never printed, never in the worker. **Each account's own key on a deployed service (mode B)**: stored encrypted, write-only, used per job.
 - Prompt-injection handling: document text is data; flagged pages get a person's eyes before "done".
 
@@ -33,6 +34,7 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 - **Real invoices** (anonymised, with consent) for the gold set (P2-01), so accuracy is measured instead of claimed, and `prompt-v1` can be frozen. Until then nothing here claims "0 silent critical errors": it is a target.
 - **Who runs ClearCut commercially**, hence the POPIA responsible party and Information Officer; the **retention period you will state** (automatic deletion is built, a year by default; tax records may need longer); an attorney's review of the privacy notice, consent text and operator agreement (P2-19).
 - **Anthropic terms**: confirm retention and zero-data-retention for the models in use (research 06 section 8: Fable 5.1 is 30-day retention).
+- **Invitations**: ClearCut is invite-only in alpha. You create a tenant and a key for each person; the exact commands are in [ADMIN.md](ADMIN.md).
 - **Hosting and a domain**: a hosted trial is live at https://145-241-100-85.sslip.io/ (Oracle Cloud Johannesburg, trial credit; the Always Free Ampere move is automatic when capacity appears). A real domain name is still yours to buy and point at it, and whether this stays up after the trial credit is a decision for you.
 - **Which documents beyond invoices** (bank, payment-processor, supplier statements) for fee reconciliation (P2-21), and whose taxonomy for line categories (P2-22).
 
@@ -51,6 +53,7 @@ Each is a small pull request with its own tests. Items marked **[Kone]** need a 
 | A second person approving a review | A customer needs separation of duties |
 
 ## 5. Known limits today (so nothing is a surprise)
+- **The demo is prepared data, not a live reading.** It shows the screens and the story of the checks; it is not evidence of the reader's accuracy, which still waits on the gold set (P2-01).
 - Set `CLEARCUT_KEY_MODE=tenant-only` on any deployment: in the default `shared` mode the server's own key fills in for an account with none, which is right for your own computer and wrong for other people's money.
 - One document is read at a time unless `CLEARCUT_RUNNER_CONCURRENCY` is raised (then at most one per account).
 - If the server process is killed in the middle of a page, the model calls that page had already made (and been billed for) are not in the call log, so that account's spend is under-counted by at most one page's calls until the next month's sum. Each call being logged as it happens would close it.

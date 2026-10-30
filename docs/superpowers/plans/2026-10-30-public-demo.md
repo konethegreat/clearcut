@@ -712,7 +712,7 @@ In the `@media (max-width: 900px)` block add:
 
 Run: `node --check crates/clearcut-server/src/web/app.js`
 
-Expected: no output. Open `http://127.0.0.1:8098/index.html#/demo` (restart the Python server if it stopped), open Bergsig: the timeline ends "Held for a person", the banner names both figures, Review this page opens the sheet with the printed total marked, Confirm shows Done, the checks switch to Passed, the report changes, and the export total is R 12 500.00. Back to the document from the review writes nothing and keeps the held state.
+Expected: no output. Open `http://127.0.0.1:8098/index.html#/demo` (restart the Python server if it stopped), open Bergsig: the timeline ends "Needs review", the banner names both figures, Review this page opens the sheet with the printed total marked, Confirm shows Done, the checks switch to Passed, the report changes, and the export total is R 12 500.00. Back to the document from the review writes nothing and keeps the held state.
 
 - [ ] **Step 9: Commit**
 
@@ -755,7 +755,7 @@ ClearCut is invite-only in alpha: the public demo shows the journey, and a real 
 export DATABASE_URL=<the OWNER connection string>
 TENANT=$(clearcut-admin create-tenant "Their business")
 clearcut-admin create-key --tenant "$TENANT" --name "Anna's first key" \
-    --scopes keys:admin,documents:write,events:read > anna.key
+    --scopes keys:admin,documents:read,documents:write,events:read > anna.key
 ```
 
 - Send the key through a channel you trust, such as a password-manager share. Not a group chat, and not the same email as the invoices.
