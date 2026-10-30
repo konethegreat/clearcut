@@ -546,11 +546,38 @@ fn a_mixed_currency_document_is_left_out_of_the_sums() {
                 },
                 None,
             ),
+            vat_on("mixed", "vat", on, TaxCategory::Standard, 100_000, 15_000),
+            totals_on("mixed", on, 100_000, 15_000, 115_000),
         ],
     );
-    let reading = read(&source);
-    assert_eq!(reading.document.currency, None);
-    assert!(vat_by_category(&[reading]).unwrap().is_empty());
+    let readings = [read(&source)];
+    assert_eq!(readings[0].document.currency, None);
+    assert!(vat_by_category(&readings).unwrap().is_empty());
+    assert!(stated_totals(&readings).unwrap().is_empty());
+    assert!(reconciliation(&readings).unwrap().is_empty());
+}
+
+#[test]
+fn a_document_still_being_read_has_no_figures() {
+    // Spec section 5: a received or processing document is a register row with its status and
+    // no figures, whatever its partial extraction already holds.
+    let on = Some(d!(2026 - 09 - 22));
+    let reading = read(&facts(
+        "reading",
+        DocumentStatus::Processing,
+        vec![
+            line_on("reading", "l1", 1, "Consulting", 1_000, 100_000),
+            numbered("reading", on, "INV-5"),
+            totals_on("reading", on, 100_000, 15_000, 115_000),
+            vat_on("reading", "vat", on, TaxCategory::Standard, 100_000, 15_000),
+        ],
+    ));
+    let readings = [reading];
+    assert_eq!(readings[0].document.status, DocumentStatus::Processing);
+    assert!(lines(&readings).is_empty());
+    assert!(vat_by_category(&readings).unwrap().is_empty());
+    assert!(stated_totals(&readings).unwrap().is_empty());
+    assert!(reconciliation(&readings).unwrap().is_empty());
 }
 
 #[test]

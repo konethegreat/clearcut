@@ -189,7 +189,8 @@ pub struct StatedTotals {
     pub awaiting: Option<StatedPart>,
 }
 
-/// The VAT ClearCut calculated against the VAT the documents state, for one month.
+/// The VAT ClearCut calculated against the VAT the documents state. One row covers one month,
+/// currency and kind, merging the ready and the awaiting documents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Reconciliation {
     pub month: String,
@@ -409,12 +410,16 @@ fn read(facts: &RegisterFacts) -> Reading {
 // ---------------------------------------------------------------- line rows ----
 
 // The register build composes this next; until then only the tests call it.
-/// The line items of every document, in reading order, numbered from one per document.
+/// The line items of every finished document, in reading order, numbered from one per document.
+/// A document still being read has no line rows, because its extraction is only partial.
 #[allow(dead_code)]
 fn lines(readings: &[Reading]) -> Vec<RegisterLine> {
     let mut out = Vec::new();
     for reading in readings {
         let document = &reading.document;
+        if side(document.status).is_none() {
+            continue;
+        }
         let mut number = 0u32;
         for event in &reading.current {
             let EventPayload::LineItemBilled {
@@ -520,7 +525,7 @@ struct VatAcc {
 /// single currency, so two currencies are never added together.
 #[allow(dead_code)]
 fn vat_by_category(readings: &[Reading]) -> Result<Vec<VatGroup>, RegisterError> {
-    let mut groups: BTreeMap<(String, &'static str, u8, u8, u32), VatAcc> = BTreeMap::new();
+    let mut groups: BTreeMap<(String, &'static str, Kind, TaxCategory, u32), VatAcc> = BTreeMap::new();
     for reading in readings {
         let document = &reading.document;
         let Some(ready) = side(document.status) else {
@@ -529,7 +534,7 @@ fn vat_by_category(readings: &[Reading]) -> Result<Vec<VatGroup>, RegisterError>
         let Some(month) = month_for_sums(document) else {
             continue;
         };
-        let mut own: BTreeMap<(u8, u32), (TaxCategory, Currency, i64, i64)> = BTreeMap::new();
+        let mut own: BTreeMap<(TaxCategory, u32), (Currency, i64, i64)> = BTreeMap::new();
         for event in &reading.current {
             let EventPayload::VatCalculated {
                 category,
@@ -543,25 +548,19 @@ fn vat_by_category(readings: &[Reading]) -> Result<Vec<VatGroup>, RegisterError>
             if taxable.currency != vat.currency {
                 continue;
             }
-            let entry =
-                own.entry((*category as u8, *rate_bps))
-                    .or_insert((*category, taxable.currency, 0, 0));
-            added(&mut entry.2, *taxable)?;
-            added(&mut entry.3, *vat)?;
+            let entry = own
+                .entry((*category, *rate_bps))
+                .or_insert((taxable.currency, 0, 0));
+            added(&mut entry.1, *taxable)?;
+            added(&mut entry.2, *vat)?;
         }
-        for ((category, rate_bps), (typed, currency, taxable, vat)) in own {
-            let key = (
-                month.clone(),
-                currency.code(),
-                document.kind as u8,
-                category,
-                rate_bps,
-            );
+        for ((category, rate_bps), (currency, taxable, vat)) in own {
+            let key = (month.clone(), currency.code(), document.kind, category, rate_bps);
             let acc = groups.entry(key).or_insert_with(|| VatAcc {
                 month: month.clone(),
                 currency,
                 kind: document.kind,
-                category: typed,
+                category,
                 rate_bps,
                 ready: None,
                 awaiting: None,
@@ -626,7 +625,7 @@ struct StatedAcc {
 /// The totals printed on the documents, added within one month, currency and kind.
 #[allow(dead_code)]
 fn stated_totals(readings: &[Reading]) -> Result<Vec<StatedTotals>, RegisterError> {
-    let mut groups: BTreeMap<(String, &'static str, u8), StatedAcc> = BTreeMap::new();
+    let mut groups: BTreeMap<(String, &'static str, Kind), StatedAcc> = BTreeMap::new();
     for reading in readings {
         let document = &reading.document;
         let Some(ready) = side(document.status) else {
@@ -641,7 +640,7 @@ fn stated_totals(readings: &[Reading]) -> Result<Vec<StatedTotals>, RegisterErro
         if net.currency != vat.currency || vat.currency != gross.currency {
             continue;
         }
-        let key = (month.clone(), net.currency.code(), document.kind as u8);
+        let key = (month.clone(), net.currency.code(), document.kind);
         let acc = groups.entry(key).or_insert_with(|| StatedAcc {
             month: month.clone(),
             currency: net.currency,
@@ -696,7 +695,7 @@ struct ReconAcc {
 /// only one of the two is left out rather than counted as agreeing.
 #[allow(dead_code)]
 fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterError> {
-    let mut groups: BTreeMap<(String, &'static str, u8), ReconAcc> = BTreeMap::new();
+    let mut groups: BTreeMap<(String, &'static str, Kind), ReconAcc> = BTreeMap::new();
     for reading in readings {
         let document = &reading.document;
         if side(document.status).is_none() {
@@ -710,9 +709,12 @@ fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterE
         };
         let mut calculated: Option<Money> = None;
         for event in &reading.current {
-            let EventPayload::VatCalculated { vat, .. } = event.payload() else {
+            let EventPayload::VatCalculated { taxable, vat, .. } = event.payload() else {
                 continue;
             };
+            if taxable.currency != vat.currency {
+                continue;
+            }
             calculated = Some(match calculated {
                 None => *vat,
                 Some(total) => total.checked_add(*vat).map_err(|_| RegisterError::Overflow)?,
@@ -724,7 +726,7 @@ fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterE
         if calculated.currency != stated.currency {
             continue;
         }
-        let key = (month.clone(), stated.currency.code(), document.kind as u8);
+        let key = (month.clone(), stated.currency.code(), document.kind);
         let acc = groups.entry(key).or_insert_with(|| ReconAcc {
             month: month.clone(),
             currency: stated.currency,

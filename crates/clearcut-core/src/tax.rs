@@ -10,8 +10,10 @@
 use serde::{Deserialize, Serialize};
 
 /// South African VAT categories (VAT Act 89 of 1991). Rate is in basis points.
+// The variants are declared in the order they are grouped and reported in: Standard,
+// ZeroRated, Exempt, OutOfScope. `Ord` follows declaration order.
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaxCategory {
     /// Standard-rated, 15% under ZA VAT.
