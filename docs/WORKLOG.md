@@ -2,6 +2,19 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 75) — the site says who owns it, what it promises and what it does with a document
+**Done**
+- **A Trust page at `#/trust`, reachable signed out and signed in,** linked from the footer on every screen (including the demo). It states only what the repository can prove:
+  - **Owner and licence:** written and operated by Kone Tshivhinda, copyright 2026, Apache-2.0 with links to `LICENSE` and `NOTICE`.
+  - **What it promises and what it does not:** alpha with no uptime promise; provided as is under section 7 of the licence; not tax, legal or accounting advice; a model can misread a figure, so every reading cites its page and an uncertain one waits for a person.
+  - **Security:** report privately through GitHub Security Advisories, not a public issue; acknowledgement within 5 working days; only `main` supported.
+  - **Your documents:** stored on the operator's server with database-level separation between accounts; only the pages being read go to Anthropic under the account's own key, with no analytics, third-party scripts or CDN fonts; redaction of bank and identity numbers where the policy finds them; Anthropic retention per the research notes (none by default, 30 days for the covered top model, which is off here); deletion erases the file and everything read from it and keeps a content-free audit entry; the 365-day default retention; the key lives in page memory only; the operator is the responsible party, not the software.
+- **It says plainly that the formal terms and privacy notice are still drafts waiting on a South African attorney,** rather than presenting unreviewed text as the real thing. That matches `docs/privacy/README.md`.
+- **Layout fix found in the browser:** each row is `b` plus one `span`, because `license-list li` is a flex row and inline links were otherwise laid out as separate columns, breaking sentences around a link.
+- **Checked in Chrome** on a static server: the page renders light and dark tokens, all links are inline, the footer links it, there are no console errors, and the network panel shows three requests, all to the page's own origin.
+- **Tests:** a web test keeps the route ahead of the key check and pins the owner line, the licence, the warranty and advice lines, the security route, tenant separation, deletion, retention and the no-analytics line. LAUNCH and the privacy README record what the page covers and what still waits on a person.
+**Not done:** this is a factual page, not the reviewed privacy notice or terms; it does not decide the responsible party, name an Information Officer, or describe a breach procedure.
+
 ## 2026-10-30 (part 74) — a guard in front of the API, bytes that must match their type, and an alpha banner
 **Done**
 - **The limits now come before the key lookup.** `crates/clearcut-server/src/guard.rs` holds a per-address minute (300 requests) and a failed-credential budget (20 a minute) checked in `Authed::from_request_parts` before `authenticate`, so a flood of wrong keys costs a map lookup rather than a database query; at the budget the address waits 60 seconds and is answered 429 with `Retry-After`. The map is bounded at 65,536 addresses, oldest window dropped first, so a distributed flood cannot grow it without limit. Ten unit tests fix the exact boundary, the retry seconds (rounded up), the window rollover, independent addresses, the block and its expiry, and eviction.
