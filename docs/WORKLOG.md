@@ -2,6 +2,17 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 79) — a mixed page divides only the lines that bear VAT
+**Done**
+- **[ADR-0024](adr/0024-mixed-inclusive-pages.md) replaces ADR-0023's all-or-nothing rule.** On a page that says its amounts include VAT, each line is now treated by what it bears: a standard-rated line is divided at the profile's rate, while a zero-rated, exempt or out-of-scope line was charged no VAT, so its printed amount is already the net and it is read as printed with its own category. The refusal that made a common grocery slip unread is gone.
+- **A silent line is still only assumed standard when nothing on the page contradicts it.** `not_shown` becomes standard while no line names a non-standard category, which keeps the old all-standard-or-silent case. A page that mixes a silent line with an explicit zero-rated or exempt line is still refused with one `amounts_include_vat` problem and no lines, because the silent line may or may not have been charged VAT.
+- **The arithmetic is unchanged** for divided lines: per unit price, half away from zero, line total recomputed, printed line total ignored. A kept line is read the ordinary way, printed line total included, so the validator's quantity-times-price rule applies to both kinds on one page.
+- **The review copy is more precise.** The `amounts_include_vat` sentence now says the standard-rated lines were divided by 1.15, since "the amounts" is no longer true on a mixed page. The page still goes to a person and still reports the problem.
+- **Known limitation, recorded:** the text check is still page-level, so a kept zero-rated line's printed figures are not compared with the page text. Header figures and totals still are, and the page is reviewed. A per-line flag would need the extraction to remember which lines were divided, a larger shape question.
+- **Tests:** a mixed page divides its standard line and keeps its zero-rated one; zero-rated, exempt and out-of-scope lines each read as printed; a mixed slip reconciles its net against its own totals; a silent line beside an explicit zero-rated one is still refused; a refused page reports no line problems. Core 654, whole workspace green against local Postgres, clippy and fmt clean; no shape, prompt or contract change.
+- **Docs:** ADR-0024, a revision note on ADR-0023, the ADR index, ARCHITECTURE, CLAUDE.md and the LAUNCH universal-core row.
+**Not done:** per-line text checking of derived amounts; a silent line on a mixed page; a second jurisdiction and how a document chooses it.
+
 ## 2026-10-30 (part 78) — prices that include VAT are divided out, and still meet a person
 **Done**
 - **[ADR-0023](adr/0023-vat-inclusive-amounts.md) settles the rule ADR-0014 §6 left open.** A page that says its amounts include VAT is split only when every line is standard-rated or says nothing; a mixed page (any zero-rated, exempt or out-of-scope line) is refused with one problem and no lines, as before, because the page does not say which lines the VAT was charged on. The rate is the profile's standard rate, now carried into the reading through `ConversionContext.tax_profile`, so the converter no longer has its own 15%.

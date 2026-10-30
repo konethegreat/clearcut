@@ -1,7 +1,7 @@
 # ADR-0023: Backing VAT out of amounts printed inclusive
 
 Status: **Accepted** (Kone asked for VAT-inclusive amounts to be backed out, 2026-10-30) · Date: 2026-10-30 · Deciders: Kone Tshivhinda, Claude
-Closes the open item in [ADR-0014](0014-context-pack-builder.md) §6. Builds on [ADR-0002](0002-money-representation.md) (integer money, half away from zero), [ADR-0013](0013-model-facing-reading-shape.md) (the model writes amounts as printed), [ADR-0018](0018-model-router-and-escalation.md) (a person decides what no model can) and [ADR-0022](0022-carried-balances-across-pages.md) (the same shape-version discipline).
+Closes the open item in [ADR-0014](0014-context-pack-builder.md) §6. Builds on [ADR-0002](0002-money-representation.md) (integer money, half away from zero), [ADR-0013](0013-model-facing-reading-shape.md) (the model writes amounts as printed), [ADR-0018](0018-model-router-and-escalation.md) (a person decides what no model can) and [ADR-0022](0022-carried-balances-across-pages.md) (the same shape-version discipline). **Revised:** [ADR-0024](0024-mixed-inclusive-pages.md) replaces rule 1: a mixed page now divides its standard-rated lines and keeps the zero-rated, exempt and out-of-scope lines as printed. Rules 2 to 8 stand.
 
 ## Context
 
