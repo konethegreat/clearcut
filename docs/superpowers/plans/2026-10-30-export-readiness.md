@@ -225,17 +225,35 @@ fn a_credit_note_is_not_an_invoice() {
 
 #[test]
 fn mixed_currencies_leave_the_currency_blank() {
-    let events = vec![event(
-        "doc",
-        "totals",
-        Some(d!(2026 - 09 - 07)),
-        EventPayload::TotalsStated {
-            net: zar(100_000),
-            vat: zar(15_000),
-            gross: Money::new(115_000, crate::Currency::Usd),
-        },
-        None,
-    )];
+    // An event may not hold two currencies, so the disagreement is between two lines.
+    let events = vec![
+        event(
+            "doc",
+            "line-1",
+            Some(d!(2026 - 09 - 07)),
+            EventPayload::LineItemBilled {
+                description: "Consulting".into(),
+                quantity_milli: 1_000,
+                unit_price: zar(100_000),
+                line_total: zar(100_000),
+                tax_category: TaxCategory::Standard,
+            },
+            None,
+        ),
+        event(
+            "doc",
+            "line-2",
+            Some(d!(2026 - 09 - 07)),
+            EventPayload::LineItemBilled {
+                description: "Travel".into(),
+                quantity_milli: 1_000,
+                unit_price: Money::new(15_000, crate::Currency::Usd),
+                line_total: Money::new(15_000, crate::Currency::Usd),
+                tax_category: TaxCategory::Standard,
+            },
+            None,
+        ),
+    ];
     let reading = read(&facts("doc", DocumentStatus::Done, events));
     assert_eq!(reading.document.currency, None);
     assert!(reading.document.flags.contains(&"mixed_currency".to_string()));
@@ -716,7 +734,7 @@ mod tests;
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p clearcut-core register`
-Expected: PASS, 6 tests.
+Expected: PASS, 7 tests. The task review adds two more (currency across totals and lines; readers and reasons de-duplicated), so Task 2 starts from 9.
 
 - [ ] **Step 5: Commit**
 
@@ -920,6 +938,7 @@ fn a_document_without_a_date_is_left_out_of_the_sums() {
 
 #[test]
 fn a_mixed_currency_document_is_left_out_of_the_sums() {
+    // An event may not hold two currencies, so the disagreement is between two lines.
     let on = Some(d!(2026 - 09 - 18));
     let source = facts(
         "mixed",
@@ -928,21 +947,35 @@ fn a_mixed_currency_document_is_left_out_of_the_sums() {
             numbered("mixed", on, "INV-4"),
             event(
                 "mixed",
-                "totals",
+                "l1",
                 on,
-                EventPayload::TotalsStated {
-                    net: zar(100_000),
-                    vat: zar(15_000),
-                    gross: Money::new(115_000, crate::Currency::Usd),
+                EventPayload::LineItemBilled {
+                    description: "Consulting".into(),
+                    quantity_milli: 1_000,
+                    unit_price: zar(100_000),
+                    line_total: zar(100_000),
+                    tax_category: TaxCategory::Standard,
                 },
                 None,
             ),
-            vat_on("mixed", "vat", on, TaxCategory::Standard, 100_000, 15_000),
+            event(
+                "mixed",
+                "l2",
+                on,
+                EventPayload::LineItemBilled {
+                    description: "Travel".into(),
+                    quantity_milli: 1_000,
+                    unit_price: Money::new(15_000, crate::Currency::Usd),
+                    line_total: Money::new(15_000, crate::Currency::Usd),
+                    tax_category: TaxCategory::Standard,
+                },
+                None,
+            ),
         ],
     );
-    assert!(vat_by_category(&[read(&source)]).unwrap().is_empty());
-    assert!(stated_totals(&[read(&source)]).unwrap().is_empty());
-    assert!(reconciliation(&[read(&source)]).unwrap().is_empty());
+    let reading = read(&source);
+    assert_eq!(reading.document.currency, None);
+    assert!(vat_by_category(&[reading]).unwrap().is_empty());
 }
 
 #[test]
@@ -1035,6 +1068,8 @@ use std::collections::BTreeMap;
 ```
 
 Then insert the following above `#[cfg(test)] mod tests;`:
+
+Also remove the three `#[allow(dead_code)]` lines that Task 1 put on `Reading`, `same_currency` and `read`; this step uses them, and clippy runs with `-D warnings`.
 
 ```rust
 // ---------------------------------------------------------------- line rows ----
@@ -1395,7 +1430,7 @@ fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterE
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p clearcut-core register`
-Expected: PASS, 15 tests (6 from Task 1, 9 here).
+Expected: PASS, 17 tests (9 from Task 1, 8 here).
 
 - [ ] **Step 5: Commit**
 
@@ -1814,7 +1849,7 @@ pub fn build(input: RegisterInput) -> Result<Register, RegisterError> {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p clearcut-core register`
-Expected: PASS, 22 tests.
+Expected: PASS, 26 tests (17 from Task 2, 9 here).
 
 - [ ] **Step 5: Commit**
 
