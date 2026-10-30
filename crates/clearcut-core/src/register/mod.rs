@@ -754,8 +754,8 @@ fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterE
 
 // ---------------------------------------------------------------- the build ----
 
-/// What the store hands in: a selection, whether to keep only ready documents, how many dated
-/// documents in the tenant have no date worth putting in a month, and the documents themselves.
+/// What the store hands in: a selection, whether to keep only ready documents, how many
+/// documents in the tenant have no invoice date, and the documents themselves.
 #[derive(Debug, Clone)]
 pub struct RegisterInput {
     pub selection: Selection,
@@ -851,6 +851,15 @@ fn to_check(readings: &[Reading]) -> Vec<ToCheckRow> {
                 Some(page.page),
             ));
         }
+        // A document awaiting review with no page reason still needs a person, so it says so.
+        if document.status == DocumentStatus::NeedsReview && own.is_empty() {
+            own.push(check(
+                document,
+                "needs_review",
+                "This document needs a person to check it.".to_string(),
+                None,
+            ));
+        }
         own.sort_by(|a, b| a.page.cmp(&b.page).then_with(|| a.reason.cmp(&b.reason)));
         out.append(&mut own);
     }
@@ -884,20 +893,6 @@ pub fn build(input: RegisterInput) -> Result<Register, RegisterError> {
     if facts.len() > MAX_DOCUMENTS {
         return Err(RegisterError::TooManyDocuments);
     }
-    let total_lines = facts
-        .iter()
-        .try_fold(0usize, |total, facts| {
-            let own = facts
-                .events
-                .iter()
-                .filter(|event| matches!(event.payload(), EventPayload::LineItemBilled { .. }))
-                .count();
-            total.checked_add(own)
-        })
-        .ok_or(RegisterError::TooManyLines)?;
-    if total_lines > MAX_LINES {
-        return Err(RegisterError::TooManyLines);
-    }
 
     let mut readings: Vec<Reading> = facts.iter().map(read).collect();
     if let Selection::Period { from, to } = &selection {
@@ -928,7 +923,22 @@ pub fn build(input: RegisterInput) -> Result<Register, RegisterError> {
 
     let mut included = readings;
     if only_ready {
-        included.retain(|reading| reading.document.status == DocumentStatus::Done);
+        included.retain(|reading| reading.document.status != DocumentStatus::NeedsReview);
+    }
+
+    let total_lines = included
+        .iter()
+        .try_fold(0usize, |total, reading| {
+            let own = reading
+                .current
+                .iter()
+                .filter(|event| matches!(event.payload(), EventPayload::LineItemBilled { .. }))
+                .count();
+            total.checked_add(own)
+        })
+        .ok_or(RegisterError::TooManyLines)?;
+    if total_lines > MAX_LINES {
+        return Err(RegisterError::TooManyLines);
     }
 
     let rows: Vec<RegisterDocument> = included.iter().map(|reading| reading.document.clone()).collect();

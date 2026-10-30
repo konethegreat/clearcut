@@ -824,3 +824,101 @@ fn more_lines_than_the_limit_is_refused() {
         RegisterError::TooManyLines
     );
 }
+
+#[test]
+fn only_ready_keeps_a_still_reading_document_as_a_row() {
+    // Spec section 5: a document still being read is a register row with its status and no
+    // figures. `only_ready` leaves out the documents awaiting review, not the still-reading ones.
+    let on = Some(d!(2026 - 09 - 24));
+    let reading = facts(
+        "reading",
+        DocumentStatus::Processing,
+        vec![
+            numbered("reading", on, "INV-6"),
+            line_on("reading", "l1", 1, "Consulting", 1_000, 100_000),
+        ],
+    );
+    let done = facts(
+        "done",
+        DocumentStatus::Done,
+        vec![
+            numbered("done", on, "INV-7"),
+            line_on("done", "l1", 1, "Travel", 1_000, 50_000),
+        ],
+    );
+    let awaiting = facts(
+        "awaiting",
+        DocumentStatus::NeedsReview,
+        vec![numbered("awaiting", on, "INV-8")],
+    );
+    let register = build(RegisterInput {
+        selection: Selection::Period {
+            from: d!(2026 - 09 - 01),
+            to: d!(2026 - 09 - 30),
+        },
+        only_ready: true,
+        undated_in_tenant: 0,
+        facts: vec![reading, done, awaiting],
+    })
+    .unwrap();
+    let ids: Vec<&str> = register.rows.iter().map(|row| row.id.as_str()).collect();
+    assert_eq!(ids, vec!["reading", "done"]);
+    assert_eq!(register.rows[0].status, DocumentStatus::Processing);
+    assert_eq!(register.manifest.documents, 3);
+    assert_eq!(register.manifest.still_reading, 1);
+    assert_eq!(register.manifest.awaiting_left_out, 1);
+    assert!(register
+        .to_check
+        .iter()
+        .any(|row| row.document_id == "reading" && row.reason == "still_reading"));
+    // The still-reading document holds one line but adds no line rows.
+    let line_documents: Vec<&str> = register
+        .lines
+        .iter()
+        .map(|line| line.document_id.as_str())
+        .collect();
+    assert_eq!(line_documents, vec!["done"]);
+    assert_eq!(register.manifest.lines, 1);
+}
+
+#[test]
+fn superseded_line_history_does_not_count_towards_the_limit() {
+    // Spec section 8 limits the line rows in the register, so a document whose history holds
+    // many superseded line events but only one current line is not over the limit.
+    let mut events: Vec<Event> = Vec::new();
+    for n in 0..=MAX_LINES {
+        let earlier = events.last().cloned();
+        events.push(event(
+            "big",
+            &format!("l{n}"),
+            Some(d!(2026 - 09 - 10)),
+            EventPayload::LineItemBilled {
+                description: "Item".into(),
+                quantity_milli: 1_000,
+                unit_price: zar(100),
+                line_total: zar(100),
+                tax_category: TaxCategory::Standard,
+            },
+            earlier.as_ref(),
+        ));
+    }
+    let register = build(request(vec![facts("big", DocumentStatus::Done, events)])).unwrap();
+    assert_eq!(register.lines.len(), 1);
+    assert_eq!(register.manifest.lines, 1);
+}
+
+#[test]
+fn a_review_document_with_no_page_reason_is_listed() {
+    let source = facts(
+        "review",
+        DocumentStatus::NeedsReview,
+        vec![numbered("review", Some(d!(2026 - 09 - 25)), "INV-9")],
+    );
+    let register = build(request(vec![source])).unwrap();
+    assert_eq!(register.to_check.len(), 1);
+    let row = &register.to_check[0];
+    assert_eq!(row.document_id, "review");
+    assert_eq!(row.reason, "needs_review");
+    assert_eq!(row.sentence, "This document needs a person to check it.");
+    assert_eq!(row.page, None);
+}
