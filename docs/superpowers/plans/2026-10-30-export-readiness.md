@@ -1069,7 +1069,7 @@ use std::collections::BTreeMap;
 
 Then insert the following above `#[cfg(test)] mod tests;`:
 
-Also remove the three `#[allow(dead_code)]` lines that Task 1 put on `Reading`, `same_currency` and `read`; this step uses them, and clippy runs with `-D warnings`.
+Also remove the `#[allow(dead_code)]` from `same_currency`, which this step uses. The four builders added here (and `read` plus `Reading.pages`, which only `build` will use) are not yet called outside the tests, so leave their transitional allows in place under `-D warnings`; Task 3 deletes them.
 
 ```rust
 // ---------------------------------------------------------------- line rows ----
@@ -1615,6 +1615,8 @@ Expected: FAIL, `cannot find type RegisterInput` and `cannot find function build
 - [ ] **Step 3: Write the builder**
 
 Insert the following above `#[cfg(test)] mod tests;` in `crates/clearcut-core/src/register/mod.rs`:
+
+Delete every remaining `#[allow(dead_code)]` in the module (`lines`, `vat_by_category`, `stated_totals`, `reconciliation`, `read`, and the `pages` field of `Reading`); `build` and the To check rows use them all, and clippy runs with `-D warnings`.
 
 ```rust
 // ---------------------------------------------------------------- the build ----
