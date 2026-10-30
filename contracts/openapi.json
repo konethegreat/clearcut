@@ -394,7 +394,7 @@
         "oneOf": [
           {
             "const": "standard",
-            "description": "Standard-rated, 15%.",
+            "description": "Standard-rated, 15% under ZA VAT.",
             "type": "string"
           },
           {

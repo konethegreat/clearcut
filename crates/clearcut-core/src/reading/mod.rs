@@ -25,7 +25,7 @@
 use crate::decimal::{parse_money, parse_quantity_milli};
 use crate::event::{Confidence, DocumentId, Extractor};
 use crate::extraction::{CarriedTotals, CreditNoteRef, DueTerms, ExtractedLine, Extraction, Party, Sourced};
-use crate::tax::ZA_STANDARD_VAT_BPS;
+use crate::tax::ZA_VAT;
 use crate::{Currency, InvoiceTotals, TaxCategory};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -450,7 +450,7 @@ impl Converter {
         for line in raw {
             sum = sum.checked_add(money(&line.line_total)?).ok()?;
         }
-        let standard = net.percent_bps(ZA_STANDARD_VAT_BPS).ok()?;
+        let standard = net.percent_bps(ZA_VAT.rate_bps(TaxCategory::Standard)).ok()?;
         let agrees = vat.minor != 0 && sum == net && vat == standard && net.checked_add(vat).ok()? == gross;
         agrees.then_some(TaxCategory::Standard)
     }

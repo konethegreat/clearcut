@@ -2,6 +2,15 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 77) — the ZA rate becomes one named profile, with the same answers
+**Done**
+- **`TaxProfile` is where a jurisdiction's standard rate lives.** `crates/clearcut-core/src/tax.rs` now has `TaxProfile { jurisdiction, standard_rate_bps }`, a single `ZA_VAT` (15%, 1 500 bps), `profile.rate_bps(category)` and `TaxCategory::rate_bps_in(profile)`. Zero-rated, exempt and out-of-scope supplies are 0 under every profile; that rule stays in the profile rather than in each caller.
+- **`Invoice::totals()` now delegates to a new `Invoice::totals_with(profile)`** and passes `ZA_VAT`, so every existing caller gets the same numbers by the same per-category subtotal rule. The extraction derivation and the reading converter also take their rate from `ZA_VAT` instead of a loose 15%, so a second profile has one seam to thread through rather than four places to find.
+- **Tests:** the profile prices the standard category and zeroes the rest; a made-up `XX` profile at 2 000 bps prices the standard category at 20%; and an invoice test proves the same invoice yields R2 250 VAT under `totals()` and R3 000 under `totals_with(XX)` with an unchanged net. Core suite 644 passing, the server's 122 library tests and the rest of the workspace green, clippy and fmt clean against local Postgres.
+- **Contract:** the generated `TaxCategory::Standard` description changed to "Standard-rated, 15% under ZA VAT.", so `contracts/openapi.json` was regenerated with the documented command and travels with this change.
+- **Docs:** LAUNCH's universal-core row now says what the seam does and what it does not (one profile, no per-document choice, readings still assume ZA, VAT-inclusive prices still refused).
+**Not done:** this changes no behaviour and so was not deployed. There is still one jurisdiction, nothing selects a profile when a document is read, and VAT-inclusive pricing still needs its own reading-shape and review decision before code.
+
 ## 2026-10-30 (part 76) — a clean public record, and the small things a scanner would notice
 **Checked**
 - **Reputation on the live host:** Google Safe Browsing reports nothing unsafe (`"sb.ssr",1`), URLScan has no scans of the host, AlienVault OTX has no pulses, and the certificate is a valid Let's Encrypt one for `145-241-100-85.sslip.io` (valid to 27 January 2027). URLhaus now requires an API key and was not used.

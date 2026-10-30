@@ -35,4 +35,4 @@ pub use error::{Error, Result};
 pub use invoice::{Invoice, InvoiceTotals, LineItem};
 pub use money::{Currency, Money};
 pub use status::InvoiceStatus;
-pub use tax::TaxCategory;
+pub use tax::{TaxCategory, TaxProfile, ZA_VAT};
