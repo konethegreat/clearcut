@@ -73,6 +73,15 @@ impl Money {
         Ok(Money::new(div_round_half_away(wide, 10_000)?, self.currency))
     }
 
+    /// The amount exclusive of a rate already included in it (1500 = the price includes
+    /// 15.00%), rounding half away from zero. R1.15 at 15% becomes R1.00. This is the
+    /// inverse of [`Money::percent_bps`] only where the division is exact.
+    pub fn excluding_bps(self, bps: u32) -> Result<Money> {
+        let wide = (self.minor as i128) * 10_000;
+        let denominator = 10_000 + bps as i128;
+        Ok(Money::new(div_round_half_away(wide, denominator)?, self.currency))
+    }
+
     fn same_currency(self, rhs: Money) -> Result<()> {
         if self.currency != rhs.currency {
             return Err(Error::CurrencyMismatch {
@@ -126,6 +135,18 @@ mod tests {
     fn fractional_quantity() {
         // 2.5 x R10.01 = R25.025 -> R25.03
         assert_eq!(Money::zar(1001).mul_milli(2500).unwrap(), Money::zar(2503));
+    }
+
+    #[test]
+    fn a_vat_inclusive_amount_is_worked_back_to_its_net() {
+        // R1.15 at 15% is R1.00 exactly.
+        assert_eq!(Money::zar(115).excluding_bps(1500).unwrap(), Money::zar(100));
+        // R29.98 at 15% is R26.069... -> R26.07.
+        assert_eq!(Money::zar(2998).excluding_bps(1500).unwrap(), Money::zar(2607));
+        // R0.10 at 15% is R0.0869... -> R0.09, and the VAT comes back as R0.01.
+        assert_eq!(Money::zar(10).excluding_bps(1500).unwrap(), Money::zar(9));
+        // Negative amounts round away from zero too.
+        assert_eq!(Money::zar(-115).excluding_bps(1500).unwrap(), Money::zar(-100));
     }
 
     #[test]

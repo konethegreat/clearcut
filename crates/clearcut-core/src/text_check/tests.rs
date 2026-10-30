@@ -16,7 +16,7 @@ const PAGE: &str = "TAX INVOICE\n\
     Total R18 250.00\n";
 
 fn check(extraction: &Extraction, text: &str, trust: TextTrust) -> TextCheckReport {
-    check_against_text(extraction, text, trust)
+    check_against_text(extraction, text, trust, false)
 }
 
 fn trusted(extraction: &Extraction, text: &str) -> TextCheckReport {
@@ -196,6 +196,34 @@ fn the_same_missing_amount_in_two_places_counts_twice() {
     let report = trusted(&e, "nothing");
     assert_eq!(report.unconfirmed, ["lines/1/unit_price", "lines/1/line_total"]);
     assert_eq!(report.result, TextCheck::Failed { missing: 2 });
+}
+
+#[test]
+fn line_amounts_divided_out_are_not_called_invented() {
+    let e = clean();
+    // The page prints its headers and totals but not the lines: exactly what a VAT-inclusive
+    // page looks like after the amounts were split (ADR-0023).
+    let without_lines = "Invoice No: INV-000001\n\
+        Acme (Pty) Ltd   VAT No 4123 456 789\n\
+        Subtotal R16 000.00\nVAT 15% R2 250.00\nTotal R18 250.00\n";
+    let derived = check_against_text(&e, without_lines, TextTrust::Trusted, true);
+    assert_eq!(derived.result, TextCheck::Passed);
+    assert_eq!(
+        derived.checked, 5,
+        "the invoice number, VAT number and three totals"
+    );
+
+    let printed = check_against_text(&e, without_lines, TextTrust::Trusted, false);
+    assert_eq!(printed.result, TextCheck::Failed { missing: 4 });
+    assert_eq!(
+        printed.unconfirmed,
+        [
+            "lines/1/unit_price",
+            "lines/1/line_total",
+            "lines/2/unit_price",
+            "lines/2/line_total",
+        ]
+    );
 }
 
 #[test]

@@ -49,7 +49,9 @@ use clearcut_core::event::{Confidence, DocumentId, Extractor};
 use clearcut_core::extraction::{validate, Extraction, Finding};
 use clearcut_core::jobs::FailureKind;
 use clearcut_core::page_read::{PageTextSource, ReadRoute};
-use clearcut_core::reading::{ConversionContext, ConversionError, PageReading, ProblemKind, ReadingProblem};
+use clearcut_core::reading::{
+    ConversionContext, ConversionError, PageReading, ProblemKind, ReadVatBasis, ReadingProblem,
+};
 use clearcut_core::redact;
 use clearcut_core::text_check::{check_against_text, TextCheckReport, TextTrust};
 use clearcut_core::Currency;
@@ -415,11 +417,17 @@ fn evaluate(
         },
         confidence: Confidence::new(confidence.per_mille()).map_err(|_| Unevaluable)?,
         currency_known: task.currency_known,
+        tax_profile: clearcut_core::ZA_VAT,
     };
     let conversion = reading.into_extraction(&context)?;
     let findings = validate(&conversion.extraction).findings;
     let report = match &material.text {
-        Some(text) => check_against_text(&conversion.extraction, &text.content, material.trust),
+        Some(text) => check_against_text(
+            &conversion.extraction,
+            &text.content,
+            material.trust,
+            reading.amounts_include_vat == ReadVatBasis::Yes,
+        ),
         None => TextCheckReport {
             result: TextCheck::NotAvailable,
             checked: 0,

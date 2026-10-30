@@ -85,8 +85,10 @@ fn digits_of(text: &str) -> String {
     text.chars().filter(char::is_ascii_digit).collect()
 }
 
-/// Every figure of the extraction that can be looked for, with its place.
-fn wanted(extraction: &Extraction) -> Vec<(String, Wanted)> {
+/// Every figure of the extraction that can be looked for, with its place. `line_amounts_derived`
+/// leaves out the two amounts on each line, for a page whose amounts included VAT and were split
+/// at a rate: those figures are not printed and could never match (ADR-0023).
+fn wanted(extraction: &Extraction, line_amounts_derived: bool) -> Vec<(String, Wanted)> {
     let mut out = Vec::new();
     if let Some(number) = &extraction.invoice_number {
         let normalised = alnum_of(&number.value);
@@ -109,10 +111,12 @@ fn wanted(extraction: &Extraction) -> Vec<(String, Wanted)> {
             out.push((path, Wanted::Amount(cents)));
         }
     };
-    for (index, line) in extraction.lines.iter().enumerate() {
-        let n = index + 1;
-        amount(format!("lines/{n}/unit_price"), line.value.unit_price);
-        amount(format!("lines/{n}/line_total"), line.value.line_total);
+    if !line_amounts_derived {
+        for (index, line) in extraction.lines.iter().enumerate() {
+            let n = index + 1;
+            amount(format!("lines/{n}/unit_price"), line.value.unit_price);
+            amount(format!("lines/{n}/line_total"), line.value.line_total);
+        }
     }
     if let Some(totals) = &extraction.stated_totals {
         amount("totals/net".to_string(), totals.value.net);
@@ -134,7 +138,12 @@ fn wanted(extraction: &Extraction) -> Vec<(String, Wanted)> {
 }
 
 /// Looks for what the model read in the page's own text.
-pub fn check_against_text(extraction: &Extraction, text: &str, trust: TextTrust) -> TextCheckReport {
+pub fn check_against_text(
+    extraction: &Extraction,
+    text: &str,
+    trust: TextTrust,
+    line_amounts_derived: bool,
+) -> TextCheckReport {
     if text.trim().is_empty() {
         return TextCheckReport {
             result: TextCheck::NotAvailable,
@@ -142,7 +151,7 @@ pub fn check_against_text(extraction: &Extraction, text: &str, trust: TextTrust)
             unconfirmed: Vec::new(),
         };
     }
-    let wanted = wanted(extraction);
+    let wanted = wanted(extraction, line_amounts_derived);
     let checked = u32::try_from(wanted.len()).unwrap_or(u32::MAX);
     // Only worked out if something needs it.
     let amounts = wanted

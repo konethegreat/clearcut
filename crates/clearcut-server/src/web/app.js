@@ -982,7 +982,7 @@ const REASONS = {
   cannot_be_sent_safely: "The page could not be sent to the model safely, so nothing was sent.",
   request_rejected: "The model service rejected the request. This is a fault in ClearCut.",
   no_rung_available: "Your key can use none of the models ClearCut tries.",
-  amounts_include_vat: "The amounts on this page include VAT, which ClearCut does not back out yet. Enter the amounts without VAT, and answer \"No\" to \"Prices include VAT\".",
+  amounts_include_vat: "The amounts on this page include VAT. ClearCut divided them by 1.15 to show them without VAT, so check a line or two against the original.",
 };
 
 const KINDS = {
@@ -995,7 +995,7 @@ const KINDS = {
   missing_required: "is missing",
   tax_not_shown: "is not shown on the page",
   incomplete: "is only partly filled in",
-  amounts_include_vat: "includes VAT",
+  amounts_include_vat: "includes VAT, which was divided out",
   not_on_page: "was not found on the page",
 };
 
