@@ -2328,6 +2328,12 @@ git add crates/clearcut-store/migrations/0012_event_date.sql crates/clearcut-sto
 git commit -m "feat(store): select the documents and pages a register is made from"
 ```
 
+Review corrections already applied on this branch (keep the contract when Task 7 calls this):
+
+- `undated_in_tenant` counts every document in the tenant with no current dated event, including a document that has no events at all, so nothing disappears silently (spec section 4). Tests cover an eventless document and a foreign tenant's undated document.
+- The named-selection test includes a valid-but-missing UUID and proves it is omitted silently.
+- `0012_event_date.sql` carries a comment that the generated column and index rewrite `events` once under an exclusive lock, applied at deploy with the server stopped. The SQL statements are unchanged; the migration debuts in this PR, so the comment does not alter any applied checksum.
+
 ---
 
 ### Task 5: The register in JSON, HTML, Markdown and plain text

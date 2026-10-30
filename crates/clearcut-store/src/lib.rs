@@ -31,6 +31,7 @@ pub mod keys;
 pub mod model_calls;
 pub mod page_readings;
 pub mod page_reads;
+pub mod register;
 pub mod tenant_keys;
 use sqlx::postgres::PgPool;
 use std::num::NonZeroU32;
@@ -51,6 +52,9 @@ pub enum Error {
     /// The document does not exist, or belongs to another tenant.
     #[error("document not found")]
     DocumentNotFound,
+    /// A selection named something that is not a document id.
+    #[error("not a document id: {0}")]
+    InvalidSelectionId(String),
     /// An event with this ID is already stored with different content.
     #[error("event {0} already exists with different content")]
     EventIdConflict(String),
