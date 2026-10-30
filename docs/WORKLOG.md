@@ -9,6 +9,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **The prompt version moves, deliberately.** `PROMPT_VERSION` becomes `prompt-v3` and `prompt_version()` records `reading-v3/prompt-v3`; the manifest and call log carry it, so a call under the old prompt stays distinguishable. Gold-set scores taken under `prompt-v2` are not comparable with scores under `prompt-v3`.
 - **Tests:** the pack suite now proves four examples, their inputs are clean, the first and last convert with no arithmetic findings, the second is still the inclusive division case, and the third is the new mixed slip. Pack 66 tests, whole workspace green against local Postgres, clippy and fmt clean.
 - **Docs:** ADR-0024 gains a followed-up note and its rule 6 now records that the prompt version moves for the example alone; ARCHITECTURE and CLAUDE.md carry the new pack count.
+- **Shipped and deployed.** Squash-merged as #120 (`a569beb`); the VM pulled it, rebuilt the server image, and `/health`, `/` and `/v1/whoami` answered as expected. New model calls now record `reading-v3/prompt-v3`.
 **Not done:** no gold-set re-run under `prompt-v3` (the synthetic sample set has no mixed inclusive case); the example shows one currency and one jurisdiction.
 
 ## 2026-10-30 (part 79) — a mixed page divides only the lines that bear VAT
