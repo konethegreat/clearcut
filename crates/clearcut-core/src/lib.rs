@@ -24,6 +24,7 @@ pub mod narration;
 pub mod page_read;
 pub mod reading;
 pub mod redact;
+pub mod register;
 pub mod review;
 pub mod status;
 pub mod tax;
