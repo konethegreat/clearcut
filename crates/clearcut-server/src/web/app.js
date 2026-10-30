@@ -12,6 +12,8 @@ const signoutButton = document.getElementById("signout");
 const settingsLink = document.getElementById("settings-link");
 const aboutLink = document.getElementById("about-link");
 const footerLinks = document.getElementById("footer-links");
+const exitDemoButton = document.getElementById("exit-demo");
+const demoLink = document.getElementById("demo-link");
 
 function setSignedIn(signedIn) {
   signoutButton.hidden = !signedIn;
@@ -230,6 +232,7 @@ function home(message) {
         h("h1", {}, "Invoices in. ", h("em", {}, "Clear answers out.")),
         h("p", { class: "lede" }, "ClearCut reads a supplier invoice, checks every figure against the page it came from, and turns it into a record you can review, export and trust."),
         h("div", { class: "ctas" },
+          h("a", { class: "button cta-glow", href: "#/demo" }, "Try the live demo"),
           h("a", { class: "button secondary", href: "#how" }, "See how it works"),
           h("a", { href: REPO, rel: "noreferrer" }, "Read the source")),
         h("p", { class: "cta-note shine" }, "Open source, Apache-2.0, and small enough to read.")),
@@ -268,6 +271,363 @@ signoutButton.addEventListener("click", () => {
   location.hash = "#/";
   home("");
 });
+
+exitDemoButton.addEventListener("click", () => {
+  location.hash = "#/";
+});
+
+// ---------------------------------------------------------------- 1b. the demo ----
+// Prepared from two synthetic samples in the repository (crates/clearcut-eval/sample:
+// g-0003 and g-0005). Nothing here calls the API, holds a key or names a tenant: the demo
+// is data in this file and state in this page, so it cannot see or touch an account.
+
+const DEMO_NOTE = "Sample invoices. Nothing here is saved.";
+
+const DEMO_SAMPLES = [
+  {
+    id: "tp-4410",
+    file: "tafelberg-tp-4410.pdf",
+    supplier: "Tafelberg Print Works CC",
+    supplierVat: "4999900102",
+    number: "TP-4410",
+    dateText: "3 March 2026",
+    pages: 3,
+    status: "done",
+    note: "Nine standard-rated lines over three pages, read and checked to the cent.",
+    lines: [
+      { page: 1, description: "Business cards, box of 500", quantity: 10, unit: 18500, total: 185000, tax: "standard" },
+      { page: 1, description: "Flyers A5, 1000", quantity: 4, unit: 42000, total: 168000, tax: "standard" },
+      { page: 1, description: "Brochures tri-fold", quantity: 5, unit: 65000, total: 325000, tax: "standard" },
+      { page: 1, description: "Posters A2", quantity: 12, unit: 9500, total: 114000, tax: "standard" },
+      { page: 2, description: "Banners 2m", quantity: 3, unit: 78000, total: 234000, tax: "standard" },
+      { page: 2, description: "Stickers, roll", quantity: 8, unit: 14000, total: 112000, tax: "standard" },
+      { page: 2, description: "Letterheads, ream", quantity: 6, unit: 31000, total: 186000, tax: "standard" },
+      { page: 2, description: "Envelopes DL, box", quantity: 9, unit: 12000, total: 108000, tax: "standard" },
+      { page: 3, description: "Design setup fee", quantity: 1, unit: 150000, total: 150000, tax: "standard" },
+    ],
+    net: 1582000,
+    vat: 237300,
+    gross: 1819300,
+    checks: [
+      ["Every line", "Passed", "Each line is quantity times unit price to the cent, over pages 1 to 3."],
+      ["VAT at 15%", "Passed", "R 2 373.00 on R 15 820.00 of standard-rated lines."],
+      ["Net plus VAT", "Passed", "R 15 820.00 plus R 2 373.00 is R 18 193.00, as printed."],
+      ["SA tax-invoice fields", "Passed", "Supplier and recipient VAT numbers, invoice number and date are present."],
+    ],
+    report: [
+      ["What this is", "Tafelberg Print Works CC invoiced Sample Client (Pty) Ltd R 18 193.00 on 3 March 2026, invoice TP-4410."],
+      ["What was read", "Nine standard-rated lines over three pages. The largest line is brochures at R 3 250.00."],
+      ["What was checked", "Every line total, VAT at 15%, net plus VAT and the SA tax-invoice fields agree exactly with the page."],
+    ],
+  },
+  {
+    id: "bst-221",
+    file: "bergsig-bst-221.pdf",
+    supplier: "Bergsig Schools Trust",
+    supplierVat: "4999900104",
+    number: "BST-221",
+    dateText: "2 April 2026",
+    dueText: "16 April 2026",
+    pages: 1,
+    status: "needs_review",
+    note: "One exempt line, and a total the reader got wrong by one rand.",
+    lines: [
+      { page: 1, description: "Tuition fees, term 2", quantity: 1, unit: 1250000, total: 1250000, tax: "exempt" },
+    ],
+    net: 1250000,
+    vat: 0,
+    gross: 1250000,
+    grossRead: 1250100,
+    grossPrinted: 1250000,
+    checks: [
+      ["Line total", "Passed", "One line: tuition for one term at R 12 500.00."],
+      ["VAT", "Passed", "Tuition is exempt, so no VAT is charged."],
+      ["Net plus VAT", "Differs", "R 12 500.00 plus R 0.00 is R 12 500.00, but the reading says R 12 501.00."],
+      ["Figure on the page", "Differs", "R 12 501.00 is not a figure the page prints."],
+    ],
+    confirmedChecks: [
+      ["Line total", "Passed", "One line: tuition for one term at R 12 500.00."],
+      ["VAT", "Passed", "Tuition is exempt, so no VAT is charged."],
+      ["Net plus VAT", "Passed", "R 12 500.00 plus R 0.00 is R 12 500.00."],
+      ["Figure on the page", "Passed", "R 12 500.00 appears on page 1."],
+    ],
+    report: [
+      ["What this is", "Bergsig Schools Trust invoiced Sample Client (Pty) Ltd for tuition, invoice BST-221, dated 2 April 2026."],
+      ["What was read", "One exempt line: tuition for the second term, R 12 500.00."],
+      ["Why it waits", "The reading gives the total as R 12 501.00. Net plus VAT is R 12 500.00, and the page prints R 12 500.00, so the figures do not agree."],
+    ],
+    reportConfirmed: [
+      ["What this is", "Bergsig Schools Trust invoiced Sample Client (Pty) Ltd for tuition, invoice BST-221, dated 2 April 2026."],
+      ["What was read", "One exempt line: tuition for the second term, R 12 500.00."],
+      ["What was checked", "With the printed total of R 12 500.00, net plus VAT agrees exactly and the page's figure is the one recorded."],
+    ],
+  },
+];
+
+function demoSample(id) {
+  return DEMO_SAMPLES.find((sample) => sample.id === id) || null;
+}
+
+function demoMoney(minor) {
+  const sign = minor < 0 ? "-" : "";
+  const abs = Math.abs(minor);
+  const whole = String(Math.floor(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return sign + "R " + whole + "." + String(abs % 100).padStart(2, "0");
+}
+
+function demoStrip(sample, onRestart) {
+  return h("div", { class: "demo-strip" },
+    h("span", { class: "demo-chip" }, "Demo"),
+    h("span", { class: "demo-strip-text" }, DEMO_NOTE),
+    h("span", { class: "demo-actions" },
+      h("button", { type: "button", class: "link", onclick: () => { location.hash = "#/"; } }, "Exit demo"),
+      sample && onRestart ? h("button", { type: "button", class: "link", onclick: onRestart }, "Start over") : null));
+}
+
+function demoCard(sample) {
+  return h("a", { class: "sample-card", href: "#/demo/" + sample.id },
+    h("span", { class: "sample-file" }, sample.file),
+    h("strong", {}, sample.supplier),
+    h("span", { class: "small muted" }, "Invoice " + sample.number + " · " + sample.pages + (sample.pages === 1 ? " page" : " pages") + " · " + demoMoney(sample.gross)),
+    badge(sample.status),
+    h("span", { class: "small" }, sample.note));
+}
+
+function demoHome() {
+  stopPolling();
+  show(h("div", { class: "page demo" },
+    demoStrip(null, null),
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Demo"),
+      h("h1", {}, "Two invoices, read end to end."),
+      h("p", { class: "lede" }, "These are made-up invoices from ClearCut's test set. The readings, the timelines and the checks are prepared in advance: no model is called, nothing is uploaded and nothing here is saved.")),
+    h("div", { class: "sample-grid" }, DEMO_SAMPLES.map(demoCard)),
+    h("p", { class: "small muted" }, "In the real app a model reads each page, every figure is checked against the page it came from, and what cannot be settled goes to a person. ClearCut is invite-only while in alpha: ask for a key from whoever sent you this link.")));
+}
+
+function demoPage(id) {
+  stopPolling();
+  const sample = demoSample(id);
+  if (!sample) {
+    location.hash = "#/demo";
+    return;
+  }
+  const state = { phase: "timeline", confirmed: false, redraw: null };
+  const stage = h("div", {});
+  const draw = () => {
+    if (state.phase === "timeline") {
+      stage.replaceChildren(demoTimeline(sample, () => { state.phase = "document"; draw(); }));
+    } else if (state.phase === "review") {
+      stage.replaceChildren(demoReview(sample, state, draw));
+    } else {
+      stage.replaceChildren(demoDocument(sample, state));
+    }
+  };
+  state.redraw = draw;
+  show(h("div", { class: "page demo" },
+    demoStrip(sample, () => { location.hash = "#/demo"; }),
+    h("p", { class: "small" }, h("a", { href: "#/demo" }, "← All samples")),
+    stage));
+  draw();
+}
+
+function demoTimeline(sample, done) {
+  const steps = ["File accepted", sample.pages + (sample.pages === 1 ? " page found" : " pages found")];
+  for (let page = 1; page <= sample.pages; page += 1) steps.push("Reading page " + page + " of " + sample.pages);
+  steps.push("Checking every figure", sample.status === "needs_review" ? "Needs review" : "Done");
+  const list = h("ol", { class: "timeline", "aria-label": "What the demo is doing" });
+  const status = h("p", { class: "small muted", role: "status" }, "");
+  const progress = h("progress", { class: "demo-progress", max: steps.length, value: 0 });
+  let at = 0;
+  const advance = () => {
+    if (at === steps.length) {
+      timer = setTimeout(done, 450);
+      return;
+    }
+    list.append(h("li", {}, steps[at]));
+    status.textContent = steps[at];
+    progress.value = at + 1;
+    at += 1;
+    timer = setTimeout(advance, at < 2 ? 700 : 1000);
+  };
+  advance();
+  return h("div", { class: "card" },
+    h("h1", {}, sample.file),
+    h("p", { class: "small muted" }, "This timeline is simulated. No model is called and no file is uploaded."),
+    progress,
+    status,
+    list,
+    h("div", { class: "actions" },
+      h("button", { type: "button", class: "secondary", onclick: () => { stopPolling(); done(); } }, "Skip to the result")));
+}
+
+function demoChecklist(rows) {
+  return h("div", { class: "checks" },
+    rows.map(([label, verdict, detail]) =>
+      h("div", { class: "check " + (verdict === "Passed" ? "pass" : "fail") },
+        h("span", { class: "check-verdict" }, verdict),
+        h("strong", {}, label),
+        h("span", { class: "small muted" }, detail))));
+}
+
+function demoReport(sample, confirmed) {
+  const rows = confirmed && sample.reportConfirmed ? sample.reportConfirmed : sample.report;
+  return h("div", { class: "report" },
+    rows.map(([heading, text]) => h("div", {}, h("h3", {}, heading), h("p", {}, text))));
+}
+
+function demoChecks(sample, confirmed) {
+  return confirmed && sample.confirmedChecks ? sample.confirmedChecks : sample.checks;
+}
+
+function demoDocument(sample, state) {
+  const held = sample.status === "needs_review" && !state.confirmed;
+  const parts = [
+    h("div", { class: "row" }, h("h1", {}, sample.file), badge(held ? "needs_review" : "done")),
+    h("p", { class: "small muted" },
+      sample.supplier + " · Invoice " + sample.number + " · " + sample.dateText + " · " +
+      sample.pages + (sample.pages === 1 ? " page" : " pages") + " · prepared sample"),
+  ];
+  if (held) {
+    parts.push(
+      h("div", { class: "banner", role: "note" },
+        h("strong", {}, "A person needs to look at this document. "),
+        "The reading says the total is " + demoMoney(sample.grossRead) + "; the page prints " + demoMoney(sample.grossPrinted) + ".",
+        h("br"),
+        h("span", { class: "small muted" }, "Nothing was sent to a model and nothing is stored: this is the demo's prepared reading."),
+        h("div", { class: "actions" },
+          h("button", { type: "button", onclick: () => { state.phase = "review"; state.redraw(); } }, "Review this page"))));
+  }
+  if (sample.status === "needs_review" && state.confirmed) {
+    parts.push(
+      h("div", { class: "banner ok", role: "status" },
+        h("strong", {}, "Confirmed by you in this demo. "),
+        "In the real app the correction would be recorded as yours, against your key, without a model call."));
+  }
+  parts.push(h("h2", {}, "Figures checked"), demoChecklist(demoChecks(sample, state.confirmed)));
+  parts.push(h("h2", {}, "Report"), demoReport(sample, state.confirmed));
+  if (!held) {
+    parts.push(h("h2", {}, "Export"), demoExportPanel(sample, state.confirmed));
+  }
+  parts.push(demoEndCard());
+  return h("div", {}, parts);
+}
+
+function demoReview(sample, state, redraw) {
+  const back = () => { state.phase = "document"; redraw(); };
+  const sheet = h("div", { class: "invoice-sheet", "aria-label": "Sample invoice " + sample.number },
+    h("div", { class: "invoice-head" },
+      h("div", {},
+        h("strong", {}, sample.supplier),
+        h("span", { class: "small muted" }, "3 Kerk Street, Stellenbosch, 7600"),
+        h("span", { class: "small muted" }, "VAT " + sample.supplierVat)),
+      h("div", { class: "invoice-meta" },
+        h("span", {}, "Invoice " + sample.number),
+        h("span", {}, sample.dateText),
+        h("span", {}, "Due " + sample.dueText))),
+    h("table", {},
+      h("thead", {}, h("tr", {}, h("th", {}, "Description"), h("th", { class: "num" }, "Qty"), h("th", { class: "num" }, "Amount"))),
+      h("tbody", {},
+        sample.lines.map((line) =>
+          h("tr", {},
+            h("td", {}, line.description),
+            h("td", { class: "num" }, line.quantity),
+            h("td", { class: "num" }, demoMoney(line.total)))))),
+    h("div", { class: "invoice-totals" },
+      h("div", {}, h("span", {}, "Net"), h("b", {}, demoMoney(sample.net))),
+      h("div", {}, h("span", {}, "VAT (exempt)"), h("b", {}, demoMoney(sample.vat))),
+      h("div", { class: "due" }, h("span", {}, "Total"), h("b", {}, h("mark", {}, demoMoney(sample.grossPrinted))))));
+  return h("div", {},
+    h("div", { class: "row" }, h("h1", {}, "Review " + sample.file), badge("needs_review")),
+    h("p", { class: "small muted" }, "This page is a recreation of the made-up sample invoice, so it reads the same in dark mode."),
+    h("div", { class: "review-split" },
+      sheet,
+      h("div", { class: "card" },
+        h("h2", {}, "What the reader says"),
+        h("dl", { class: "reading" },
+          h("dt", {}, "Invoice number"), h("dd", {}, sample.number),
+          h("dt", {}, "Date"), h("dd", {}, sample.dateText),
+          h("dt", {}, "Total (gross)"), h("dd", { class: "error" }, demoMoney(sample.grossRead))),
+        h("div", { class: "banner", role: "note" },
+          h("strong", {}, "The total does not match. "),
+          "The reading says " + demoMoney(sample.grossRead) + ". The page prints " + demoMoney(sample.grossPrinted) +
+          ", and net plus VAT is " + demoMoney(sample.net + sample.vat) + "."),
+        h("p", { class: "small muted" }, "In the real app this is a form: the correction is checked by the same rules as a model's reading, recorded as yours and costs nothing."),
+        h("div", { class: "row" },
+          h("button", { type: "button", onclick: () => { state.confirmed = true; back(); } }, "Confirm " + demoMoney(sample.grossPrinted)),
+          h("button", { type: "button", class: "secondary", onclick: back }, "Back to the document")))));
+}
+
+function demoExport(sample, confirmed, format) {
+  const total = confirmed ? sample.grossPrinted ?? sample.gross : sample.gross;
+  const cell = (value) => '"' + String(value).replaceAll('"', '""') + '"';
+  if (format === "csv") {
+    const rows = [[
+      "# ClearCut demo. Sample data, not a real invoice.",
+      ["supplier", "invoice", "date", "page", "description", "quantity", "unit", "line_total", "tax"].map(cell).join(","),
+    ].join("\n")];
+    for (const line of sample.lines) {
+      rows.push([sample.supplier, sample.number, sample.dateText, line.page, line.description, line.quantity,
+        demoMoney(line.unit), demoMoney(line.total), line.tax].map(cell).join(","));
+    }
+    rows.push(["", "", "", "", "Net", "", "", demoMoney(sample.net), ""].map(cell).join(","));
+    rows.push(["", "", "", "", "VAT", "", "", demoMoney(sample.vat), ""].map(cell).join(","));
+    rows.push(["", "", "", "", "Total", "", "", demoMoney(total), ""].map(cell).join(","));
+    return rows.join("\n");
+  }
+  const lines = sample.lines.map((line) =>
+    "| " + line.page + " | " + line.description + " | " + line.quantity + " | " + demoMoney(line.unit) + " | " + demoMoney(line.total) + " |");
+  return [
+    "# ClearCut demo: sample data, not a real invoice",
+    "",
+    "**" + sample.supplier + "** · invoice " + sample.number + " · " + sample.dateText,
+    "",
+    "| Page | Description | Qty | Unit | Line |",
+    "|---:|---|---:|---:|---:|",
+    ...lines,
+    "",
+    "Net " + demoMoney(sample.net),
+    "VAT " + demoMoney(sample.vat),
+    "**Total " + demoMoney(total) + "**",
+  ].join("\n");
+}
+
+function demoExportPanel(sample, confirmed) {
+  const out = h("pre", { class: "demo-output", tabindex: "0" }, "Choose CSV or Markdown.");
+  const note = h("p", { class: "small muted", role: "status" }, "");
+  const build = (format) => {
+    out.textContent = demoExport(sample, confirmed, format);
+    note.textContent = "Built in this page from the sample's figures. No file was requested from the server.";
+  };
+  const copy = h("button", {
+    type: "button", class: "secondary",
+    onclick: async () => {
+      try {
+        await navigator.clipboard.writeText(out.textContent);
+        note.textContent = "Copied.";
+      } catch (e) {
+        note.textContent = "Select the text above and copy it.";
+      }
+    },
+  }, "Copy");
+  return h("div", {},
+    h("p", { class: "small muted" }, "The real app exports JSON, CSV, Excel, Word, PDF and more. Here these two are built in your browser."),
+    h("div", { class: "row" },
+      h("button", { type: "button", onclick: () => build("csv") }, "Show CSV"),
+      h("button", { type: "button", class: "secondary", onclick: () => build("md") }, "Show Markdown"),
+      copy),
+    out,
+    note);
+}
+
+function demoEndCard() {
+  return h("div", { class: "card demo-end" },
+    h("h2", {}, "That is the demo."),
+    h("p", {}, "ClearCut is invite-only while in alpha. Ask for a key from whoever sent you this link, then sign in and add your own Anthropic key in Settings."),
+    h("div", { class: "row" },
+      h("a", { class: "button", href: "#/" }, "Back to the sign-in page"),
+      h("a", { href: REPO, rel: "noreferrer" }, "Read the source")));
+}
 
 // ---------------------------------------------------------------- 2. documents ----
 
@@ -914,9 +1274,15 @@ async function settingsPage() {
 // ---------------------------------------------------------------- routing ----
 
 function route() {
+  const hash = location.hash || "#/";
+  stopPolling();
+  exitDemoButton.hidden = !hash.startsWith("#/demo");
+  demoLink.hidden = hash.startsWith("#/demo");
+  if (hash === "#/demo") return demoHome();
+  const sample = hash.match(/^#\/demo\/([a-z0-9-]+)$/);
+  if (sample) return demoPage(sample[1]);
   if (!key) return home("");
   setSignedIn(true);
-  const hash = location.hash || "#/";
   const match = hash.match(/^#\/d\/([0-9a-f-]{36})$/i);
   if (match) documentPage(match[1]);
   else if (hash === "#/settings") settingsPage();

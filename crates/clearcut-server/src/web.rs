@@ -94,6 +94,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_page_offers_a_demo_that_needs_no_key() {
+        let (_, _, html) = fetch("/").await;
+        assert!(html.contains("href=\"#/demo\""), "the header links the demo");
+        let (status, _, js) = fetch("/app.js").await;
+        assert_eq!(status, StatusCode::OK);
+        for marker in [
+            "const DEMO_SAMPLES",
+            "Sample invoices. Nothing here is saved.",
+            "#/demo/",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
     async fn the_page_loads_only_its_own_files_and_has_no_inline_script() {
         let (_, _, html) = fetch("/").await;
         assert!(

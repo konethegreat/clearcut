@@ -19,11 +19,33 @@ export DATABASE_URL=<the OWNER connection string>
 clearcut-admin migrate                                     # safe to repeat
 TENANT=$(clearcut-admin create-tenant "Acme Advisory")     # stdout is just the tenant id
 clearcut-admin create-key --tenant "$TENANT" --name "first admin" \
-    --scopes keys:admin,documents:write,events:read > first-admin.key
+    --scopes keys:admin,documents:read,documents:write,events:read > first-admin.key
 ```
 - The **key is printed once**, on stdout alone; the notes go to stderr. Move it straight into a secret manager and delete the file. It cannot be shown again; if it is lost, issue a new one.
-- After that, holders of `keys:admin` manage the tenant's keys through the API themselves. **An administrator can only hand out scopes it holds**, so give the first admin key every scope its tenant's administrators should be able to delegate.
+- The web page needs `documents:read` to list and open documents, `documents:write` to upload and confirm, `events:read` to show what was read, and `keys:admin` to set the account's Anthropic key in Settings. Give a key only the scopes its person needs.
 - Keys live at most **365 days** (`--days` can shorten that, not extend it). Rotate by issuing a new key before the old one lapses, then revoking the old one.
+
+## Inviting someone
+ClearCut is invite-only in alpha: the public demo shows the journey, and a real account is made here, one at a time.
+
+A new business gets its own tenant and first key:
+```
+export DATABASE_URL=<the OWNER connection string>
+TENANT=$(clearcut-admin create-tenant "Their business")
+clearcut-admin create-key --tenant "$TENANT" --name "Anna's first key" \
+    --scopes keys:admin,documents:read,documents:write,events:read > anna.key
+```
+A second person inside an existing business gets a key against that tenant, not a new tenant:
+```
+clearcut-admin create-key --tenant <tenant id> --name "Ben's key" \
+    --scopes documents:read,documents:write,events:read > ben.key
+```
+- Send the key through a channel you trust, such as a password-manager share. Not a group chat, and not the same email as the invoices.
+- One key per person, named for them, so a departure is one `revoke-key --tenant ... --key ...` and nothing else is disturbed.
+- Only give `keys:admin` to someone who must set the account's Anthropic key; every other key can read, upload and review without it.
+- They open the site, paste the key, then go to Settings and add their own Anthropic key with a spend limit.
+- The public demo at `#/demo` needs no key, calls no model and stores nothing. It is the right link to send before someone has a key.
+- There is no keys API in the server today: issuing and revoking keys stays an operator action, and the tenant can never see another tenant's keys or documents.
 
 ## Running the service
 The service reads `DATABASE_URL` too, but it must be the **service role** (`clearcut_app`), not the owner's. At startup it checks the role and **refuses to start** if the role is a superuser, can bypass row-level security, or owns the tenant tables, because running as the owner would silently switch tenant isolation off. It never migrates or creates tenants; that is this command's job. Callers present their key as `Authorization: Bearer ccut_...`; `GET /health` is the only route that needs no key, and `GET /v1/whoami` shows which tenant, key and scopes a key carries.
