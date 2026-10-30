@@ -1858,7 +1858,7 @@ pub fn build(input: RegisterInput) -> Result<Register, RegisterError> {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p clearcut-core register`
-Expected: PASS, 27 tests (18 from Task 2, 9 here).
+Expected: PASS, 27 tests (18 from Task 2, 9 here). The task review adds three more, so the module reaches 30.
 
 - [ ] **Step 5: Commit**
 
@@ -1866,6 +1866,13 @@ Expected: PASS, 27 tests (18 from Task 2, 9 here).
 git add crates/clearcut-core/src/register
 git commit -m "feat(core): build a register with its checks, limits and manifest"
 ```
+
+Review corrections already applied on this branch (keep them when Task 4+ touches nothing here):
+
+- `only_ready` drops only `NeedsReview` documents; a still-reading document stays a row with its status and no figures. `awaiting_left_out` counts only `NeedsReview`.
+- The `MAX_LINES` check runs after the period, sort and `only_ready` filters and counts only current line events of included readings, so superseded history and excluded documents cannot trip it. `MAX_DOCUMENTS` stays first.
+- `to_check` adds a `needs_review` row for a `NeedsReview` document that has no page reasons, so a document that needs a person always says so.
+- `RegisterInput`'s `undated_in_tenant` doc reads "how many documents in the tenant have no invoice date".
 
 ---
 
