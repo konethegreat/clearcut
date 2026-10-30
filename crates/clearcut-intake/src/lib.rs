@@ -28,9 +28,10 @@
 //! writes pointing at a missing file (reported as such, fixed by uploading
 //! again): the same narrow race as erasing a document while uploading it.
 //!
-//! Uploaded files are untrusted bytes. Nothing here opens or parses them; the
-//! file name is kept only as cleaned metadata and never forms a path. (Checking
-//! that the bytes really are what the media type claims is P2-02.)
+//! Uploaded files are untrusted bytes. Nothing here opens or parses them beyond
+//! checking the first few bytes against the declared media type (a PDF must
+//! start `%PDF-`, an image with its signature, XML with `<`); the file name is
+//! kept only as cleaned metadata and never forms a path.
 //!
 //! Deletion lives here too: a person's delete and the server's retention sweep
 //! share one erasure, which cancels a waiting job, refuses a running one, and
@@ -42,7 +43,9 @@ use clearcut_core::jobs::JobKind;
 use clearcut_objects::{ObjectKey, ObjectStore, PutLimits};
 use clearcut_store::{AuditEntry, DocId, NewDocument, NewJob, Store, TenantId};
 use std::io::ErrorKind;
-use tokio::io::AsyncRead;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
 /// The kinds of file ClearCut accepts as an invoice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +83,83 @@ impl MediaType {
             MediaType::Xml => "application/xml",
         }
     }
+}
+
+/// How many leading bytes are looked at to tell the type: enough for a byte-order mark, some
+/// whitespace and the first tag of an XML file.
+const HEAD_BYTES: usize = 64;
+
+/// A stream whose first `filled` bytes are already read: the head is handed out again, then
+/// the rest comes from the sender.
+struct Prefixed<R> {
+    head: [u8; HEAD_BYTES],
+    filled: usize,
+    offset: usize,
+    inner: R,
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for Prefixed<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = &mut *self;
+        if this.offset < this.filled {
+            let take = (this.filled - this.offset).min(buf.remaining());
+            buf.put_slice(&this.head[this.offset..this.offset + take]);
+            this.offset += take;
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
+/// Whether the leading bytes match what the media type promises. XML is the lenient one: an
+/// optional byte-order mark, then whitespace, then the first tag, which may be UTF-16.
+fn signature_matches(media_type: MediaType, head: &[u8]) -> bool {
+    match media_type {
+        MediaType::Pdf => head.starts_with(b"%PDF-"),
+        MediaType::Png => head.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
+        MediaType::Jpeg => head.starts_with(&[0xFF, 0xD8, 0xFF]),
+        MediaType::Tiff => head.starts_with(b"II*\0") || head.starts_with(b"MM\0*"),
+        MediaType::Xml => xml_starts(head),
+    }
+}
+
+fn xml_starts(head: &[u8]) -> bool {
+    if let Some(rest) = head.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return first_is_tag(rest);
+    }
+    if let Some(rest) = head.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16_first_is_tag(rest, true);
+    }
+    if let Some(rest) = head.strip_prefix(&[0xFE, 0xFF]) {
+        return utf16_first_is_tag(rest, false);
+    }
+    first_is_tag(head)
+}
+
+fn first_is_tag(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .is_some_and(|byte| *byte == b'<')
+}
+
+fn utf16_first_is_tag(bytes: &[u8], little_endian: bool) -> bool {
+    for pair in bytes.as_chunks::<2>().0 {
+        let unit = if little_endian {
+            u16::from_le_bytes([pair[0], pair[1]])
+        } else {
+            u16::from_be_bytes([pair[0], pair[1]])
+        };
+        match unit {
+            0x20 | 0x09 | 0x0A | 0x0D => continue,
+            _ => return unit == u16::from(b'<'),
+        }
+    }
+    false
 }
 
 /// The longest file name kept, in characters.
@@ -185,6 +265,9 @@ pub enum IntakeError {
     QuotaExceeded { used_bytes: u64, quota_bytes: u64 },
     #[error("the file is empty")]
     Empty,
+    /// The first bytes are not what the declared media type says they are.
+    #[error("the file is not the declared type")]
+    ContentMismatch,
     /// The sender went away before the whole file arrived.
     #[error("the upload was interrupted")]
     Interrupted,
@@ -273,9 +356,33 @@ impl<O: ObjectStore> Intake<O> {
             (None, _) => self.limits.max_upload_bytes,
         };
         let room_limited = max_bytes < self.limits.max_upload_bytes;
+        // The first bytes are read before anything is stored, so a file that lies about its
+        // type costs one small read. They are put back in front of the stream for the store.
+        let mut body = upload.body;
+        let mut head = [0u8; HEAD_BYTES];
+        let mut filled = 0;
+        while filled < head.len() {
+            match body.read(&mut head[filled..]).await {
+                Ok(0) => break,
+                Ok(read) => filled += read,
+                Err(_) => return Err(IntakeError::Interrupted),
+            }
+        }
+        if filled == 0 {
+            return Err(IntakeError::Empty);
+        }
+        if !signature_matches(media_type, &head[..filled]) {
+            return Err(IntakeError::ContentMismatch);
+        }
+        let body = Prefixed {
+            head,
+            filled,
+            offset: 0,
+            inner: body,
+        };
         let stored = self
             .objects
-            .put(by.tenant(), upload.body, PutLimits { max_bytes })
+            .put(by.tenant(), body, PutLimits { max_bytes })
             .await
             .map_err(|error| match error {
                 clearcut_objects::Error::TooLarge { .. } if room_limited => {

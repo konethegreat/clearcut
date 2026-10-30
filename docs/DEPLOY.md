@@ -22,8 +22,10 @@ Once other people upload their invoices to a server you run, **you** handle othe
    CLEARCUT_KEY_MODE=tenant-only
    CLEARCUT_RUNNER_CONCURRENCY=4
    CLEARCUT_RETENTION_DAYS=365
+   CLEARCUT_TRUST_PROXY=1
    ```
    `CLEARCUT_RETENTION_DAYS` is how long a document is kept before the server erases it (age from upload; `0` turns it off, and then documents stay until deleted). Set the period the responsible party can justify and state it in the privacy notice.
+   `CLEARCUT_TRUST_PROXY=1` tells the server to take the client's address from the last `X-Forwarded-For` entry, which Caddy appends. **Set it only when Caddy (this compose file's `--profile https`) is in front**; on a server reached directly it would let a caller choose its own address. The address carries the per-address request limit, the failed-key budget and the access log. The defaults (300 requests a minute per address, 20 failed keys a minute, a one-minute block, 256 requests in flight, a 120-second timeout) can be changed with `CLEARCUT_PER_IP_PER_MINUTE`, `CLEARCUT_AUTH_FAILURES_PER_MINUTE`, `CLEARCUT_BLOCK_SECONDS`, `CLEARCUT_MAX_CONCURRENT` and `CLEARCUT_REQUEST_TIMEOUT_SECONDS` (see `.env.example`).
    **Do not set `ANTHROPIC_API_KEY`.** `tenant-only` means the server's own key is never used: every account brings its own.
 3. Make the master key that seals each account's Anthropic key, and add it to `.env`:
    ```text

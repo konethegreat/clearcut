@@ -109,6 +109,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_screen_says_the_software_is_still_alpha() {
+        let (_, _, html) = fetch("/").await;
+        assert!(html.contains("class=\"alpha\""), "the banner is in the page");
+        assert!(html.contains("<strong>Alpha</strong>"));
+        assert!(
+            html.contains("ClearCut is in active development."),
+            "it says plainly what alpha means"
+        );
+        // Static markup above the app shell, so it shows on the demo and every route.
+        let banner = html.find("class=\"alpha\"").unwrap();
+        let shell = html.find("<header class=\"bar\"").unwrap();
+        assert!(banner < shell, "the banner comes before the app shell");
+        let (.., css) = fetch("/app.css").await;
+        assert!(css.contains(".alpha"), "the banner has its own styles");
+    }
+
+    #[tokio::test]
     async fn the_page_loads_only_its_own_files_and_has_no_inline_script() {
         let (_, _, html) = fetch("/").await;
         assert!(

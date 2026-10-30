@@ -7,10 +7,13 @@ use clearcut_anthropic::{load_from, AnthropicConfig, LoadError, MasterKey};
 use clearcut_intake::Intake;
 use clearcut_keys::{AnthropicChecker, KeyMode, TenantKeys};
 use clearcut_objects::LocalDisk;
-use clearcut_server::{app, AppState};
+use clearcut_server::{app, AppState, GuardConfig};
 use clearcut_store::Store;
 use local_env::LocalEnv;
+use std::net::SocketAddr;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::process::ExitCode;
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 /// The largest upload accepted unless `CLEARCUT_MAX_UPLOAD_BYTES` says otherwise: 64 MiB.
@@ -19,6 +22,16 @@ const DEFAULT_MAX_UPLOAD_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_TENANT_QUOTA_BYTES: u64 = 1024 * 1024 * 1024;
 /// What each account may ask for in a minute unless `CLEARCUT_RATE_LIMIT_PER_MINUTE` says otherwise.
 const DEFAULT_RATE_LIMIT_PER_MINUTE: u32 = 120;
+/// What one address may ask for in a minute unless `CLEARCUT_PER_IP_PER_MINUTE` says otherwise.
+const DEFAULT_PER_IP_PER_MINUTE: u32 = 300;
+/// Failed credentials one address may present in a minute unless `CLEARCUT_AUTH_FAILURES_PER_MINUTE` says otherwise.
+const DEFAULT_AUTH_FAILURES_PER_MINUTE: u32 = 20;
+/// How long a blocked address waits unless `CLEARCUT_BLOCK_SECONDS` says otherwise.
+const DEFAULT_BLOCK_SECONDS: u64 = 60;
+/// Requests in flight before the server sheds load unless `CLEARCUT_MAX_CONCURRENT` says otherwise.
+const DEFAULT_MAX_CONCURRENT: usize = 256;
+/// The longest a request may take unless `CLEARCUT_REQUEST_TIMEOUT_SECONDS` says otherwise.
+const DEFAULT_REQUEST_TIMEOUT_SECONDS: u64 = 120;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -124,6 +137,14 @@ async fn main() -> ExitCode {
     // The sweep erases through its own Intake: the server's is moved into the app.
     let sweep_intake = Intake::new(store.clone(), objects.clone(), limits);
 
+    let guard = match guard_config(&env) {
+        Ok(config) => config,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::from(2);
+        }
+    };
+
     let retention_days = match retention::retention_days(env.get("CLEARCUT_RETENTION_DAYS").as_deref()) {
         Ok(days) => days,
         Err(message) => {
@@ -178,6 +199,14 @@ async fn main() -> ExitCode {
         }
     };
     tracing::info!(%addr, "clearcut-server listening");
+    tracing::info!(
+        per_ip_per_minute = guard.per_ip_per_minute,
+        failures_per_minute = guard.failures_per_minute,
+        max_concurrent = guard.max_concurrent,
+        timeout_seconds = guard.timeout.as_secs(),
+        trust_proxy = guard.trust_proxy,
+        "the request guard is on"
+    );
     let mut server_stop = stopped;
     let served = axum::serve(
         listener,
@@ -187,7 +216,9 @@ async fn main() -> ExitCode {
             .with_reviews(store.clone())
             .with_keys(tenant_keys)
             .with_results(store)
-            .with_rate_limit(rate_limit_per_minute)),
+            .with_rate_limit(rate_limit_per_minute)
+            .with_guard(guard))
+        .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         let _ = server_stop.wait_for(|stopped| *stopped).await;
@@ -243,4 +274,80 @@ fn tenant_keys(env: &LocalEnv, store: &Store) -> Result<TenantKeys, String> {
         server_key,
         AnthropicChecker(anthropic),
     ))
+}
+
+/// The limits in front of the API: per-address requests and failed credentials, the block that
+/// follows too many failures, the concurrency cap, the request timeout and whether the proxy's
+/// forwarded address is trusted. `Err` is a message for the person starting the server.
+fn guard_config(env: &LocalEnv) -> Result<GuardConfig, String> {
+    let count = |name: &str, default: u32| -> Result<NonZeroU32, String> {
+        setting(
+            env,
+            name,
+            NonZeroU32::new(default).expect("a non-zero default"),
+            |value| value.parse().ok().and_then(NonZeroU32::new),
+        )
+        .map_err(|()| format!("{name} must be a whole number greater than zero"))
+    };
+    let per_ip_per_minute = count("CLEARCUT_PER_IP_PER_MINUTE", DEFAULT_PER_IP_PER_MINUTE)?;
+    let failures_per_minute = count(
+        "CLEARCUT_AUTH_FAILURES_PER_MINUTE",
+        DEFAULT_AUTH_FAILURES_PER_MINUTE,
+    )?;
+    let max_concurrent = setting(
+        env,
+        "CLEARCUT_MAX_CONCURRENT",
+        NonZeroUsize::new(DEFAULT_MAX_CONCURRENT).expect("a non-zero default"),
+        |value| value.parse().ok().and_then(NonZeroUsize::new),
+    )
+    .map_err(|()| "CLEARCUT_MAX_CONCURRENT must be a whole number greater than zero".to_string())?;
+    let block = Duration::from_secs(
+        setting(env, "CLEARCUT_BLOCK_SECONDS", DEFAULT_BLOCK_SECONDS, |value| {
+            value.parse::<u64>().ok().filter(|seconds| *seconds > 0)
+        })
+        .map_err(|()| {
+            "CLEARCUT_BLOCK_SECONDS must be a whole number of seconds greater than zero".to_string()
+        })?,
+    );
+    let timeout = Duration::from_secs(
+        setting(
+            env,
+            "CLEARCUT_REQUEST_TIMEOUT_SECONDS",
+            DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            |value| value.parse::<u64>().ok().filter(|seconds| *seconds > 0),
+        )
+        .map_err(|()| {
+            "CLEARCUT_REQUEST_TIMEOUT_SECONDS must be a whole number of seconds greater than zero".to_string()
+        })?,
+    );
+    let trust_proxy = match env.get("CLEARCUT_TRUST_PROXY") {
+        None => false,
+        Some(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => return Err("CLEARCUT_TRUST_PROXY must be a yes or a no (1 or 0)".into()),
+        },
+    };
+    Ok(GuardConfig {
+        per_ip_per_minute,
+        failures_per_minute,
+        block,
+        max_concurrent,
+        timeout,
+        trust_proxy,
+    })
+}
+
+/// A setting that is absent (blank counts as absent) or parsed by `parse`. `Err(())` means the
+/// value was there but unusable.
+fn setting<T: Copy>(
+    env: &LocalEnv,
+    name: &str,
+    default: T,
+    parse: impl Fn(&str) -> Option<T>,
+) -> Result<T, ()> {
+    match env.get(name) {
+        None => Ok(default),
+        Some(value) => parse(value.trim()).ok_or(()),
+    }
 }

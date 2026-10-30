@@ -197,6 +197,43 @@ fn upload<'a>(bytes: &'a [u8], content_type: &str, name: Option<&str>) -> Upload
 }
 
 const PDF: &[u8] = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOF";
+const PNG: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00];
+const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+const TIFF: &[u8] = b"II*\0\x08\0\0\0";
+const XML: &[u8] = br#"<?xml version="1.0"?><invoice/>"#;
+const XML_WITH_SPACE: &[u8] = b"  \n<?xml version=\"1.0\"?><invoice/>";
+
+#[test]
+fn the_declared_type_must_match_the_first_bytes() {
+    assert!(signature_matches(MediaType::Pdf, b"%PDF-1.7\n"));
+    assert!(signature_matches(MediaType::Png, PNG));
+    assert!(signature_matches(MediaType::Jpeg, JPEG));
+    assert!(signature_matches(MediaType::Tiff, TIFF));
+    assert!(signature_matches(MediaType::Tiff, b"MM\0*rest"));
+    assert!(signature_matches(MediaType::Xml, XML));
+    assert!(!signature_matches(MediaType::Pdf, b"<html>"));
+    assert!(!signature_matches(MediaType::Png, JPEG));
+    assert!(!signature_matches(MediaType::Jpeg, PNG));
+    assert!(!signature_matches(MediaType::Tiff, PNG));
+    assert!(!signature_matches(MediaType::Xml, b"not xml"));
+    assert!(!signature_matches(MediaType::Xml, b"   "));
+    assert!(!signature_matches(MediaType::Pdf, b"%PD"));
+}
+
+#[test]
+fn xml_may_begin_with_a_byte_order_mark_and_whitespace() {
+    assert!(signature_matches(MediaType::Xml, b"\xEF\xBB\xBF<invoice/>"));
+    assert!(signature_matches(MediaType::Xml, b"\n\t  <invoice/>"));
+    assert!(signature_matches(
+        MediaType::Xml,
+        &[0xFF, 0xFE, b'<', 0x00, b'i', 0x00]
+    ));
+    assert!(signature_matches(
+        MediaType::Xml,
+        &[0xFE, 0xFF, 0x00, b'<', 0x00, b'i']
+    ));
+    assert!(!signature_matches(MediaType::Xml, &[0xFF, 0xFE, b'x', 0x00]));
+}
 
 async fn count(pool: &PgPool, sql: &'static str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
@@ -370,26 +407,36 @@ async fn a_missing_file_name_is_recorded_as_upload(pool: PgPool) {
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
 async fn every_accepted_media_type_can_be_uploaded(pool: PgPool) {
     let f = fixture(&pool, 1_000_000).await;
-    for (n, content_type) in [
-        "application/pdf",
-        "image/png",
-        "image/jpeg",
-        "image/tiff",
-        "application/xml",
-        "text/xml",
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let bytes = format!("file number {n}").into_bytes();
+    for (bytes, content_type) in [
+        (PDF, "application/pdf"),
+        (PNG, "image/png"),
+        (JPEG, "image/jpeg"),
+        (TIFF, "image/tiff"),
+        (XML, "application/xml"),
+        (XML_WITH_SPACE, "text/xml"),
+    ] {
         let done = f
             .intake
-            .upload(&f.writer, upload(&bytes, content_type, None))
+            .upload(&f.writer, upload(bytes, content_type, None))
             .await
             .unwrap();
         assert_eq!(done.media_type, MediaType::parse(content_type).unwrap());
     }
     assert_eq!(count(&pool, "select count(*) from documents").await, 6);
+}
+
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_file_whose_bytes_are_not_the_declared_type_is_refused_and_nothing_is_stored(pool: PgPool) {
+    let f = fixture(&pool, 1_000_000).await;
+    let result = f
+        .intake
+        .upload(
+            &f.writer,
+            upload(b"<html>this is not a pdf</html>", "application/pdf", None),
+        )
+        .await;
+    assert!(matches!(result, Err(IntakeError::ContentMismatch)));
+    nothing_was_stored(&pool, &f).await;
 }
 
 // ---------- the same file twice, and two tenants ----------
@@ -536,7 +583,8 @@ async fn a_declared_length_over_the_limit_is_refused_before_the_body_is_read(poo
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
 async fn the_limit_holds_even_when_the_declared_length_lies(pool: PgPool) {
     let f = fixture(&pool, 100).await;
-    let big = vec![b'x'; 5_000];
+    let mut big = PDF.to_vec();
+    big.extend(std::iter::repeat_n(b'x', 5_000));
     let liar = Upload {
         filename: None,
         content_type: "application/pdf".into(),
