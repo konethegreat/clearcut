@@ -198,6 +198,7 @@ fn every_synthetic_case_survives_the_trip_through_the_reading_shape() {
                 extractor: expected.extractor.clone(),
                 confidence: Confidence::CERTAIN,
                 currency_known: (page > 1).then_some(expected.currency),
+                tax_profile: clearcut_core::ZA_VAT,
             };
             let conversion = reading.into_extraction(&context).unwrap();
             assert_eq!(conversion.problems, vec![], "{case} page {page}");

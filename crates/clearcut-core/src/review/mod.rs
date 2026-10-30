@@ -51,6 +51,7 @@ pub fn check_confirmed(
         confidence: Confidence::new(ConfidenceBasis::PersonConfirmed.per_mille())
             .unwrap_or(Confidence::CERTAIN),
         currency_known: None,
+        tax_profile: crate::ZA_VAT,
     };
     let conversion = reading.into_extraction(&context).map_err(|_| Refusal {
         currency_missing: true,

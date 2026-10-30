@@ -106,6 +106,7 @@ fn convert(reading: &PageReading) -> clearcut_core::reading::Conversion {
         extractor: Extractor::System,
         confidence: Confidence::CERTAIN,
         currency_known: Some(Currency::Zar),
+        tax_profile: clearcut_core::ZA_VAT,
     };
     reading.into_extraction(&context).expect("converts")
 }
@@ -152,10 +153,24 @@ fn the_first_and_third_examples_convert_cleanly_and_the_arithmetic_is_right() {
 }
 
 #[test]
-fn the_second_example_is_the_vat_inclusive_one_and_is_reported_not_read() {
+fn the_second_example_is_the_vat_inclusive_one_and_its_lines_are_divided_out() {
     let examples = example_inputs_and_outputs();
     let conversion = convert(&examples[1].1);
-    assert!(conversion.extraction.lines.is_empty());
+    let lines: Vec<(&str, i64, i64)> = conversion
+        .extraction
+        .lines
+        .iter()
+        .map(|line| {
+            (
+                line.value.description.as_str(),
+                line.value.unit_price.minor,
+                line.value.line_total.minor,
+            )
+        })
+        .collect();
+    // R14.99 and R22.50 include VAT: divided at 15%, then the line total from the net price.
+    assert_eq!(lines, [("Bread", 1303, 2606), ("Milk 1l", 1957, 1957)]);
+    // The page still goes to a person (ADR-0023).
     assert_eq!(
         conversion.problems.iter().map(|p| p.kind).collect::<Vec<_>>(),
         vec![ProblemKind::AmountsIncludeVat]
@@ -167,6 +182,24 @@ fn the_second_example_is_the_vat_inclusive_one_and_is_reported_not_read() {
         ("45.63", "6.85", "52.48")
     );
     assert_eq!(format_money(4563 + 685), "52.48");
+    // The divided lines sum to the printed net exactly. ClearCut's per-category VAT rounds to
+    // R6.84 against the slip's per-line R6.85, and that cent is reported, not smoothed.
+    let findings = validate(&conversion.extraction).findings;
+    assert_eq!(
+        findings,
+        vec![
+            Finding::TotalsMismatch {
+                field: clearcut_core::event::TotalField::Vat,
+                stated: clearcut_core::Money::zar(685),
+                recomputed: clearcut_core::Money::zar(684),
+            },
+            Finding::TotalsMismatch {
+                field: clearcut_core::event::TotalField::Gross,
+                stated: clearcut_core::Money::zar(5248),
+                recomputed: clearcut_core::Money::zar(5247),
+            },
+        ]
+    );
 }
 
 #[test]

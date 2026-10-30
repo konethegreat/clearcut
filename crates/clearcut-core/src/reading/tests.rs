@@ -14,6 +14,7 @@ fn ctx() -> ConversionContext {
         extractor: Extractor::System,
         confidence: Confidence::new(950).unwrap(),
         currency_known: None,
+        tax_profile: crate::ZA_VAT,
     }
 }
 
@@ -1097,13 +1098,14 @@ fn the_vat_basis_is_required() {
 }
 
 #[test]
-fn amounts_that_include_vat_are_never_guessed_at() {
+fn a_mixed_vat_inclusive_page_is_not_split() {
+    // clean_reading() has one standard line and one zero-rated line: the page-level statement
+    // does not say which lines the VAT was charged on, so nothing is read (ADR-0023).
     let reading = PageReading {
         amounts_include_vat: ReadVatBasis::Yes,
         ..clean_reading()
     };
     let conversion = convert(&reading);
-    // The lines cannot be used as amounts excluding VAT, so none are kept...
     assert!(conversion.extraction.lines.is_empty());
     assert_eq!(
         conversion
@@ -1113,10 +1115,89 @@ fn amounts_that_include_vat_are_never_guessed_at() {
             .collect::<Vec<_>>(),
         vec![("amounts_include_vat", ProblemKind::AmountsIncludeVat)]
     );
-    // ...and nothing else is affected: the printed totals are labelled as they are.
+    // Nothing else is affected: the printed totals are labelled as they are.
     assert!(conversion.extraction.stated_totals.is_some());
     assert!(conversion.extraction.invoice_number.is_some());
     assert!(conversion.extraction.due.is_some());
+}
+
+fn inclusive_line(quantity: &str, unit_price: &str, line_total: &str) -> PageReading {
+    PageReading {
+        amounts_include_vat: ReadVatBasis::Yes,
+        lines: vec![line(
+            "Consulting",
+            quantity,
+            unit_price,
+            line_total,
+            ReadTax::Standard,
+        )],
+        totals: ReadTotals::default(),
+        ..clean_reading()
+    }
+}
+
+#[test]
+fn an_inclusive_unit_price_is_divided_and_the_line_total_recomputed() {
+    let conversion = convert(&inclusive_line("10", "172.50", "1725.00"));
+    let line = &conversion.extraction.lines[0].value;
+    // R172.50 includes 15% VAT: R150.00 net, and 10 x R150.00 is R1 500.00.
+    assert_eq!(line.unit_price, crate::Money::zar(15_000));
+    assert_eq!(line.line_total, crate::Money::zar(150_000));
+    assert_eq!(line.tax, TaxCategory::Standard);
+    assert_eq!(
+        conversion.problems,
+        vec![ReadingProblem {
+            path: "amounts_include_vat".into(),
+            kind: ProblemKind::AmountsIncludeVat,
+        }]
+    );
+}
+
+#[test]
+fn the_division_rounds_half_away_from_zero() {
+    let conversion = convert(&inclusive_line("1", "14.99", "14.99"));
+    let line = &conversion.extraction.lines[0].value;
+    // R14.99 at 15% is R13.03 and a fraction, rounded to R13.03.
+    assert_eq!(line.unit_price, crate::Money::zar(1_303));
+    assert_eq!(line.line_total, crate::Money::zar(1_303));
+}
+
+#[test]
+fn a_line_that_says_nothing_about_its_tax_is_standard_on_an_inclusive_page() {
+    let mut reading = inclusive_line("1", "115.00", "115.00");
+    reading.lines[0].tax = ReadTax::NotShown;
+    let conversion = convert(&reading);
+    assert_eq!(conversion.extraction.lines[0].value.tax, TaxCategory::Standard);
+}
+
+#[test]
+fn the_printed_line_total_is_not_used_when_the_unit_price_decides() {
+    // The model repeated the unit price into a wrong line total; the split is built from the
+    // unit price and the quantity, so no line problem is raised (ADR-0023).
+    let conversion = convert(&inclusive_line("1", "115.00", "999.99"));
+    let line = &conversion.extraction.lines[0].value;
+    assert_eq!(line.unit_price, crate::Money::zar(10_000));
+    assert_eq!(line.line_total, crate::Money::zar(10_000));
+    assert_eq!(
+        conversion.problems.iter().map(|p| p.kind).collect::<Vec<_>>(),
+        vec![ProblemKind::AmountsIncludeVat]
+    );
+}
+
+#[test]
+fn the_jurisdiction_reading_the_page_decides_the_rate() {
+    let mut context = ctx();
+    context.tax_profile = crate::TaxProfile {
+        jurisdiction: "XX",
+        standard_rate_bps: 2_000,
+    };
+    let conversion = inclusive_line("1", "120.00", "120.00")
+        .into_extraction(&context)
+        .unwrap();
+    assert_eq!(
+        conversion.extraction.lines[0].value.unit_price,
+        crate::Money::zar(10_000)
+    );
 }
 
 #[test]
@@ -1143,7 +1224,7 @@ fn amounts_that_exclude_vat_or_do_not_say_are_read_as_printed() {
 }
 
 #[test]
-fn the_vat_basis_problem_comes_before_the_line_problems_it_replaces() {
+fn a_mixed_page_reports_one_problem_and_no_line_problems() {
     let mut reading = PageReading {
         amounts_include_vat: ReadVatBasis::Yes,
         ..clean_reading()

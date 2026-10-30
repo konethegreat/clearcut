@@ -1557,6 +1557,10 @@ async fn amounts_that_include_vat_go_to_a_person_not_up_the_ladder() {
         CallLabel::Reviewed(ReviewReason::AmountsIncludeVat)
     );
     assert_eq!(provider.call_count(), 1);
+    // The page keeps its line, divided out at 15% (R1 500.00 becomes R1 304.00), and the
+    // derived figure is not reported as one the page never showed (ADR-0023).
+    assert_eq!(result.extraction.as_ref().unwrap().lines.len(), 1);
+    assert!(result.unconfirmed.is_empty(), "{:?}", result.unconfirmed);
 }
 
 #[tokio::test]

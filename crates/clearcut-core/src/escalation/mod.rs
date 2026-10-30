@@ -120,7 +120,8 @@ pub enum ReviewReason {
     RequestRejected,
     /// The key can use none of the rungs.
     NoRungAvailable,
-    /// The line amounts include VAT, which is not backed out (ADR-0014 section 6).
+    /// The line amounts include VAT: they were divided at the profile's standard rate, and a
+    /// person confirms the page (ADR-0023).
     AmountsIncludeVat,
     /// No line says how it is taxed and the page's totals do not settle it. A stronger model
     /// cannot read what is not printed, and pressed to answer it would guess.

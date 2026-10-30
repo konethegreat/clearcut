@@ -674,6 +674,7 @@ fn convert_stored(
         },
         confidence: Confidence::new(kept.confidence.per_mille()).ok()?,
         currency_known: established.context.currency,
+        tax_profile: clearcut_core::ZA_VAT,
     };
     reading
         .into_extraction(&context)

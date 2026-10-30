@@ -25,7 +25,6 @@
 use crate::decimal::{parse_money, parse_quantity_milli};
 use crate::event::{Confidence, DocumentId, Extractor};
 use crate::extraction::{CarriedTotals, CreditNoteRef, DueTerms, ExtractedLine, Extraction, Party, Sourced};
-use crate::tax::ZA_VAT;
 use crate::{Currency, InvoiceTotals, TaxCategory};
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
@@ -229,6 +228,9 @@ pub struct ConversionContext {
     /// A currency already established by **another page** of this document.
     /// Never a tenant default.
     pub currency_known: Option<Currency>,
+    /// The VAT rules of the jurisdiction this document is read in (ADR-0023). ZA is the only
+    /// profile today; the converter takes every rate from here rather than a constant.
+    pub tax_profile: crate::TaxProfile,
 }
 
 /// Why a value was left out. These words are stored and shown to people, so
@@ -246,7 +248,8 @@ pub enum ProblemKind {
     TaxNotShown,
     /// Only part of a group that must be complete was printed.
     Incomplete,
-    /// The line amounts include VAT, which is not backed out here (ADR-0014 §6).
+    /// The line amounts include VAT: they were divided at the profile's rate and the page
+    /// still needs a person to confirm it (ADR-0023).
     AmountsIncludeVat,
     /// A figure that does not occur in the page's own text. The conversion never produces
     /// this: it is named to the next model in a failure report (ADR-0018 section 3).
@@ -297,6 +300,7 @@ impl PageReading {
 
         let mut converter = Converter {
             currency,
+            tax_profile: context.tax_profile,
             problems: Vec::new(),
         };
         let invoice_number = converter.text("invoice_number", &self.invoice_number, MAX_INVOICE_NUMBER);
@@ -350,6 +354,7 @@ enum Text {
 
 struct Converter {
     currency: Currency,
+    tax_profile: crate::TaxProfile,
     problems: Vec<ReadingProblem>,
 }
 
@@ -450,7 +455,9 @@ impl Converter {
         for line in raw {
             sum = sum.checked_add(money(&line.line_total)?).ok()?;
         }
-        let standard = net.percent_bps(ZA_VAT.rate_bps(TaxCategory::Standard)).ok()?;
+        let standard = net
+            .percent_bps(self.tax_profile.rate_bps(TaxCategory::Standard))
+            .ok()?;
         let agrees = vat.minor != 0 && sum == net && vat == standard && net.checked_add(vat).ok()? == gross;
         agrees.then_some(TaxCategory::Standard)
     }
@@ -461,11 +468,27 @@ impl Converter {
         basis: ReadVatBasis,
         derived_tax: Option<TaxCategory>,
     ) -> Vec<ExtractedLine> {
-        // VAT-inclusive amounts cannot be used as amounts excluding VAT, and backing the
-        // VAT out is a rule that has not been agreed yet: report it and read no lines.
         if basis == ReadVatBasis::Yes && !raw.is_empty() {
+            // A page that says its prices include VAT can be split only when every line is
+            // standard-rated or says nothing, in which case the page's own statement settles
+            // it. A mixed page is refused, because the page does not say which lines were
+            // charged VAT. Either way the page goes to a person (ADR-0023).
+            let split = raw
+                .iter()
+                .all(|line| matches!(line.tax, ReadTax::Standard | ReadTax::NotShown));
+            let mut lines = Vec::new();
+            if split {
+                for (index, line) in raw.iter().take(MAX_LINES_PER_PAGE).enumerate() {
+                    if let Some(line) = self.inclusive_line(index + 1, line) {
+                        lines.push(line);
+                    }
+                }
+                if raw.len() > MAX_LINES_PER_PAGE {
+                    self.problem("lines", ProblemKind::TooManyLines);
+                }
+            }
             self.problem("amounts_include_vat", ProblemKind::AmountsIncludeVat);
-            return Vec::new();
+            return lines;
         }
         let mut lines = Vec::new();
         for (index, line) in raw.iter().take(MAX_LINES_PER_PAGE).enumerate() {
@@ -485,6 +508,25 @@ impl Converter {
         number: usize,
         raw: &ReadLine,
         derived_tax: Option<TaxCategory>,
+    ) -> Option<ExtractedLine> {
+        self.line_with(number, raw, derived_tax, false)
+    }
+
+    /// A line whose printed amounts include VAT. The unit price is divided at the profile's
+    /// standard rate and the line total is recomputed from the net price, so quantity times
+    /// price still equals the line total exactly (ADR-0023). The printed line total is not
+    /// used: it is the inclusive unit price times the quantity and adds nothing after the
+    /// division.
+    fn inclusive_line(&mut self, number: usize, raw: &ReadLine) -> Option<ExtractedLine> {
+        self.line_with(number, raw, Some(TaxCategory::Standard), true)
+    }
+
+    fn line_with(
+        &mut self,
+        number: usize,
+        raw: &ReadLine,
+        derived_tax: Option<TaxCategory>,
+        backed_out: bool,
     ) -> Option<ExtractedLine> {
         let at = |field: &str| format!("lines/{number}/{field}");
         let mut complete = true;
@@ -528,8 +570,30 @@ impl Converter {
                 }
             }
         };
-        let unit_price = required_amount(self, "unit_price", &raw.unit_price);
-        let line_total = required_amount(self, "line_total", &raw.line_total);
+        let mut unit_price = required_amount(self, "unit_price", &raw.unit_price);
+        let line_total = if backed_out {
+            let rate = self.tax_profile.rate_bps(TaxCategory::Standard);
+            match unit_price.excluding_bps(rate) {
+                Ok(net) => {
+                    unit_price = net;
+                    match net.mul_milli(quantity_milli) {
+                        Ok(total) => total,
+                        Err(_) => {
+                            self.problem(at("unit_price"), ProblemKind::BadAmount);
+                            complete = false;
+                            crate::Money::new(0, self.currency)
+                        }
+                    }
+                }
+                Err(_) => {
+                    self.problem(at("unit_price"), ProblemKind::BadAmount);
+                    complete = false;
+                    crate::Money::new(0, self.currency)
+                }
+            }
+        } else {
+            required_amount(self, "line_total", &raw.line_total)
+        };
 
         let tax = match raw.tax {
             ReadTax::Standard => Some(TaxCategory::Standard),
