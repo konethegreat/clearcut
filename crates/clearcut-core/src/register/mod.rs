@@ -262,8 +262,6 @@ pub enum RegisterError {
 struct Reading {
     document: RegisterDocument,
     current: Vec<Event>,
-    // The register build reads these to make its to check rows.
-    #[allow(dead_code)]
     pages: Vec<PageReview>,
 }
 
@@ -292,8 +290,6 @@ fn same_currency(amounts: &[crate::Money]) -> Option<String> {
         .then(|| first.currency.code().to_string())
 }
 
-// The register build calls this next; until then only the tests do.
-#[allow(dead_code)]
 fn read(facts: &RegisterFacts) -> Reading {
     let current: Vec<Event> = crate::event::view::current(&facts.events)
         .into_iter()
@@ -409,10 +405,8 @@ fn read(facts: &RegisterFacts) -> Reading {
 
 // ---------------------------------------------------------------- line rows ----
 
-// The register build composes this next; until then only the tests call it.
 /// The line items of every finished document, in reading order, numbered from one per document.
 /// A document still being read has no line rows, because its extraction is only partial.
-#[allow(dead_code)]
 fn lines(readings: &[Reading]) -> Vec<RegisterLine> {
     let mut out = Vec::new();
     for reading in readings {
@@ -523,7 +517,6 @@ struct VatAcc {
 ///
 /// The currency comes from the VAT event itself, and the document is skipped when it has no
 /// single currency, so two currencies are never added together.
-#[allow(dead_code)]
 fn vat_by_category(readings: &[Reading]) -> Result<Vec<VatGroup>, RegisterError> {
     let mut groups: BTreeMap<(String, &'static str, Kind, TaxCategory, u32), VatAcc> = BTreeMap::new();
     for reading in readings {
@@ -623,7 +616,6 @@ struct StatedAcc {
 }
 
 /// The totals printed on the documents, added within one month, currency and kind.
-#[allow(dead_code)]
 fn stated_totals(readings: &[Reading]) -> Result<Vec<StatedTotals>, RegisterError> {
     let mut groups: BTreeMap<(String, &'static str, Kind), StatedAcc> = BTreeMap::new();
     for reading in readings {
@@ -693,7 +685,6 @@ struct ReconAcc {
 ///
 /// Only a document that states VAT and also has a calculated VAT is reconciled. A document with
 /// only one of the two is left out rather than counted as agreeing.
-#[allow(dead_code)]
 fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterError> {
     let mut groups: BTreeMap<(String, &'static str, Kind), ReconAcc> = BTreeMap::new();
     for reading in readings {
@@ -759,6 +750,224 @@ fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterE
         });
     }
     Ok(out)
+}
+
+// ---------------------------------------------------------------- the build ----
+
+/// What the store hands in: a selection, whether to keep only ready documents, how many dated
+/// documents in the tenant have no date worth putting in a month, and the documents themselves.
+#[derive(Debug, Clone)]
+pub struct RegisterInput {
+    pub selection: Selection,
+    pub only_ready: bool,
+    pub undated_in_tenant: usize,
+    pub facts: Vec<RegisterFacts>,
+}
+
+/// The order rows appear in: dated first, oldest first, then by supplier, number and id.
+fn order(document: &RegisterDocument) -> (bool, Option<Date>, String, String, String) {
+    (
+        document.invoice_date.is_none(),
+        document.invoice_date,
+        document.supplier.clone().unwrap_or_default(),
+        document.invoice_number.clone().unwrap_or_default(),
+        document.id.clone(),
+    )
+}
+
+/// Why a page stopped for a person, in a sentence.
+fn why(reason: ReviewReason) -> &'static str {
+    match reason {
+        ReviewReason::TopRungFailed => "Every model tried could not read this page with enough certainty.",
+        ReviewReason::TooLong => "This page is longer than one model call can read.",
+        ReviewReason::Refused => "The model refused to read this page.",
+        ReviewReason::Budget => "This document's spending limit was reached before the page was read.",
+        ReviewReason::CallCap => "The limit on calls for this document was reached before the page was read.",
+        ReviewReason::CannotBeSentSafely => "This page could not be sent to a model safely.",
+        ReviewReason::RequestRejected => "A model request for this page was rejected.",
+        ReviewReason::NoRungAvailable => "No model was available to read this page.",
+        ReviewReason::AmountsIncludeVat => {
+            "The amounts on this page include VAT, and it was not clear how much."
+        }
+        ReviewReason::TaxNotShown => "This page does not show VAT, so none was added.",
+    }
+}
+
+fn check(document: &RegisterDocument, reason: &str, sentence: String, page: Option<u32>) -> ToCheckRow {
+    ToCheckRow {
+        document_id: document.id.clone(),
+        filename: document.filename.clone(),
+        reason: reason.to_string(),
+        sentence,
+        page,
+    }
+}
+
+/// Everything a person still has to look at, in row order.
+fn to_check(readings: &[Reading]) -> Vec<ToCheckRow> {
+    let mut out = Vec::new();
+    for reading in readings {
+        let document = &reading.document;
+        let mut own = Vec::new();
+        match document.status {
+            DocumentStatus::Received | DocumentStatus::Processing => own.push(check(
+                document,
+                "still_reading",
+                "This document is still being read, so its figures are not in the register yet.".to_string(),
+                None,
+            )),
+            _ => {}
+        }
+        if document.invoice_date.is_none() {
+            own.push(check(
+                document,
+                "no_invoice_date",
+                "This document has no invoice date, so it is not in a month.".to_string(),
+                None,
+            ));
+        }
+        if document.flags.iter().any(|flag| flag == "mixed_currency") {
+            own.push(check(
+                document,
+                "mixed_currency",
+                "The amounts on this document are not all in one currency, so they are not added."
+                    .to_string(),
+                None,
+            ));
+        }
+        if let Some(duplicate) = &document.duplicate_of {
+            own.push(check(
+                document,
+                "possible_duplicate",
+                format!("This document looks like document {duplicate}."),
+                None,
+            ));
+        }
+        for page in &reading.pages {
+            own.push(check(
+                document,
+                page.reason.as_str(),
+                why(page.reason).to_string(),
+                Some(page.page),
+            ));
+        }
+        own.sort_by(|a, b| a.page.cmp(&b.page).then_with(|| a.reason.cmp(&b.reason)));
+        out.append(&mut own);
+    }
+    out
+}
+
+/// The share of finished documents that needed nobody, in basis points.
+fn automation_rate_bps(done: usize, finished: usize) -> Option<u32> {
+    if finished == 0 {
+        return None;
+    }
+    let rate = (done as u128 * 10_000 + finished as u128 / 2) / finished as u128;
+    u32::try_from(rate).ok()
+}
+
+/// Builds the register from what the store handed in.
+///
+/// The register is derived every time; nothing here is stored. Rows follow the selection in date
+/// order, undated documents last. With `only_ready`, documents awaiting review are left out of the
+/// rows and the sums and counted in `manifest.awaiting_left_out`. A period selection is applied
+/// again to each document's authoritative invoice date, so a candidate the store's SQL let through
+/// cannot appear in the register.
+pub fn build(input: RegisterInput) -> Result<Register, RegisterError> {
+    let RegisterInput {
+        selection,
+        only_ready,
+        undated_in_tenant,
+        facts,
+    } = input;
+
+    if facts.len() > MAX_DOCUMENTS {
+        return Err(RegisterError::TooManyDocuments);
+    }
+    let total_lines = facts
+        .iter()
+        .try_fold(0usize, |total, facts| {
+            let own = facts
+                .events
+                .iter()
+                .filter(|event| matches!(event.payload(), EventPayload::LineItemBilled { .. }))
+                .count();
+            total.checked_add(own)
+        })
+        .ok_or(RegisterError::TooManyLines)?;
+    if total_lines > MAX_LINES {
+        return Err(RegisterError::TooManyLines);
+    }
+
+    let mut readings: Vec<Reading> = facts.iter().map(read).collect();
+    if let Selection::Period { from, to } = &selection {
+        readings.retain(|reading| {
+            reading
+                .document
+                .invoice_date
+                .is_some_and(|date| date >= *from && date <= *to)
+        });
+    }
+    readings.sort_by_key(|reading| order(&reading.document));
+
+    let done = readings
+        .iter()
+        .filter(|reading| reading.document.status == DocumentStatus::Done)
+        .count();
+    let needs_review = readings
+        .iter()
+        .filter(|reading| reading.document.status == DocumentStatus::NeedsReview)
+        .count();
+    let still_reading = readings.len() - done - needs_review;
+    let undated_in_selection = readings
+        .iter()
+        .filter(|reading| reading.document.invoice_date.is_none())
+        .count();
+    let awaiting_left_out = if only_ready { needs_review } else { 0 };
+    let documents = readings.len();
+
+    let mut included = readings;
+    if only_ready {
+        included.retain(|reading| reading.document.status == DocumentStatus::Done);
+    }
+
+    let rows: Vec<RegisterDocument> = included.iter().map(|reading| reading.document.clone()).collect();
+    let line_rows = lines(&included);
+    let vat = vat_by_category(&included)?;
+    let totals = stated_totals(&included)?;
+    let reconciled = reconciliation(&included)?;
+    let checks = to_check(&included);
+
+    let manifest = Manifest {
+        selection: selection.clone(),
+        only_ready,
+        documents,
+        done,
+        needs_review,
+        still_reading,
+        undated_in_tenant,
+        undated_in_selection,
+        lines: line_rows.len(),
+        automation_rate_bps: automation_rate_bps(done, done + needs_review),
+        finished: done + needs_review,
+        awaiting_left_out,
+        software_version: env!("CARGO_PKG_VERSION").to_string(),
+        notice: REGISTER_NOTICE,
+    };
+
+    Ok(Register {
+        notice: REGISTER_NOTICE,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        selection,
+        only_ready,
+        rows,
+        lines: line_rows,
+        vat_by_category: vat,
+        stated_totals: totals,
+        reconciliation: reconciled,
+        to_check: checks,
+        manifest,
+    })
 }
 
 #[cfg(test)]

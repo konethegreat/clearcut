@@ -653,3 +653,174 @@ fn a_document_with_no_calculated_vat_is_not_reconciled() {
     ));
     assert!(reconciliation(&[only_stated]).unwrap().is_empty());
 }
+
+fn request(facts: Vec<RegisterFacts>) -> RegisterInput {
+    RegisterInput {
+        selection: Selection::Documents {
+            ids: facts.iter().map(|facts| facts.id.clone()).collect(),
+        },
+        only_ready: false,
+        undated_in_tenant: 0,
+        facts,
+    }
+}
+
+#[test]
+fn an_empty_selection_makes_an_empty_register() {
+    let register = build(RegisterInput {
+        selection: Selection::Documents { ids: Vec::new() },
+        only_ready: false,
+        undated_in_tenant: 2,
+        facts: Vec::new(),
+    })
+    .unwrap();
+    assert!(register.rows.is_empty());
+    assert!(register.lines.is_empty());
+    assert!(register.to_check.is_empty());
+    assert_eq!(register.manifest.documents, 0);
+    assert_eq!(register.manifest.undated_in_tenant, 2);
+    assert_eq!(register.manifest.automation_rate_bps, None);
+    assert_eq!(register.notice, REGISTER_NOTICE);
+    assert!(!register.version.is_empty());
+}
+
+#[test]
+fn rows_are_in_date_order_with_undated_last() {
+    let late = facts(
+        "late",
+        DocumentStatus::Done,
+        vec![numbered("late", Some(d!(2026 - 09 - 20)), "INV-2")],
+    );
+    let early = facts(
+        "early",
+        DocumentStatus::Done,
+        vec![numbered("early", Some(d!(2026 - 09 - 01)), "INV-1")],
+    );
+    let undated = facts(
+        "undated",
+        DocumentStatus::Done,
+        vec![numbered("undated", None, "INV-3")],
+    );
+    let register = build(request(vec![late, undated, early])).unwrap();
+    let ids: Vec<&str> = register.rows.iter().map(|row| row.id.as_str()).collect();
+    assert_eq!(ids, vec!["early", "late", "undated"]);
+    assert_eq!(register.manifest.undated_in_selection, 1);
+}
+
+#[test]
+fn a_candidate_outside_the_period_is_dropped() {
+    let inside = facts(
+        "inside",
+        DocumentStatus::Done,
+        vec![numbered("inside", Some(d!(2026 - 09 - 10)), "INV-1")],
+    );
+    let outside = facts(
+        "outside",
+        DocumentStatus::Done,
+        vec![numbered("outside", Some(d!(2026 - 10 - 01)), "INV-2")],
+    );
+    let register = build(RegisterInput {
+        selection: Selection::Period {
+            from: d!(2026 - 09 - 01),
+            to: d!(2026 - 09 - 30),
+        },
+        only_ready: false,
+        undated_in_tenant: 0,
+        facts: vec![inside, outside],
+    })
+    .unwrap();
+    assert_eq!(register.rows.len(), 1);
+    assert_eq!(register.rows[0].id, "inside");
+    assert_eq!(register.manifest.documents, 1);
+}
+
+#[test]
+fn an_undated_document_is_listed_to_check() {
+    let undated = facts(
+        "undated",
+        DocumentStatus::Done,
+        vec![numbered("undated", None, "INV-3")],
+    );
+    let register = build(request(vec![undated])).unwrap();
+    assert_eq!(register.rows.len(), 1);
+    let row = register
+        .to_check
+        .iter()
+        .find(|row| row.reason == "no_invoice_date")
+        .expect("the undated document is listed");
+    assert_eq!(row.document_id, "undated");
+    assert_eq!(row.page, None);
+}
+
+#[test]
+fn a_page_that_stopped_for_a_person_is_listed_with_its_page() {
+    let mut source = facts(
+        "review",
+        DocumentStatus::NeedsReview,
+        vec![numbered("review", Some(d!(2026 - 09 - 05)), "INV-4")],
+    );
+    source.pages = vec![PageReview {
+        page: 3,
+        reason: ReviewReason::AmountsIncludeVat,
+    }];
+    let register = build(request(vec![source])).unwrap();
+    let row = register
+        .to_check
+        .iter()
+        .find(|row| row.reason == "amounts_include_vat")
+        .expect("the page is listed");
+    assert_eq!(row.page, Some(3));
+    assert!(row.sentence.contains("include VAT"));
+}
+
+#[test]
+fn a_document_still_reading_is_listed_to_check() {
+    let reading = facts("reading", DocumentStatus::Processing, Vec::new());
+    let register = build(request(vec![reading])).unwrap();
+    assert_eq!(register.rows.len(), 1);
+    assert!(register.to_check.iter().any(|row| row.reason == "still_reading"));
+    assert_eq!(register.manifest.automation_rate_bps, None);
+}
+
+#[test]
+fn only_ready_leaves_awaiting_documents_out() {
+    let done = facts(
+        "done",
+        DocumentStatus::Done,
+        vec![numbered("done", Some(d!(2026 - 09 - 06)), "INV-1")],
+    );
+    let awaiting = facts(
+        "awaiting",
+        DocumentStatus::NeedsReview,
+        vec![numbered("awaiting", Some(d!(2026 - 09 - 07)), "INV-2")],
+    );
+    let mut input = request(vec![done, awaiting]);
+    input.only_ready = true;
+    let register = build(input).unwrap();
+    assert_eq!(register.rows.len(), 1);
+    assert_eq!(register.manifest.documents, 2);
+    assert_eq!(register.manifest.done, 1);
+    assert_eq!(register.manifest.needs_review, 1);
+    assert_eq!(register.manifest.awaiting_left_out, 1);
+    assert_eq!(register.manifest.automation_rate_bps, Some(5_000));
+}
+
+#[test]
+fn more_documents_than_the_limit_is_refused() {
+    let many: Vec<RegisterFacts> = (0..=MAX_DOCUMENTS)
+        .map(|n| facts(&format!("d{n}"), DocumentStatus::Done, Vec::new()))
+        .collect();
+    assert_eq!(build(request(many)).unwrap_err(), RegisterError::TooManyDocuments);
+}
+
+#[test]
+fn more_lines_than_the_limit_is_refused() {
+    let events: Vec<Event> = (0..=MAX_LINES)
+        .map(|n| line_on("big", &format!("l{n}"), 1, "Item", 1_000, 100))
+        .collect();
+    let source = facts("big", DocumentStatus::Done, events);
+    assert_eq!(
+        build(request(vec![source])).unwrap_err(),
+        RegisterError::TooManyLines
+    );
+}
