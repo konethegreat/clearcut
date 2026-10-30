@@ -379,7 +379,7 @@ async fn what_is_read_becomes_an_extraction_with_the_evidence_as_its_confidence(
         extraction.extractor,
         Extractor::Model {
             name: HAIKU.to_string(),
-            prompt_version: "reading-v3/prompt-v2".to_string()
+            prompt_version: clearcut_pack::prompt_version()
         }
     );
 }
@@ -427,7 +427,7 @@ async fn every_call_is_recorded_without_any_content() {
     assert_eq!(call.effort, ThinkingEffort::Medium);
     assert_eq!(call.kind, CallKind::First);
     assert_eq!(call.label, CallLabel::Accepted);
-    assert_eq!(call.prompt_version, "reading-v3/prompt-v2");
+    assert_eq!(call.prompt_version, "reading-v3/prompt-v3");
     assert_eq!(call.request_id.as_deref(), Some("req_1"));
     assert_eq!(call.usage.input_tokens, 6_000);
     assert_eq!(call.usage.output_tokens, 1_000);

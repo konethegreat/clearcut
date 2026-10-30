@@ -1,7 +1,7 @@
 # ADR-0024: Dividing only the standard-rated lines of a mixed page
 
 Status: **Accepted** (Kone chose to deepen South African support before a second jurisdiction, 2026-10-30) · Date: 2026-10-30 · Deciders: Kone Tshivhinda, Claude
-Changes rule 1 of [ADR-0023](0023-vat-inclusive-amounts.md). Builds on [ADR-0013](0013-model-facing-reading-shape.md) (the model writes amounts and tax categories as printed), [ADR-0018](0018-model-router-and-escalation.md) (a person decides what no model can) and [ADR-0023](0023-vat-inclusive-amounts.md) (the division rule this keeps).
+Changes rule 1 of [ADR-0023](0023-vat-inclusive-amounts.md). Builds on [ADR-0013](0013-model-facing-reading-shape.md) (the model writes amounts and tax categories as printed), [ADR-0018](0018-model-router-and-escalation.md) (a person decides what no model can) and [ADR-0023](0023-vat-inclusive-amounts.md) (the division rule this keeps). **Followed up:** `prompt-v3` adds a fourth worked example, a till slip with standard and zero-rated goods whose prices include VAT. It changes no rule and no shape.
 
 ## Context
 
@@ -16,7 +16,7 @@ But each line already carries its own tax category in `reading-v3` (`standard`, 
 3. **The page still goes to a person.** The `amounts_include_vat` problem is still reported on every inclusive page, split or refused, so the router still returns `Review(AmountsIncludeVat)`. The person confirms the page's categories and the split figures.
 4. **The arithmetic of ADR-0023 is unchanged** for divided lines: per unit price, rounded half away from zero at the profile's rate, line total recomputed from the net price, printed line total ignored. A kept line is read the ordinary way, including its printed line total, so the validator's quantity-times-price rule applies to it.
 5. **The text check still skips all line amounts on an inclusive page.** It remains one page-level flag. A kept zero-rated line's printed figures are therefore not compared with the page text, though its totals and header figures still are, and the page is reviewed. Making the flag per line would require the extraction to remember which lines were divided, which is a shape question larger than this change; it is recorded as not decided here rather than guessed at.
-6. **No shape or prompt change.** The model already writes each line's category and never divides anything. `READING_SHAPE_VERSION` and `PROMPT_VERSION` stay as they are.
+6. **No shape change, and no rule change to the prompt.** The model already writes each line's category and never divides anything. `READING_SHAPE_VERSION` stays as it is. `PROMPT_VERSION` moves to `prompt-v3` only to add a worked mixed example; the rules themselves are unchanged.
 
 ## What this protects, and what it does not
 

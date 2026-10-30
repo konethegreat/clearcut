@@ -8,11 +8,11 @@ use clearcut_core::extraction::{validate, Finding};
 use clearcut_core::reading::{ConversionContext, PageReading, ProblemKind, READING_SHAPE_VERSION};
 use clearcut_core::redact;
 use clearcut_core::untrusted;
-use clearcut_core::Currency;
+use clearcut_core::{Currency, TaxCategory};
 use clearcut_pack::{prompt_version, static_prefix, PROMPT_VERSION};
 use std::num::NonZeroU32;
 
-const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/prefix-prompt-v2.txt");
+const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/prefix-prompt-v3.txt");
 
 #[test]
 fn the_prompt_has_not_changed_by_accident() {
@@ -22,7 +22,7 @@ fn the_prompt_has_not_changed_by_accident() {
         return;
     }
     let golden = std::fs::read_to_string(GOLDEN)
-        .expect("tests/prefix-prompt-v2.txt is missing; run with UPDATE_GOLDEN=1")
+        .expect("tests/prefix-prompt-v3.txt is missing; run with UPDATE_GOLDEN=1")
         .replace("\r\n", "\n");
     assert_eq!(
         current, golden,
@@ -32,10 +32,10 @@ fn the_prompt_has_not_changed_by_accident() {
 
 #[test]
 fn the_versions_are_named() {
-    assert_eq!(PROMPT_VERSION, "prompt-v2");
-    assert_eq!(prompt_version(), format!("{READING_SHAPE_VERSION}/prompt-v2"));
-    assert_eq!(prompt_version(), "reading-v3/prompt-v2");
-    assert!(GOLDEN.ends_with("prefix-prompt-v2.txt"));
+    assert_eq!(PROMPT_VERSION, "prompt-v3");
+    assert_eq!(prompt_version(), format!("{READING_SHAPE_VERSION}/prompt-v3"));
+    assert_eq!(prompt_version(), "reading-v3/prompt-v3");
+    assert!(GOLDEN.ends_with("prefix-prompt-v3.txt"));
 }
 
 #[test]
@@ -112,9 +112,9 @@ fn convert(reading: &PageReading) -> clearcut_core::reading::Conversion {
 }
 
 #[test]
-fn there_are_three_examples_and_their_inputs_are_clean() {
+fn there_are_four_examples_and_their_inputs_are_clean() {
     let examples = example_inputs_and_outputs();
-    assert_eq!(examples.len(), 3);
+    assert_eq!(examples.len(), 4);
     for (input, _) in &examples {
         assert!(
             redact::scan(input).is_empty(),
@@ -128,9 +128,9 @@ fn there_are_three_examples_and_their_inputs_are_clean() {
 }
 
 #[test]
-fn the_first_and_third_examples_convert_cleanly_and_the_arithmetic_is_right() {
+fn the_first_and_last_examples_convert_cleanly_and_the_arithmetic_is_right() {
     let examples = example_inputs_and_outputs();
-    for index in [0, 2] {
+    for index in [0, 3] {
         let conversion = convert(&examples[index].1);
         assert_eq!(conversion.problems, vec![], "example {}", index + 1);
         let validation = validate(&conversion.extraction);
@@ -203,7 +203,41 @@ fn the_second_example_is_the_vat_inclusive_one_and_its_lines_are_divided_out() {
 }
 
 #[test]
-fn the_examples_cover_the_three_situations_they_are_there_for() {
+fn the_mixed_inclusive_example_keeps_its_zero_rated_line_and_divides_the_rest() {
+    let examples = example_inputs_and_outputs();
+    let conversion = convert(&examples[2].1);
+    let lines: Vec<(&str, i64, i64, TaxCategory)> = conversion
+        .extraction
+        .lines
+        .iter()
+        .map(|line| {
+            (
+                line.value.description.as_str(),
+                line.value.unit_price.minor,
+                line.value.line_total.minor,
+                line.value.tax,
+            )
+        })
+        .collect();
+    // R16.99 and R31.99 include VAT and are divided; the zero-rated rice is read as printed.
+    assert_eq!(
+        lines,
+        [
+            ("Bread", 1477, 2954, TaxCategory::Standard),
+            ("Milk 2l", 2782, 2782, TaxCategory::Standard),
+            ("Brown rice (zero-rated)", 4250, 4250, TaxCategory::ZeroRated),
+        ]
+    );
+    assert_eq!(
+        conversion.problems.iter().map(|p| p.kind).collect::<Vec<_>>(),
+        vec![ProblemKind::AmountsIncludeVat]
+    );
+    // The printed totals agree with the lines to the cent, so nothing is reported.
+    assert_eq!(validate(&conversion.extraction).findings, vec![]);
+}
+
+#[test]
+fn the_examples_cover_the_four_situations_they_are_there_for() {
     use clearcut_core::reading::{ReadCurrency, ReadVatBasis};
     let examples = example_inputs_and_outputs();
     assert_eq!(
@@ -216,9 +250,18 @@ fn the_examples_cover_the_three_situations_they_are_there_for() {
     );
     assert_eq!(
         (examples[2].1.currency, examples[2].1.amounts_include_vat),
+        (ReadCurrency::Zar, ReadVatBasis::Yes)
+    );
+    assert!(examples[2]
+        .1
+        .lines
+        .iter()
+        .any(|line| line.tax == clearcut_core::reading::ReadTax::ZeroRated));
+    assert_eq!(
+        (examples[3].1.currency, examples[3].1.amounts_include_vat),
         (ReadCurrency::NotShown, ReadVatBasis::NotShown)
     );
-    assert!(examples[2].1.invoice_number.is_empty() && examples[2].1.supplier.name.is_empty());
+    assert!(examples[3].1.invoice_number.is_empty() && examples[3].1.supplier.name.is_empty());
 }
 
 // ---------- the rules tell the model how to weigh each kind of text ----------
