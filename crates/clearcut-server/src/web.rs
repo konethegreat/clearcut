@@ -10,11 +10,22 @@
 //!   document is shown with `textContent` only (a test fails if the script ever uses
 //!   `innerHTML`), so a document cannot put script in the page.
 
-use axum::http::{header, HeaderName, HeaderValue};
+use axum::http::{header, HeaderName, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
 
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; \
                    img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+// Crawlers and some browsers still ask for /favicon.ico even when the page links an SVG.
+const ROBOTS: &str = "User-agent: *\nAllow: /\nDisallow: /v1/\nDisallow: /health\n";
+
+// RFC 9116. The Expires date must be rotated; a test fails if this line disappears.
+const SECURITY_TXT: &str = "\
+Contact: https://github.com/konethegreat/clearcut/security/advisories/new
+Expires: 2027-04-30T00:00:00.000Z
+Policy: https://github.com/konethegreat/clearcut/blob/main/SECURITY.md
+Preferred-Languages: en
+";
 
 fn file(content_type: &'static str, body: &'static str) -> impl IntoResponse {
     (
@@ -52,6 +63,21 @@ pub(crate) async fn favicon() -> impl IntoResponse {
     file("image/svg+xml", include_str!("web/favicon.svg"))
 }
 
+pub(crate) async fn favicon_ico() -> impl IntoResponse {
+    (
+        StatusCode::MOVED_PERMANENTLY,
+        [(header::LOCATION, HeaderValue::from_static("/favicon.svg"))],
+    )
+}
+
+pub(crate) async fn robots() -> impl IntoResponse {
+    file("text/plain; charset=utf-8", ROBOTS)
+}
+
+pub(crate) async fn security_txt() -> impl IntoResponse {
+    file("text/plain; charset=utf-8", SECURITY_TXT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +98,8 @@ mod tests {
             ("/app.css", "text/css"),
             ("/app.js", "text/javascript"),
             ("/favicon.svg", "image/svg+xml"),
+            ("/robots.txt", "text/plain"),
+            ("/.well-known/security.txt", "text/plain"),
         ] {
             let (status, headers, body) = fetch(path).await;
             assert_eq!(status, StatusCode::OK, "{path}");
@@ -106,6 +134,35 @@ mod tests {
         ] {
             assert!(js.contains(marker), "{marker} in app.js");
         }
+    }
+
+    #[tokio::test]
+    async fn the_icon_request_is_redirected_to_the_svg() {
+        let (status, headers, _) = fetch("/favicon.ico").await;
+        assert_eq!(status, StatusCode::MOVED_PERMANENTLY);
+        assert_eq!(headers[header::LOCATION], "/favicon.svg");
+    }
+
+    #[tokio::test]
+    async fn the_records_crawl_and_security_readers_look_for_are_present() {
+        let (status, _, robots) = fetch("/robots.txt").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(robots.contains("Allow: /"));
+        assert!(robots.contains("Disallow: /v1/"), "{robots}");
+
+        let (status, _, security) = fetch("/.well-known/security.txt").await;
+        assert_eq!(status, StatusCode::OK);
+        for line in [
+            "Contact: https://github.com/konethegreat/clearcut/security/advisories/new",
+            "Expires: 2027-04-30T00:00:00.000Z",
+            "Policy: https://github.com/konethegreat/clearcut/blob/main/SECURITY.md",
+        ] {
+            assert!(security.contains(line), "{line} in security.txt");
+        }
+        assert!(
+            !security.contains("Canonical"),
+            "no host that will move when the deployment does"
+        );
     }
 
     #[tokio::test]

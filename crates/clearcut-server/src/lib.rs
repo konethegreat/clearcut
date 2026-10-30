@@ -41,6 +41,9 @@ pub fn routes() -> Router<AppState> {
         .route("/app.css", get(web::stylesheet))
         .route("/app.js", get(web::script))
         .route("/favicon.svg", get(web::favicon))
+        .route("/favicon.ico", get(web::favicon_ico))
+        .route("/robots.txt", get(web::robots))
+        .route("/.well-known/security.txt", get(web::security_txt))
         .route("/v1/whoami", get(whoami))
         .route(
             "/v1/documents",
