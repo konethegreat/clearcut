@@ -19,6 +19,8 @@ printpdf = { version = "0.12.8", default-features = false }
 rust_xlsxwriter = "0.101.0"
 serde_json = "1.0.154"
 thiserror = "2.0.21"
+time = "0.3.55"
 
 [dev-dependencies]
 zip = "9.1.2"
+time = { version = "0.3.55", features = ["macros"] }

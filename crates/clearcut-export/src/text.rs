@@ -144,7 +144,7 @@ fn html_table(out: &mut String, head: &[&str], numeric: &[bool], rows: Vec<Vec<S
     out.push_str("</tbody>\n</table>\n");
 }
 
-const STYLE: &str = "body{font:16px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1d2327}\
+pub(crate) const STYLE: &str = "body{font:16px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem;color:#1d2327}\
 h1{font-size:1.6rem;margin:0 0 .25rem}h2{font-size:1.15rem;margin:1.8rem 0 .5rem;border-bottom:1px solid #d9d6cf;padding-bottom:.2rem}\
 table{border-collapse:collapse;width:100%;margin:.5rem 0}th,td{text-align:left;padding:.35rem .6rem;border-bottom:1px solid #e4e1da;vertical-align:top}\
 th{font-size:.8rem;text-transform:uppercase;letter-spacing:.03em;color:#5f6b73}.num{text-align:right;white-space:nowrap}\
