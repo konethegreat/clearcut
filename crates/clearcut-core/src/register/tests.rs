@@ -4,6 +4,7 @@
 use super::*;
 use crate::event::{Citation, Confidence, DocumentId, Event, EventId, EventParts, EventPayload, Extractor};
 use crate::Money;
+use crate::TaxCategory;
 use std::num::NonZeroU32;
 use time::macros::date as d;
 
@@ -329,4 +330,299 @@ fn review_pages_duplicates_and_readers_are_carried() {
     assert_eq!(reading.document.duplicate_of.as_deref(), Some("earlier"));
     assert_eq!(reading.document.review_reasons, vec!["amounts_include_vat"]);
     assert_eq!(reading.document.read_by, vec!["ClearCut"]);
+}
+
+fn line_on(doc: &str, id: &str, page: u32, description: &str, quantity_milli: i64, unit_minor: i64) -> Event {
+    Event::new(EventParts {
+        id: EventId::new(format!("{doc}:{id}")),
+        date: Some(d!(2026 - 09 - 10)),
+        payload: EventPayload::LineItemBilled {
+            description: description.into(),
+            quantity_milli,
+            unit_price: zar(unit_minor),
+            line_total: zar(unit_minor * quantity_milli / 1_000),
+            tax_category: TaxCategory::Standard,
+        },
+        citation: Citation {
+            document: DocumentId::new(doc),
+            page: NonZeroU32::new(page).unwrap(),
+            locator: None,
+        },
+        extractor: Extractor::System,
+        confidence: Confidence::CERTAIN,
+        supersedes: None,
+    })
+    .unwrap()
+}
+
+fn vat_on(
+    doc: &str,
+    id: &str,
+    date: Option<time::Date>,
+    category: TaxCategory,
+    taxable: i64,
+    vat: i64,
+) -> Event {
+    event(
+        doc,
+        id,
+        date,
+        EventPayload::VatCalculated {
+            category,
+            taxable: zar(taxable),
+            rate_bps: category.rate_bps_in(crate::tax::ZA_VAT),
+            vat: zar(vat),
+        },
+        None,
+    )
+}
+
+fn totals_on(doc: &str, date: Option<time::Date>, net: i64, vat: i64, gross: i64) -> Event {
+    event(
+        doc,
+        "totals",
+        date,
+        EventPayload::TotalsStated {
+            net: zar(net),
+            vat: zar(vat),
+            gross: zar(gross),
+        },
+        None,
+    )
+}
+
+fn numbered(doc: &str, date: Option<time::Date>, number: &str) -> Event {
+    event(
+        doc,
+        "number",
+        date,
+        EventPayload::InvoiceNumberStated {
+            number: number.into(),
+        },
+        None,
+    )
+}
+
+#[test]
+fn a_line_row_carries_its_document_number_and_page() {
+    let reading = read(&facts(
+        "doc",
+        DocumentStatus::Done,
+        vec![
+            numbered("doc", Some(d!(2026 - 09 - 10)), "INV-1"),
+            line_on("doc", "l1", 1, "Consulting", 1_000, 100_000),
+            line_on("doc", "l2", 2, "Travel", 2_500, 10_000),
+        ],
+    ));
+    let rows = lines(&[reading]);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].number, 1);
+    assert_eq!(rows[0].invoice_number.as_deref(), Some("INV-1"));
+    assert_eq!(rows[0].quantity, "1");
+    assert_eq!(rows[0].line_total.minor, 100_000);
+    assert_eq!(rows[1].number, 2);
+    assert_eq!(rows[1].quantity, "2.5");
+    assert_eq!(rows[1].page, 2);
+    assert_eq!(rows[1].line_total.minor, 25_000);
+}
+
+#[test]
+fn vat_is_added_per_category_and_side() {
+    let on = Some(d!(2026 - 09 - 15));
+    let done = read(&facts(
+        "done",
+        DocumentStatus::Done,
+        vec![
+            numbered("done", on, "INV-1"),
+            vat_on("done", "std", on, TaxCategory::Standard, 100_000, 15_000),
+            vat_on("done", "zero", on, TaxCategory::ZeroRated, 50_000, 0),
+        ],
+    ));
+    let awaiting = read(&facts(
+        "awaiting",
+        DocumentStatus::NeedsReview,
+        vec![
+            numbered("awaiting", on, "INV-2"),
+            vat_on("awaiting", "std", on, TaxCategory::Standard, 20_000, 3_000),
+        ],
+    ));
+    let groups = vat_by_category(&[done, awaiting]).unwrap();
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].category, TaxCategory::Standard);
+    assert_eq!(groups[0].currency, "ZAR");
+    assert_eq!(groups[0].rate_bps, 1_500);
+    let ready = groups[0].ready.as_ref().unwrap();
+    assert_eq!(ready.documents, 1);
+    assert_eq!(ready.taxable.minor, 100_000);
+    assert_eq!(ready.vat.minor, 15_000);
+    assert_eq!(groups[0].awaiting.as_ref().unwrap().vat.minor, 3_000);
+    assert_eq!(groups[1].category, TaxCategory::ZeroRated);
+    assert!(groups[1].awaiting.is_none());
+}
+
+#[test]
+fn a_credit_note_is_kept_apart_from_an_invoice() {
+    let on = Some(d!(2026 - 09 - 16));
+    let invoice = read(&facts(
+        "inv",
+        DocumentStatus::Done,
+        vec![
+            numbered("inv", on, "INV-9"),
+            vat_on("inv", "vat", on, TaxCategory::Standard, 100_000, 15_000),
+        ],
+    ));
+    let credit = read(&facts(
+        "credit",
+        DocumentStatus::Done,
+        vec![
+            event(
+                "credit",
+                "ref",
+                on,
+                EventPayload::CreditNoteReferenced {
+                    original_invoice_number: "INV-1".into(),
+                    amount: zar(-115_000),
+                },
+                None,
+            ),
+            vat_on("credit", "vat", on, TaxCategory::Standard, -100_000, -15_000),
+        ],
+    ));
+    let groups = vat_by_category(&[invoice, credit]).unwrap();
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].kind, Kind::Invoice);
+    assert_eq!(groups[1].kind, Kind::CreditNote);
+    assert_eq!(groups[1].ready.as_ref().unwrap().vat.minor, -15_000);
+}
+
+#[test]
+fn a_document_without_a_date_is_left_out_of_the_sums() {
+    let source = facts(
+        "undated",
+        DocumentStatus::Done,
+        vec![
+            numbered("undated", None, "INV-3"),
+            totals_on("undated", None, 100_000, 15_000, 115_000),
+            vat_on("undated", "vat", None, TaxCategory::Standard, 100_000, 15_000),
+        ],
+    );
+    assert!(vat_by_category(&[read(&source)]).unwrap().is_empty());
+    assert!(stated_totals(&[read(&source)]).unwrap().is_empty());
+    assert!(reconciliation(&[read(&source)]).unwrap().is_empty());
+}
+
+#[test]
+fn a_mixed_currency_document_is_left_out_of_the_sums() {
+    // An event may not hold two currencies, so the disagreement is between two lines.
+    let on = Some(d!(2026 - 09 - 18));
+    let source = facts(
+        "mixed",
+        DocumentStatus::Done,
+        vec![
+            numbered("mixed", on, "INV-4"),
+            event(
+                "mixed",
+                "l1",
+                on,
+                EventPayload::LineItemBilled {
+                    description: "Consulting".into(),
+                    quantity_milli: 1_000,
+                    unit_price: zar(100_000),
+                    line_total: zar(100_000),
+                    tax_category: TaxCategory::Standard,
+                },
+                None,
+            ),
+            event(
+                "mixed",
+                "l2",
+                on,
+                EventPayload::LineItemBilled {
+                    description: "Travel".into(),
+                    quantity_milli: 1_000,
+                    unit_price: Money::new(15_000, crate::Currency::Usd),
+                    line_total: Money::new(15_000, crate::Currency::Usd),
+                    tax_category: TaxCategory::Standard,
+                },
+                None,
+            ),
+        ],
+    );
+    let reading = read(&source);
+    assert_eq!(reading.document.currency, None);
+    assert!(vat_by_category(&[reading]).unwrap().is_empty());
+}
+
+#[test]
+fn the_stated_totals_of_a_month_are_added_per_side() {
+    let on = Some(d!(2026 - 09 - 19));
+    let done = read(&facts(
+        "done",
+        DocumentStatus::Done,
+        vec![
+            numbered("done", on, "INV-1"),
+            totals_on("done", on, 100_000, 15_000, 115_000),
+        ],
+    ));
+    let awaiting = read(&facts(
+        "awaiting",
+        DocumentStatus::NeedsReview,
+        vec![
+            numbered("awaiting", on, "INV-2"),
+            totals_on("awaiting", on, 200_000, 30_000, 230_000),
+        ],
+    ));
+    let groups = stated_totals(&[done, awaiting]).unwrap();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].month, "2026-09");
+    assert_eq!(groups[0].currency, "ZAR");
+    let ready = groups[0].ready.as_ref().unwrap();
+    assert_eq!(ready.documents, 1);
+    assert_eq!(ready.gross.minor, 115_000);
+    let awaiting = groups[0].awaiting.as_ref().unwrap();
+    assert_eq!(awaiting.documents, 1);
+    assert_eq!(awaiting.gross.minor, 230_000);
+}
+
+#[test]
+fn the_vat_calculated_is_reconciled_with_the_vat_stated() {
+    let on = Some(d!(2026 - 09 - 20));
+    let agrees = read(&facts(
+        "agrees",
+        DocumentStatus::Done,
+        vec![
+            numbered("agrees", on, "INV-1"),
+            totals_on("agrees", on, 100_000, 15_000, 115_000),
+            vat_on("agrees", "vat", on, TaxCategory::Standard, 100_000, 15_000),
+        ],
+    ));
+    let disagrees = read(&facts(
+        "disagrees",
+        DocumentStatus::NeedsReview,
+        vec![
+            numbered("disagrees", on, "INV-2"),
+            totals_on("disagrees", on, 100_000, 14_000, 114_000),
+            vat_on("disagrees", "vat", on, TaxCategory::Standard, 100_000, 15_000),
+        ],
+    ));
+    let rows = reconciliation(&[agrees, disagrees]).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].calculated_vat.minor, 30_000);
+    assert_eq!(rows[0].stated_vat.minor, 29_000);
+    assert_eq!(rows[0].difference.minor, 1_000);
+    assert_eq!(rows[0].documents_disagree, 1);
+}
+
+#[test]
+fn a_document_with_no_calculated_vat_is_not_reconciled() {
+    let on = Some(d!(2026 - 09 - 21));
+    let only_stated = read(&facts(
+        "stated",
+        DocumentStatus::Done,
+        vec![
+            numbered("stated", on, "INV-7"),
+            totals_on("stated", on, 100_000, 15_000, 115_000),
+        ],
+    ));
+    assert!(reconciliation(&[only_stated]).unwrap().is_empty());
 }
