@@ -32,16 +32,16 @@ Both come from the repository's synthetic sample set, so nothing is invented and
 | Pages | 3 | 1 |
 | Lines | 9, standard VAT | 1, exempt (tuition) |
 | Ends | `done` | `needs_review` |
-| Shows | pages read, line arithmetic, 15% VAT, net plus VAT equals gross, SA tax-invoice fields, the report, the export | the arithmetic catching a printed gross that does not add up, and a person settling it |
+| Shows | pages read, line arithmetic, 15% VAT, net plus VAT equals gross, SA tax-invoice fields, the report, the export | a reading whose gross is R1.00 off the page, and a person settling it |
 
-BST-221's printed figures: net R12 500.00, VAT R0.00 (exempt), stated gross R12 501.00. Net plus VAT is R12 500.00, so the R1.00 difference is why the page waits for a person. Every amount in the demo is copied from the sample labels; no demo figure is made up.
+BST-221 prints net R12 500.00, VAT R0.00 (exempt) and a gross of R12 500.00. The demo's prepared reading of it states R12 501.00 for the gross, as the stored sample reading does. That figure is neither net plus VAT nor a figure the page shows, so the document is held. The review screen puts the printed R12 500.00 beside the read R12 501.00, and confirming replaces the reading with the printed figure. Every amount comes from the sample's own label or its stored reading; no demo figure is made up.
 
 **The journey for each sample:**
 
 1. Choose it from `#/demo`.
 2. A short timeline plays, about eight seconds, with a Skip control: file accepted, pages found, reading page 1 of 3, checking figures, then `done` or `held for review`. The steps use the real lifecycle names. The strip says the timeline is simulated.
 3. The document screen opens with the supplier, number, date, status, a figures-checked list, any warnings, and the report.
-4. For BST-221 a **Review this page** button opens the review screen: a recreated sample invoice drawn as HTML (so it reads well in dark mode) with the printed gross marked, the reading beside it, the reason it was held ("The printed gross is R1.00 more than net plus VAT"), and a **Confirm** button. Confirming finishes the demo document locally and changes its status to done. The screen says that in the real app this confirmation is recorded against the visitor's key and makes no model call.
+4. For BST-221 a **Review this page** button opens the review screen: a recreated sample invoice drawn as HTML (so it reads well in dark mode) with the printed gross marked, the reading beside it, the reason it was held ("The reading says R12 501.00; the page prints R12 500.00, and net plus VAT is R12 500.00"), and a **Confirm** button. Confirming finishes the demo document locally with the printed figure and changes its status to done. The screen says that in the real app this confirmation is recorded against the visitor's key and makes no model call.
 5. **Export** opens a panel with the prepared CSV or Markdown text and a Copy button. The text is generated in the browser from the prepared events and starts with a line saying it is sample data from the demo.
 
 ## 5. Isolation and honesty
