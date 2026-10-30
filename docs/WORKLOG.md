@@ -11,6 +11,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **Known limitation, recorded:** the text check is still page-level, so a kept zero-rated line's printed figures are not compared with the page text. Header figures and totals still are, and the page is reviewed. A per-line flag would need the extraction to remember which lines were divided, a larger shape question.
 - **Tests:** a mixed page divides its standard line and keeps its zero-rated one; zero-rated, exempt and out-of-scope lines each read as printed; a mixed slip reconciles its net against its own totals; a silent line beside an explicit zero-rated one is still refused; a refused page reports no line problems. Core 654, whole workspace green against local Postgres, clippy and fmt clean; no shape, prompt or contract change.
 - **Docs:** ADR-0024, a revision note on ADR-0023, the ADR index, ARCHITECTURE, CLAUDE.md and the LAUNCH universal-core row.
+- **Shipped and deployed.** Squash-merged as #118 (`c6013b9`); the VM pulled it, rebuilt the server image, and `/health`, `/` and `/v1/whoami` answered as expected. The served `app.js` carries the "divided the standard-rated lines by 1.15" copy.
 **Not done:** per-line text checking of derived amounts; a silent line on a mixed page; a second jurisdiction and how a document chooses it.
 
 ## 2026-10-30 (part 78) — prices that include VAT are divided out, and still meet a person
