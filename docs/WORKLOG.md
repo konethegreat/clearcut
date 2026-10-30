@@ -2,6 +2,21 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 76) — a clean public record, and the small things a scanner would notice
+**Checked**
+- **Reputation on the live host:** Google Safe Browsing reports nothing unsafe (`"sb.ssr",1`), URLScan has no scans of the host, AlienVault OTX has no pulses, and the certificate is a valid Let's Encrypt one for `145-241-100-85.sslip.io` (valid to 27 January 2027). URLhaus now requires an API key and was not used.
+- **What the site serves:** `/`, `/app.css`, `/app.js`, `/favicon.svg` and `/health` answer; every `/v1` route answers 401 without a key; `/admin`, `/docs`, `/sitemap.xml` are 404; there is no directory listing and no route that serves a stored document without a key.
+- **No active content:** `app.js` contains no `eval`, `new Function`, `atob`, `innerHTML` or `document.write`; the CSP forbids inline script and any other origin, and Chrome shows three requests, all to the page's own host.
+- **The VM:** only 22, 80 and 443 accept connections from outside; 8099 is bound to localhost only (the documented local address) and 5432, 8090 and 111 are filtered. `.env` and the admin key are `0600`, there is one authorised SSH key, no failed SSH passwords in seven days, no cron entries beyond the system defaults, the four expected containers are running, and the disk is 20 percent full.
+
+**Fixed**
+- **`/favicon.ico` now answers 301 to `/favicon.svg`** instead of a 404, which is what crawlers and some browsers were still asking for.
+- **`robots.txt`** allows the page and keeps crawlers out of `/v1/` and `/health`.
+- **`/.well-known/security.txt`** (RFC 9116) carries the private reporting contact, the policy link and an `Expires` date of 30 April 2027. It deliberately has no `Canonical` line, because this deployment's host will move.
+- **rpcbind is disabled and masked** on the VM. It was unused (no NFS mounts), reachable only behind the cloud firewall, and is the sort of service a scanner flags.
+- A web test covers the redirect, the two records and the expiry line; `docs/LAUNCH.md` gained section 7 with the keyless commands so the record can be rechecked, and the note that the record belongs to the hostname.
+**Not done:** the container images have not been scanned by a vulnerability tool (none installed); there is still no WAF or bot rule at an edge, which waits on a domain; and Google Search Console can only be refreshed from Kone's account.
+
 ## 2026-10-30 (part 75) — the site says who owns it, what it promises and what it does with a document
 **Done**
 - **A Trust page at `#/trust`, reachable signed out and signed in,** linked from the footer on every screen (including the demo). It states only what the repository can prove:

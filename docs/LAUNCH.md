@@ -83,3 +83,23 @@ These are the other parts of the ask (security, scale, a universal invoice core,
 | **Universal invoice core** | Tax that is not ZA VAT 15 percent (the rate and categories are hard-coded today), other currencies' rounding rules, line categories, statement-shaped documents, and the anonymised gold set that would let accuracy be measured | The gold set arrives, or a customer needs a jurisdiction besides South Africa |
 | **Legal and trust** | Terms of service, a published privacy notice, a copyright and ownership page, an acceptable-use and disclaimer page, the operator agreement, the Information Officer's details and a breach procedure, all reviewed by an attorney | Kone names the responsible party and finds the attorney ([docs/privacy/](privacy/README.md) holds the drafts). The site now has a factual `#/trust` page (ownership, licence, disclaimer, storage, security route), which is not a substitute for the reviewed notice |
 | **Product protection** | Licence clarity (Apache-2.0 today), a contribution policy, a security disclosure route (`SECURITY.md`), and the commercial terms if ClearCut is offered to others | The first paying or hosted user |
+
+## 7. Checking the public record
+Repeat these before and after any change that could look like abuse, and again when the site moves to a real domain. They need no account or key.
+```text
+# Google Safe Browsing status: "sb.ssr",1 means nothing unsafe was found.
+curl -s "https://transparencyreport.google.com/transparencyreport/api/v3/safebrowsing/status?site=<host>"
+
+# Scans already on record (empty is the clean answer).
+curl -s "https://urlscan.io/api/v1/search/?q=domain%3A<host>"
+curl -s "https://otx.alienvault.com/api/v1/indicators/domain/<host>/general"
+
+# The certificate and the redirect.
+echo | openssl s_client -servername <host> -connect <host>:443 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+curl -sSI https://<host>/ | grep -iE 'strict-transport|content-security|x-frame|referrer|permissions'
+```
+- **On 30 Oct 2026**, for `145-241-100-85.sslip.io`: Safe Browsing reported nothing unsafe, URLScan had no scans, OTX had no pulses, the certificate was a valid Let's Encrypt one for that name, and every security header was present.
+- **URLhaus now needs a key**, so it is not in the list.
+- **The record belongs to the hostname.** `sslip.io` is shared; once a real domain exists, check that name, not this one.
+- **`security.txt` expires on 30 April 2027.** Rotate the `Expires` line (and the test) before then.
+- **Clicking "Refresh" in Google Search Console** (Kone's account) is the only way to ask Google to recrawl after a change.
