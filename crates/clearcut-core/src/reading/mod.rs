@@ -469,17 +469,24 @@ impl Converter {
         derived_tax: Option<TaxCategory>,
     ) -> Vec<ExtractedLine> {
         if basis == ReadVatBasis::Yes && !raw.is_empty() {
-            // A page that says its prices include VAT can be split only when every line is
-            // standard-rated or says nothing, in which case the page's own statement settles
-            // it. A mixed page is refused, because the page does not say which lines were
-            // charged VAT. Either way the page goes to a person (ADR-0023).
-            let split = raw
+            // A line that bears no VAT needs no division: its printed amount is already the
+            // net. A line that says nothing is taken as standard only when no line on the page
+            // names a non-standard category; otherwise it is ambiguous and the page is refused
+            // (ADR-0024). Either way the page goes to a person.
+            let silent = raw.iter().any(|line| line.tax == ReadTax::NotShown);
+            let names_non_standard = raw
                 .iter()
-                .all(|line| matches!(line.tax, ReadTax::Standard | ReadTax::NotShown));
+                .any(|line| !matches!(line.tax, ReadTax::Standard | ReadTax::NotShown));
             let mut lines = Vec::new();
-            if split {
+            if !(silent && names_non_standard) {
                 for (index, line) in raw.iter().take(MAX_LINES_PER_PAGE).enumerate() {
-                    if let Some(line) = self.inclusive_line(index + 1, line) {
+                    let converted = match line.tax {
+                        ReadTax::Standard | ReadTax::NotShown => self.inclusive_line(index + 1, line),
+                        ReadTax::ZeroRated | ReadTax::Exempt | ReadTax::OutOfScope => {
+                            self.line(index + 1, line, None)
+                        }
+                    };
+                    if let Some(line) = converted {
                         lines.push(line);
                     }
                 }
@@ -512,11 +519,11 @@ impl Converter {
         self.line_with(number, raw, derived_tax, false)
     }
 
-    /// A line whose printed amounts include VAT. The unit price is divided at the profile's
-    /// standard rate and the line total is recomputed from the net price, so quantity times
-    /// price still equals the line total exactly (ADR-0023). The printed line total is not
-    /// used: it is the inclusive unit price times the quantity and adds nothing after the
-    /// division.
+    /// A standard-rated line whose printed amounts include VAT. The unit price is divided at
+    /// the profile's standard rate and the line total is recomputed from the net price, so
+    /// quantity times price still equals the line total exactly (ADR-0023, ADR-0024). The
+    /// printed line total is not used: it is the inclusive unit price times the quantity and
+    /// adds nothing after the division.
     fn inclusive_line(&mut self, number: usize, raw: &ReadLine) -> Option<ExtractedLine> {
         self.line_with(number, raw, Some(TaxCategory::Standard), true)
     }

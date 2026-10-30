@@ -1098,13 +1098,42 @@ fn the_vat_basis_is_required() {
 }
 
 #[test]
-fn a_mixed_vat_inclusive_page_is_not_split() {
-    // clean_reading() has one standard line and one zero-rated line: the page-level statement
-    // does not say which lines the VAT was charged on, so nothing is read (ADR-0023).
+fn a_mixed_vat_inclusive_page_divides_only_the_standard_lines() {
+    // clean_reading() has one standard line at R1 500.00 and one zero-rated line at
+    // R1 000.00. The zero-rated line carries no VAT, so its printed amount is already the
+    // net; only the standard line is divided (ADR-0024).
     let reading = PageReading {
         amounts_include_vat: ReadVatBasis::Yes,
         ..clean_reading()
     };
+    let conversion = convert(&reading);
+    let lines = &conversion.extraction.lines;
+    assert_eq!(lines.len(), 2);
+    // R1 500.00 includes 15% VAT: R1 304.35 net, and 10 x R1 304.35 is R13 043.50.
+    assert_eq!(lines[0].value.unit_price, Money::zar(130_435));
+    assert_eq!(lines[0].value.line_total, Money::zar(1_304_350));
+    assert_eq!(lines[0].value.tax, TaxCategory::Standard);
+    assert_eq!(lines[1].value.unit_price, Money::zar(100_000));
+    assert_eq!(lines[1].value.line_total, Money::zar(100_000));
+    assert_eq!(lines[1].value.tax, TaxCategory::ZeroRated);
+    assert_eq!(
+        conversion.problems,
+        vec![ReadingProblem {
+            path: "amounts_include_vat".into(),
+            kind: ProblemKind::AmountsIncludeVat,
+        }]
+    );
+}
+
+#[test]
+fn a_silent_line_beside_an_explicit_non_standard_one_is_still_ambiguous() {
+    // The zero-rated line is explicit, so the silent line cannot be assumed standard: the
+    // page does not say whether it was charged VAT (ADR-0024).
+    let mut reading = PageReading {
+        amounts_include_vat: ReadVatBasis::Yes,
+        ..clean_reading()
+    };
+    reading.lines[0].tax = ReadTax::NotShown;
     let conversion = convert(&reading);
     assert!(conversion.extraction.lines.is_empty());
     assert_eq!(
@@ -1119,6 +1148,62 @@ fn a_mixed_vat_inclusive_page_is_not_split() {
     assert!(conversion.extraction.stated_totals.is_some());
     assert!(conversion.extraction.invoice_number.is_some());
     assert!(conversion.extraction.due.is_some());
+}
+
+#[test]
+fn lines_that_bear_no_vat_are_read_as_printed_on_an_inclusive_page() {
+    for (tax, expected) in [
+        (ReadTax::ZeroRated, TaxCategory::ZeroRated),
+        (ReadTax::Exempt, TaxCategory::Exempt),
+        (ReadTax::OutOfScope, TaxCategory::OutOfScope),
+    ] {
+        let mut reading = inclusive_line("1", "115.00", "115.00");
+        reading.lines[0].tax = tax;
+        let conversion = convert(&reading);
+        let line = &conversion.extraction.lines[0].value;
+        assert_eq!(line.unit_price, Money::zar(11_500), "{tax:?}");
+        assert_eq!(line.line_total, Money::zar(11_500), "{tax:?}");
+        assert_eq!(line.tax, expected, "{tax:?}");
+    }
+}
+
+#[test]
+fn a_mixed_inclusive_slip_reconciles_against_its_own_totals() {
+    // Bread 2 x R14.99 and Milk 1 x R22.50 are standard; the rice is zero-rated. The net is
+    // 26.06 + 19.57 + 30.00 = 75.63, and 15% of 45.63 is 6.84.
+    let reading = PageReading {
+        amounts_include_vat: ReadVatBasis::Yes,
+        lines: vec![
+            line("Bread", "2", "14.99", "29.98", ReadTax::Standard),
+            line("Milk 1l", "1", "22.50", "22.50", ReadTax::Standard),
+            line("Brown rice", "1", "30.00", "30.00", ReadTax::ZeroRated),
+        ],
+        totals: ReadTotals {
+            net: "75.63".into(),
+            vat: "6.84".into(),
+            gross: "82.47".into(),
+        },
+        ..clean_reading()
+    };
+    let conversion = convert(&reading);
+    let lines = conversion
+        .extraction
+        .lines
+        .iter()
+        .map(|line| (line.value.unit_price, line.value.line_total, line.value.tax))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        vec![
+            (Money::zar(1_303), Money::zar(2_606), TaxCategory::Standard),
+            (Money::zar(1_957), Money::zar(1_957), TaxCategory::Standard),
+            (Money::zar(3_000), Money::zar(3_000), TaxCategory::ZeroRated),
+        ]
+    );
+    assert_eq!(
+        problems(&reading),
+        vec![path("amounts_include_vat", ProblemKind::AmountsIncludeVat)]
+    );
 }
 
 fn inclusive_line(quantity: &str, unit_price: &str, line_total: &str) -> PageReading {
@@ -1224,11 +1309,12 @@ fn amounts_that_exclude_vat_or_do_not_say_are_read_as_printed() {
 }
 
 #[test]
-fn a_mixed_page_reports_one_problem_and_no_line_problems() {
+fn a_refused_mixed_page_does_not_report_its_line_problems() {
     let mut reading = PageReading {
         amounts_include_vat: ReadVatBasis::Yes,
         ..clean_reading()
     };
+    reading.lines[0].tax = ReadTax::NotShown;
     reading.lines[0].unit_price = "abc".into();
     // The lines are not read at all, so their own problems are not reported twice.
     assert_eq!(

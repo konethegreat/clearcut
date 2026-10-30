@@ -982,7 +982,7 @@ const REASONS = {
   cannot_be_sent_safely: "The page could not be sent to the model safely, so nothing was sent.",
   request_rejected: "The model service rejected the request. This is a fault in ClearCut.",
   no_rung_available: "Your key can use none of the models ClearCut tries.",
-  amounts_include_vat: "The amounts on this page include VAT. ClearCut divided them by 1.15 to show them without VAT, so check a line or two against the original.",
+  amounts_include_vat: "The amounts on this page include VAT. ClearCut divided the standard-rated lines by 1.15 to show them without VAT, so check a line or two against the original.",
 };
 
 const KINDS = {
