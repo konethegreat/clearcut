@@ -57,7 +57,7 @@ pub struct Amount {
     pub text: String,
 }
 
-fn amount(money: crate::Money) -> Amount {
+pub(crate) fn amount(money: crate::Money) -> Amount {
     Amount {
         minor: money.minor,
         currency: money.currency.code().to_string(),
@@ -150,7 +150,7 @@ fn sentences(report: &Report) -> Vec<ModelSentence> {
         .collect()
 }
 
-fn who(extractor: &Extractor) -> String {
+pub(crate) fn who(extractor: &Extractor) -> String {
     match extractor {
         Extractor::Model { name, .. } => name.clone(),
         Extractor::Human { .. } => "a person".to_string(),
