@@ -1430,7 +1430,7 @@ fn reconciliation(readings: &[Reading]) -> Result<Vec<Reconciliation>, RegisterE
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p clearcut-core register`
-Expected: PASS, 17 tests (9 from Task 1, 8 here).
+Expected: PASS, 18 tests (9 from Task 1, 8 here, plus the still-reading test).
 
 - [ ] **Step 5: Commit**
 
@@ -1438,6 +1438,13 @@ Expected: PASS, 17 tests (9 from Task 1, 8 here).
 git add crates/clearcut-core/src/register
 git commit -m "feat(core): add register line rows, VAT groups and reconciliation"
 ```
+
+Review corrections already applied on this branch (do not redo them, and keep them when Task 3 edits the module):
+
+- `lines` skips a document whose status is neither `Done` nor `NeedsReview`, so a still-reading document has no line rows (spec section 5: a register row with its status and no figures). A test covers it.
+- `reconciliation` applies the same `taxable.currency != vat.currency` skip as `vat_by_category`, so both builders select the same events.
+- The grouping maps key on `Kind` and `TaxCategory` directly; `TaxCategory` gained `PartialOrd, Ord` in `crates/clearcut-core/src/tax.rs` (its declaration order matches the old discriminants, so output order is unchanged).
+- The mixed-currency test carries VAT and totals events so its assertions are not vacuous.
 
 ---
 
@@ -1851,7 +1858,7 @@ pub fn build(input: RegisterInput) -> Result<Register, RegisterError> {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cargo test -p clearcut-core register`
-Expected: PASS, 26 tests (17 from Task 2, 9 here).
+Expected: PASS, 27 tests (18 from Task 2, 9 here).
 
 - [ ] **Step 5: Commit**
 
