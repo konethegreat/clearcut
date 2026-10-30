@@ -5,6 +5,10 @@
 //! undated document is never put in a month; amounts are added only within one currency;
 //! credit notes stay apart from invoices; only `done` documents feed the ready figures and
 //! `needs_review` documents feed the awaiting ones.
+//!
+//! A document's date is the invoice date on the most recent current event that carries one.
+//! A document whose amounts disagree on currency gets a blank currency, a `mixed_currency`
+//! flag, and is left out of cross-document sums.
 
 use crate::document::DocumentStatus;
 use crate::escalation::ReviewReason;
@@ -326,22 +330,10 @@ fn read(facts: &RegisterFacts) -> Reading {
         Kind::Unclassified
     };
 
-    let line_amounts: Vec<crate::Money> = current
+    let amounts: Vec<crate::Money> = current
         .iter()
-        .filter_map(|event| match event.payload() {
-            EventPayload::LineItemBilled {
-                unit_price,
-                line_total,
-                ..
-            } => Some(vec![*unit_price, *line_total]),
-            _ => None,
-        })
-        .flatten()
+        .flat_map(|event| event.payload().money_fields())
         .collect();
-    let amounts = match totals {
-        Some((net, vat, gross)) => vec![net, vat, gross],
-        None => line_amounts,
-    };
     let currency = same_currency(&amounts);
     let mut flags = Vec::new();
     if !amounts.is_empty() && currency.is_none() {

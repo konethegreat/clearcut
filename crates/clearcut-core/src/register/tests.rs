@@ -115,7 +115,11 @@ fn the_latest_current_fact_wins() {
         },
         None,
     );
-    let reading = read(&facts("doc", DocumentStatus::Done, vec![old, corrected, totals]));
+    // The superseded event is listed after its correction, so only supersession can
+    // explain the reading.
+    let old_id = old.id().clone();
+    let reading = read(&facts("doc", DocumentStatus::Done, vec![corrected, old, totals]));
+    assert!(reading.current.iter().all(|event| event.id() != &old_id));
     assert_eq!(reading.document.supplier.as_deref(), Some("Right Name"));
     assert_eq!(
         reading.document.supplier_vat_number.as_deref(),
@@ -211,6 +215,97 @@ fn no_totals_leaves_the_amounts_blank_and_reads_currency_from_the_lines() {
     assert_eq!(reading.document.net, None);
     assert_eq!(reading.document.gross, None);
     assert_eq!(reading.document.line_count, 1);
+}
+
+#[test]
+fn totals_in_one_currency_do_not_hide_a_line_in_another() {
+    // ZAR totals with a USD line: the document's money events disagree.
+    let events = vec![
+        event(
+            "doc",
+            "totals",
+            Some(d!(2026 - 09 - 10)),
+            EventPayload::TotalsStated {
+                net: zar(100_000),
+                vat: zar(15_000),
+                gross: zar(115_000),
+            },
+            None,
+        ),
+        event(
+            "doc",
+            "line-1",
+            Some(d!(2026 - 09 - 10)),
+            EventPayload::LineItemBilled {
+                description: "Travel".into(),
+                quantity_milli: 1_000,
+                unit_price: Money::new(15_000, crate::Currency::Usd),
+                line_total: Money::new(15_000, crate::Currency::Usd),
+                tax_category: crate::TaxCategory::Standard,
+            },
+            None,
+        ),
+    ];
+    let reading = read(&facts("doc", DocumentStatus::Done, events));
+    assert_eq!(reading.document.currency, None);
+    assert!(reading.document.flags.contains(&"mixed_currency".to_string()));
+}
+
+#[test]
+fn readers_and_review_reasons_are_listed_once_in_first_met_order() {
+    let events = vec![
+        event(
+            "doc",
+            "supplier-1",
+            Some(d!(2026 - 09 - 11)),
+            EventPayload::SupplierIdentified {
+                name: "Acme".into(),
+                vat_number: None,
+            },
+            None,
+        ),
+        event(
+            "doc",
+            "supplier-2",
+            Some(d!(2026 - 09 - 11)),
+            EventPayload::SupplierIdentified {
+                name: "Acme".into(),
+                vat_number: None,
+            },
+            None,
+        ),
+        Event::new(EventParts {
+            id: EventId::new("doc:supplier-3".to_string()),
+            date: Some(d!(2026 - 09 - 11)),
+            payload: EventPayload::SupplierIdentified {
+                name: "Acme".into(),
+                vat_number: None,
+            },
+            citation: Citation {
+                document: DocumentId::new("doc"),
+                page: NonZeroU32::MIN,
+                locator: None,
+            },
+            extractor: Extractor::Human { user: "kone".into() },
+            confidence: Confidence::CERTAIN,
+            supersedes: None,
+        })
+        .unwrap(),
+    ];
+    let mut source = facts("doc", DocumentStatus::NeedsReview, events);
+    source.pages = vec![
+        PageReview {
+            page: 1,
+            reason: ReviewReason::AmountsIncludeVat,
+        },
+        PageReview {
+            page: 2,
+            reason: ReviewReason::AmountsIncludeVat,
+        },
+    ];
+    let reading = read(&source);
+    assert_eq!(reading.document.read_by, vec!["ClearCut", "a person"]);
+    assert_eq!(reading.document.review_reasons, vec!["amounts_include_vat"]);
 }
 
 #[test]
