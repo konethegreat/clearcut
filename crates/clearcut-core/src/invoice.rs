@@ -2,7 +2,7 @@
 use crate::error::{Error, Result};
 use crate::money::{Currency, Money};
 use crate::status::InvoiceStatus;
-use crate::tax::TaxCategory;
+use crate::tax::{TaxCategory, TaxProfile, ZA_VAT};
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -64,8 +64,14 @@ impl Invoice {
     }
 
     /// VAT is calculated per tax category on the category subtotal (not per
-    /// line) to avoid accumulating rounding differences.
+    /// line) to avoid accumulating rounding differences. The ZA profile is used;
+    /// a caller that prices another jurisdiction uses [`Invoice::totals_with`].
     pub fn totals(&self) -> Result<InvoiceTotals> {
+        self.totals_with(ZA_VAT)
+    }
+
+    /// [`Invoice::totals`] under a named jurisdiction's rules.
+    pub fn totals_with(&self, profile: TaxProfile) -> Result<InvoiceTotals> {
         if self.lines.is_empty() {
             return Err(Error::EmptyInvoice);
         }
@@ -82,7 +88,7 @@ impl Invoice {
                 subtotal = subtotal.checked_add(line.net()?)?;
             }
             net = net.checked_add(subtotal)?;
-            vat = vat.checked_add(subtotal.percent_bps(cat.rate_bps())?)?;
+            vat = vat.checked_add(subtotal.percent_bps(profile.rate_bps(cat))?)?;
         }
         Ok(InvoiceTotals {
             net,
@@ -125,6 +131,26 @@ mod tests {
         assert_eq!(t.net, Money::zar(1_600_000));
         assert_eq!(t.vat, Money::zar(225_000));
         assert_eq!(t.gross, Money::zar(1_825_000));
+    }
+
+    #[test]
+    fn another_jurisdiction_prices_the_standard_lines_its_own_way() {
+        let inv = Invoice::new(
+            "INV-000002",
+            Currency::Zar,
+            vec![line("Consulting", 10_000, 150_000, TaxCategory::Standard)], // 10 x R1 500
+        );
+        let za = inv.totals().unwrap();
+        assert_eq!(za.vat, Money::zar(225_000), "ZA VAT is still 15%");
+
+        let elsewhere = TaxProfile {
+            jurisdiction: "XX",
+            standard_rate_bps: 2_000,
+        };
+        let other = inv.totals_with(elsewhere).unwrap();
+        assert_eq!(other.net, za.net, "the net is the same");
+        assert_eq!(other.vat, Money::zar(300_000), "20% of R15 000");
+        assert_eq!(other.gross, Money::zar(1_800_000));
     }
 
     /// The pair TimeLex asked for (docs/integration/timelex.md): 1.5 hours at R333.33 is R499.995,

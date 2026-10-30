@@ -37,7 +37,7 @@ use crate::event::{
     BalanceRole, Citation, Confidence, DocumentId, Event, EventId, EventParts, EventPayload, Extractor,
     TotalField,
 };
-use crate::{Money, TaxCategory};
+use crate::{Money, TaxCategory, ZA_VAT};
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use time::Date;
@@ -146,8 +146,8 @@ pub fn derive_events(extraction: &Extraction, run: NonZeroU32, earlier: &[Event]
                 EventPayload::VatCalculated {
                     category,
                     taxable,
-                    rate_bps: category.rate_bps(),
-                    vat: taxable.percent_bps(category.rate_bps())?,
+                    rate_bps: category.rate_bps_in(ZA_VAT),
+                    vat: taxable.percent_bps(category.rate_bps_in(ZA_VAT))?,
                 },
                 Origin::calculated(first.citation(&x.document), weakest),
             )?;
