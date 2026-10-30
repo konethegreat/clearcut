@@ -109,6 +109,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_site_names_its_owner_and_what_it_does_with_a_document() {
+        let (status, _, js) = fetch("/app.js").await;
+        assert_eq!(status, StatusCode::OK);
+        for marker in [
+            "href: \"#/trust\"",
+            "function trustPage",
+            "Copyright 2026 Kone Tshivhinda",
+            "Apache-2.0",
+            "provided as is",
+            "not tax, legal or accounting advice",
+            "GitHub Security Advisories",
+            "separated by the database itself",
+            "erases the file and everything read from it",
+            "365 days by default",
+            "no analytics",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+        let route = js.find("hash === \"#/trust\"").expect("a trust route");
+        let sign_in = js.find("if (!key)").expect("the key check");
+        assert!(route < sign_in, "the trust page is routed before the key check");
+    }
+
+    #[tokio::test]
     async fn every_screen_says_the_software_is_still_alpha() {
         let (_, _, html) = fetch("/").await;
         assert!(html.contains("class=\"alpha\""), "the banner is in the page");

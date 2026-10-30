@@ -22,6 +22,8 @@ function setSignedIn(signedIn) {
 }
 
 footerLinks.append(
+  h("a", { href: "#/trust" }, "Trust"),
+  document.createTextNode(" · "),
   h("a", { href: REPO, rel: "noreferrer" }, "Source on GitHub"),
   document.createTextNode(" · Apache-2.0"),
 );
@@ -189,6 +191,38 @@ function openSection() {
       h("li", {}, h("b", {}, "Apache-2.0"), "Read it, run it, change it."),
       h("li", {}, h("b", {}, "One VM"), "Docker Compose on a single small server, with PostgreSQL beside it."),
       h("li", {}, h("b", {}, "Your data"), "Documents live on your disk, and deletion removes the file and everything read from it.")));
+}
+
+function trustPage() {
+  stopPolling();
+  setSignedIn(key !== null);
+  const item = (label, ...text) => h("li", {}, h("b", {}, label), h("span", {}, ...text));
+  show(h("div", { class: "home" },
+    h("section", { class: "section" },
+      h("div", { class: "section-head" },
+        h("p", { class: "eyebrow" }, "Trust"),
+        h("h2", {}, "Who runs ClearCut, and what it promises"),
+        h("p", {}, "Plain statements about ownership, the licence, what happens to your documents and how to report a problem. Each one describes what this repository does. The formal terms and privacy notice are still drafts, waiting on review by someone admitted to practise in South Africa.")),
+      h("ul", { class: "license-list" },
+        item("Owner", "ClearCut is written and operated by Kone Tshivhinda. Copyright 2026 Kone Tshivhinda."),
+        item("Licence", "Apache-2.0: you may read it, run it and change it. The ", h("a", { href: REPO + "/blob/main/LICENSE", rel: "noreferrer" }, "licence text"), " and the ", h("a", { href: REPO + "/blob/main/NOTICE", rel: "noreferrer" }, "third-party notices"), " travel with it."),
+        item("Alpha", "ClearCut is in active development. Screens and behaviour change without notice, and this instance makes no uptime promise."),
+        item("Warranty", "The software is provided as is, without warranties or conditions of any kind, as section 7 of the licence says. To the extent the law allows, nobody is liable for a loss caused by relying on it."),
+        item("Not advice", "ClearCut reads documents and checks figures. It is not tax, legal or accounting advice, and it does not replace a person."),
+        item("Figures", "A model can read a number wrongly, and a document can try to mislead it. Check every figure that matters against the original before you rely on it. Every reading cites its page, and an uncertain one waits for a person."),
+        item("Security", "Report a vulnerability privately through ", h("a", { href: REPO + "/security/advisories/new", rel: "noreferrer" }, "GitHub Security Advisories"), ". Do not open a public issue. You should hear back within 5 working days, and only main is supported."))),
+    h("section", { class: "section" },
+      h("div", { class: "section-head" },
+        h("p", { class: "eyebrow" }, "Your documents"),
+        h("h2", {}, "What is stored, what leaves, and how it goes")),
+      h("ul", { class: "license-list" },
+        item("Storage", "Documents live on the server the operator runs, in a database and a folder only that server reaches. Each account's rows are separated by the database itself, so another account cannot read or change them."),
+        item("Leaving", "Only the pages being read go to Anthropic, under the account's own key. Nothing goes anywhere else: the page loads no analytics, no third-party scripts and no fonts from a CDN. Bank and identity numbers are painted out of what is sent where the redaction policy finds them."),
+        item("Anthropic", "Prompts and outputs are not kept by default for the models ClearCut uses. The top model, Fable 5.1, keeps them for 30 days, is never used for training without permission, and is off by default here."),
+        item("Deletion", "Deleting a document erases the file and everything read from it. The audit entry stays, without content. This instance also erases documents after its retention period, 365 days by default."),
+        item("Your key", "Your ClearCut key stays in this page's memory. There is no cookie, so reloading signs you out."),
+        item("Who decides", "The person or organisation running this instance decides why documents are processed. ClearCut is software, not the responsible party; a request about a document goes to them."),
+        item("More", "The repository carries the ", h("a", { href: REPO + "/blob/main/docs/THREAT-MODEL.md", rel: "noreferrer" }, "threat model"), " and the ", h("a", { href: REPO + "/blob/main/docs/privacy/RETENTION-AND-DELETION.md", rel: "noreferrer" }, "retention and deletion notes"), ".")))));
 }
 
 function home(message) {
@@ -1281,6 +1315,7 @@ function route() {
   if (hash === "#/demo") return demoHome();
   const sample = hash.match(/^#\/demo\/([a-z0-9-]+)$/);
   if (sample) return demoPage(sample[1]);
+  if (hash === "#/trust") return trustPage();
   if (!key) return home("");
   setSignedIn(true);
   const match = hash.match(/^#\/d\/([0-9a-f-]{36})$/i);

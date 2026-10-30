@@ -19,6 +19,7 @@ _Kone Tshivhinda & Claude, 27 Oct 2026 (P2-19, P8-06)._
 5. **A breach procedure**: who is told, within what time, and how. The software records what happened (audit log) but does not notify anyone.
 
 ## What the software already does for privacy
+- The public site has a factual **`#/trust` page** (ownership, licence, warranty and advice disclaimer, the security reporting route, and what is stored, what leaves and how it is erased, written from this repository). It is not the reviewed notice below and says so.
 - Each account's data is separated at the database level and cannot be read by another account.
 - **Bank and identity numbers are painted out of what is sent to the model** where the redaction policy finds them (best effort; a stricter mode refuses such pages instead).
 - Documents are never used to give instructions; a page that tries is flagged for a person.
