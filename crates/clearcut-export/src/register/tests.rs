@@ -130,6 +130,14 @@ fn text_from_the_document_cannot_become_markup() {
     let html = String::from_utf8(render_register(RegisterFormat::Html, &register).unwrap().bytes).unwrap();
     assert!(!html.contains("<script>"));
     assert!(html.contains("&lt;script&gt;"));
+    let markdown = String::from_utf8(
+        render_register(RegisterFormat::Markdown, &register)
+            .unwrap()
+            .bytes,
+    )
+    .unwrap();
+    assert!(!markdown.contains("<script>"));
+    assert!(!markdown.contains("]("));
 }
 
 #[test]
@@ -139,5 +147,7 @@ fn the_same_figures_are_in_every_format() {
         let text = String::from_utf8(render_register(format, &register).unwrap().bytes).unwrap();
         assert!(text.contains("INV-1"), "{format:?}");
         assert!(text.contains("R1\u{a0}500.00"), "{format:?}");
+        assert!(text.contains("R1\u{a0}725.00"), "{format:?}");
+        assert!(text.contains("R225.00"), "{format:?}");
     }
 }

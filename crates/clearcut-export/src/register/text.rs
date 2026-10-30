@@ -2,7 +2,8 @@
 //! The register in JSON, HTML, Markdown and plain text.
 //!
 //! Names, descriptions and numbers that came off a document are data: HTML escapes every
-//! character that matters, and Markdown cannot take a `|` out of a table cell.
+//! character that matters, and Markdown backslash-escapes every character that could start
+//! markup or break a table cell.
 
 use crate::text::{esc, STYLE};
 use clearcut_core::export::Amount;
@@ -12,7 +13,7 @@ use time::Date;
 
 /// The canonical register file: every field, with exact minor units beside each amount.
 pub fn json(register: &Register) -> String {
-    serde_json::to_string_pretty(register).unwrap_or_default()
+    serde_json::to_string_pretty(register).expect("a register serialises")
 }
 
 fn date_text(date: Option<Date>) -> String {
@@ -55,10 +56,28 @@ pub fn html(register: &Register) -> String {
     }
     if register.manifest.undated_in_tenant > 0 {
         out.push_str(&format!(
-            "<p class=\"muted\">Documents with no invoice date in this account: {}.</p>\n",
+            "<p class=\"muted\">Documents with no invoice date in this account: {}. These \
+             documents are not part of any period and must be selected explicitly.</p>\n",
             register.manifest.undated_in_tenant
         ));
     }
+    out.push_str(&format!(
+        "<p class=\"muted\">Only ready documents: {}.</p>\n",
+        if register.manifest.only_ready { "yes" } else { "no" }
+    ));
+    if register.manifest.only_ready {
+        let left_out = register.manifest.awaiting_left_out;
+        out.push_str(&format!(
+            "<p class=\"muted\">{} document{} awaiting review {} left out.</p>\n",
+            left_out,
+            if left_out == 1 { "" } else { "s" },
+            if left_out == 1 { "was" } else { "were" }
+        ));
+    }
+    out.push_str(&format!(
+        "<p class=\"muted\">Documents with no invoice date in this selection: {}.</p>\n",
+        register.manifest.undated_in_selection
+    ));
 
     out.push_str("<h2>Documents</h2>\n<table>\n<thead><tr>");
     for head in [
@@ -233,8 +252,21 @@ pub fn html(register: &Register) -> String {
     out
 }
 
+/// Escapes every character that could start markup or break a table cell, and turns a line break
+/// or tab into a space so a cell stays on one line.
 fn md(text: &str) -> String {
-    text.replace('|', "\\|")
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '&' | '#' | '|' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '\r' | '\n' | '\t' => out.push(' '),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// The register as Markdown, for a note, a wiki or a git repository.
@@ -254,6 +286,30 @@ pub fn markdown(register: &Register) -> String {
             register.manifest.finished
         ));
     }
+    out.push_str(&format!(
+        "Only ready documents: {}.\n\n",
+        if register.manifest.only_ready { "yes" } else { "no" }
+    ));
+    if register.manifest.only_ready {
+        let left_out = register.manifest.awaiting_left_out;
+        out.push_str(&format!(
+            "{} document{} awaiting review {} left out.\n\n",
+            left_out,
+            if left_out == 1 { "" } else { "s" },
+            if left_out == 1 { "was" } else { "were" }
+        ));
+    }
+    out.push_str(&format!(
+        "Documents with no invoice date in this selection: {}.\n\n",
+        register.manifest.undated_in_selection
+    ));
+    if register.manifest.undated_in_tenant > 0 {
+        out.push_str(&format!(
+            "Documents with no invoice date in this account: {}. These documents are not part \
+             of any period and must be selected explicitly.\n\n",
+            register.manifest.undated_in_tenant
+        ));
+    }
 
     out.push_str("## Documents\n\n| Date | Supplier | Number | Kind | Status | Currency | Net | VAT | Gross | Lines |\n");
     out.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
@@ -263,8 +319,8 @@ pub fn markdown(register: &Register) -> String {
             md(&date_text(row.invoice_date)),
             md(row.supplier.as_deref().unwrap_or("")),
             md(row.invoice_number.as_deref().unwrap_or("")),
-            row.kind.label(),
-            row.status.as_str(),
+            md(row.kind.label()),
+            md(row.status.as_str()),
             md(row.currency.as_deref().unwrap_or("")),
             md(amount_text(row.net.as_ref())),
             md(amount_text(row.vat.as_ref())),
@@ -273,6 +329,14 @@ pub fn markdown(register: &Register) -> String {
         ));
     }
     out.push('\n');
+
+    // A page cannot usefully carry fifty thousand lines: the workbook and the bundle do.
+    if !register.lines.is_empty() {
+        out.push_str(&format!(
+            "{} line items are in the workbook and the CSV bundle.\n\n",
+            register.lines.len()
+        ));
+    }
 
     if !register.vat_by_category.is_empty() {
         out.push_str(
@@ -291,13 +355,42 @@ pub fn markdown(register: &Register) -> String {
                     "| {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
                     md(&group.month),
                     md(&group.currency),
-                    group.kind.label(),
+                    md(group.kind.label()),
                     md(tax_category(group.category)),
                     md(&rate_bps(group.rate_bps)),
                     name,
                     part.documents,
                     md(&part.taxable.text),
                     md(&part.vat.text)
+                ));
+            }
+        }
+        out.push('\n');
+    }
+
+    if !register.stated_totals.is_empty() {
+        out.push_str(
+            "## Stated totals\n\n| Month | Currency | Kind | Side | Documents | Net | VAT | Gross |\n",
+        );
+        out.push_str("| --- | --- | --- | --- | --- | --- | --- | --- |\n");
+        for group in &register.stated_totals {
+            for (name, part) in [
+                ("Ready", group.ready.as_ref()),
+                ("Awaiting review", group.awaiting.as_ref()),
+            ] {
+                let Some(part) = part else {
+                    continue;
+                };
+                out.push_str(&format!(
+                    "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
+                    md(&group.month),
+                    md(&group.currency),
+                    md(group.kind.label()),
+                    name,
+                    part.documents,
+                    md(&part.net.text),
+                    md(&part.vat.text),
+                    md(&part.gross.text)
                 ));
             }
         }
@@ -312,7 +405,7 @@ pub fn markdown(register: &Register) -> String {
                 "| {} | {} | {} | {} | {} | {} | {} |\n",
                 md(&row.month),
                 md(&row.currency),
-                row.kind.label(),
+                md(row.kind.label()),
                 md(&row.calculated_vat.text),
                 md(&row.stated_vat.text),
                 md(&row.difference.text),
@@ -338,7 +431,7 @@ pub fn markdown(register: &Register) -> String {
         }
         out.push('\n');
     }
-    out.push_str(&format!("---\n\n{}\n", register.notice));
+    out.push_str(&format!("---\n\n{}\n", md(register.notice)));
     out
 }
 
@@ -346,6 +439,7 @@ pub fn markdown(register: &Register) -> String {
 pub fn plain(register: &Register) -> String {
     let mut out = String::from("REGISTER\n");
     out.push_str(&format!("{}\n", register.selection.label()));
+    out.push_str(&format!("made by ClearCut {}\n", register.version));
     out.push_str(&format!(
         "{} documents, {} done, {} awaiting review, {} still reading\n",
         register.manifest.documents,
@@ -357,6 +451,30 @@ pub fn plain(register: &Register) -> String {
         out.push_str(&format!(
             "{} of finished documents needed nobody\n",
             rate_bps(rate)
+        ));
+    }
+    out.push_str(&format!(
+        "Only ready documents: {}\n",
+        if register.manifest.only_ready { "yes" } else { "no" }
+    ));
+    if register.manifest.only_ready {
+        let left_out = register.manifest.awaiting_left_out;
+        out.push_str(&format!(
+            "{} document{} awaiting review {} left out\n",
+            left_out,
+            if left_out == 1 { "" } else { "s" },
+            if left_out == 1 { "was" } else { "were" }
+        ));
+    }
+    out.push_str(&format!(
+        "Documents with no invoice date in this selection: {}\n",
+        register.manifest.undated_in_selection
+    ));
+    if register.manifest.undated_in_tenant > 0 {
+        out.push_str(&format!(
+            "Documents with no invoice date in this account: {}. These documents are not part \
+             of any period and must be selected explicitly.\n",
+            register.manifest.undated_in_tenant
         ));
     }
 
