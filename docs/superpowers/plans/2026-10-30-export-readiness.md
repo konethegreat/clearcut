@@ -4872,7 +4872,7 @@ Run: `CLEARCUT_UPDATE_CONTRACTS=1 cargo test -p clearcut-server openapi`
 Expected: PASS; `contracts/openapi.json` is rewritten with the new path.
 
 Run: `cargo test -p clearcut-server register`
-Expected: PASS, 11 tests: `the_key_is_checked_before_the_body_and_the_scope_is_documents_read`, `without_a_store_the_register_is_unavailable`, `the_default_file_is_an_excel_workbook_named_for_the_period`, `a_chosen_list_wins_over_a_period_and_names_the_file_for_the_selection`, `the_csv_bundle_is_a_zip_and_the_pdf_starts_with_pdf`, `only_ready_is_honoured_and_the_file_says_so`, `a_period_or_a_list_that_makes_no_sense_is_refused`, `a_period_over_the_limit_is_refused_with_a_sentence`, `a_format_that_does_not_exist_is_refused`, `a_named_document_that_is_not_the_accounts_is_not_found`, `an_id_that_is_not_a_document_id_is_refused`.
+Expected: PASS, 16 tests: `the_key_is_checked_before_the_body_and_the_scope_is_documents_read`, `without_a_store_the_register_is_unavailable`, `the_default_file_is_an_excel_workbook_named_for_the_period`, `a_chosen_list_wins_over_a_period_and_names_the_file_for_the_selection`, `the_csv_bundle_is_a_zip_and_the_pdf_starts_with_pdf`, `only_ready_is_honoured_and_the_file_says_so`, `a_period_or_a_list_that_makes_no_sense_is_refused`, `a_period_over_the_limit_is_refused_with_a_sentence`, `a_format_that_does_not_exist_is_refused`, `a_named_document_that_is_not_the_accounts_is_not_found`, `an_id_that_is_not_a_document_id_is_refused`, `a_body_that_is_not_json_is_refused_after_the_key_is_checked`, `repeated_document_ids_count_once`, `a_list_that_partly_matches_is_not_found`, `the_other_text_formats_and_the_period_edges`, `a_document_id_in_another_uuid_spelling_is_the_same_document`.
 
 Run: `cargo test -p clearcut-server`
 Expected: PASS, including the existing results tests against their new trait method and `every_documented_route_exists_and_every_protected_one_asks_for_a_key`.
@@ -4883,6 +4883,15 @@ Expected: PASS, including the existing results tests against their new trait met
 git add crates/clearcut-server/src/register.rs crates/clearcut-server/src/register crates/clearcut-server/src/lib.rs crates/clearcut-server/src/results/mod.rs crates/clearcut-server/src/results/tests.rs crates/clearcut-server/src/openapi.rs contracts/openapi.json
 git commit -m "feat(server): answer POST /v1/register with the register as a file"
 ```
+
+Review corrections already applied on this branch (keep them when Task 8 calls the endpoint):
+
+- The handler takes `body: Result<Json<RegisterRequest>, JsonRejection>` and checks the key before mapping a rejection, so a missing or under-scoped key wins over a malformed body (the house pattern in `review/mod.rs` and `anthropic_key/mod.rs`, and what the route/contract test's empty-body POST needs). Every rejection becomes one fixed 400 sentence, which a test now exercises.
+- `select` canonicalises each `document_ids` entry through `uuid::Uuid::parse_str` before the order-preserving dedupe, so any accepted UUID spelling names the same document and counts once; a non-UUID string passes through unchanged and the store's `InvalidSelectionId` still answers 400.
+- The named-list presence check compares canonical ids (and the count) and answers 404 if any requested document is missing, so a partly matching list never becomes a silently smaller register.
+- The OpenAPI 400 for this path names a body that is not a JSON object, an explicit empty `document_ids`, and amounts too large to add up.
+- The test fake formats fact ids in lowercase hex, filters a `Selection::Documents` to the named ids and numbers facts from 1, so the named-id rules are proven against something that behaves like the store.
+- Task 7 adds 16 tests, not 11; the five added ones are listed in the Expected line above.
 
 ### Task 8: The Register screen
 
