@@ -104,26 +104,26 @@ fn wrap(text: &str, size: f32, bold: bool, max: f32) -> Vec<String> {
     lines
 }
 
-struct Layout {
+pub(crate) struct Layout {
     pages: Vec<Vec<Op>>,
     y: f32,
 }
 
 #[derive(Clone, Copy)]
-struct Style {
+pub(crate) struct Style {
     size: f32,
     bold: bool,
     grey: bool,
 }
 
-const BODY: Style = Style {
+pub(crate) const BODY: Style = Style {
     size: 10.0,
     bold: false,
     grey: false,
 };
 
 impl Layout {
-    fn new() -> Layout {
+    pub(crate) fn new() -> Layout {
         Layout {
             pages: vec![Vec::new()],
             y: TOP,
@@ -202,7 +202,7 @@ impl Layout {
     }
 
     /// Wrapped text at the left margin (plus `indent`), a line after another.
-    fn paragraph(&mut self, text: &str, style: Style, indent: f32) {
+    pub(crate) fn paragraph(&mut self, text: &str, style: Style, indent: f32) {
         let lead = style.size * 1.35;
         for line in wrap(text, style.size, style.bold, CONTENT_W - indent) {
             self.room(lead);
@@ -212,7 +212,7 @@ impl Layout {
         }
     }
 
-    fn heading(&mut self, text: &str, size: f32) {
+    pub(crate) fn heading(&mut self, text: &str, size: f32) {
         // A heading is never left alone at the foot of a page: it needs its first lines with it.
         self.room(size * 3.0 + 60.0);
         self.y -= size * 0.6;
@@ -263,7 +263,14 @@ impl Layout {
     }
 
     /// A table: a header row, then rows whose cells wrap. `right` columns are right-aligned.
-    fn table(&mut self, head: &[&str], widths: &[f32], right: &[bool], rows: &[Vec<String>], size: f32) {
+    pub(crate) fn table(
+        &mut self,
+        head: &[&str],
+        widths: &[f32],
+        right: &[bool],
+        rows: &[Vec<String>],
+        size: f32,
+    ) {
         let lead = size * 1.3;
         let pad = 3.0;
         // Text that follows a right-aligned column starts a little further in, so the two do not run together.
@@ -339,6 +346,51 @@ impl Layout {
             Layout::rule(self.page(), line_y);
         }
         self.y -= 6.0;
+    }
+
+    /// The finished file: the notice and page numbers at the foot of every page, then the document.
+    pub(crate) fn finish(mut self, title: &str, notice: &str) -> Result<Vec<u8>, PdfError> {
+        let total = self.pages.len();
+        let small = Style {
+            size: 7.0,
+            bold: false,
+            grey: true,
+        };
+        for (i, ops) in self.pages.iter_mut().enumerate() {
+            let lines = wrap(notice, small.size, false, CONTENT_W - 60.0);
+            for (n, line) in lines.iter().enumerate() {
+                Layout::text_at(
+                    ops,
+                    MARGIN,
+                    MARGIN - 4.0 + 9.0 * (lines.len() - 1 - n) as f32,
+                    small,
+                    line,
+                );
+            }
+            let label = format!("Page {} of {}", i + 1, total);
+            Layout::text_at(
+                ops,
+                PAGE_W - MARGIN - width(&label, small.size, false),
+                MARGIN - 4.0,
+                small,
+                &label,
+            );
+        }
+
+        let mut doc = PdfDocument::new(&clean(title));
+        let pages: Vec<PdfPage> = self
+            .pages
+            .into_iter()
+            .map(|ops| PdfPage::new(Mm(210.0), Mm(297.0), ops))
+            .collect();
+        let mut warnings = Vec::new();
+        let bytes = doc
+            .with_pages(pages)
+            .save(&PdfSaveOptions::default(), &mut warnings);
+        if bytes.is_empty() {
+            return Err(PdfError);
+        }
+        Ok(bytes)
     }
 }
 
@@ -490,45 +542,5 @@ pub fn pdf(model: &ExportModel) -> Result<Vec<u8>, PdfError> {
     }
 
     // The footer goes on once the number of pages is known.
-    let total = layout.pages.len();
-    let small = Style {
-        size: 7.0,
-        bold: false,
-        grey: true,
-    };
-    for (i, ops) in layout.pages.iter_mut().enumerate() {
-        let notice = wrap(model.notice, small.size, false, CONTENT_W - 60.0);
-        for (n, line) in notice.iter().enumerate() {
-            Layout::text_at(
-                ops,
-                MARGIN,
-                MARGIN - 4.0 + 9.0 * (notice.len() - 1 - n) as f32,
-                small,
-                line,
-            );
-        }
-        let label = format!("Page {} of {}", i + 1, total);
-        Layout::text_at(
-            ops,
-            PAGE_W - MARGIN - width(&label, small.size, false),
-            MARGIN - 4.0,
-            small,
-            &label,
-        );
-    }
-
-    let mut doc = PdfDocument::new(&clean(&model.document.filename));
-    let pages: Vec<PdfPage> = layout
-        .pages
-        .into_iter()
-        .map(|ops| PdfPage::new(Mm(210.0), Mm(297.0), ops))
-        .collect();
-    let mut warnings = Vec::new();
-    let bytes = doc
-        .with_pages(pages)
-        .save(&PdfSaveOptions::default(), &mut warnings);
-    if bytes.is_empty() {
-        return Err(PdfError);
-    }
-    Ok(bytes)
+    layout.finish(&model.document.filename, model.notice)
 }
