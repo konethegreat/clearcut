@@ -34,14 +34,20 @@ pub(crate) struct RegisterRequest {
 }
 
 /// Which documents the request names, checked. The list wins over the period; the period's two
-/// ends go together; an end before the start is refused. Repeats in the list are counted once.
+/// ends go together; an end before the start is refused. Repeats of the same document in any
+/// accepted UUID spelling are counted once.
 fn select(body: &RegisterRequest) -> Result<Selection, ResultsProblem> {
     if let Some(ids) = &body.document_ids {
         let mut seen = std::collections::HashSet::new();
         let unique: Vec<String> = ids
             .iter()
-            .filter(|id| seen.insert(id.as_str()))
-            .cloned()
+            .map(|id| match uuid::Uuid::parse_str(id) {
+                // One spelling for the dedupe and for the store's canonical ids alike; an id
+                // that is not a UUID is left as it was, for the store to refuse.
+                Ok(id) => id.to_string(),
+                Err(_) => id.clone(),
+            })
+            .filter(|id| seen.insert(id.clone()))
             .collect();
         if unique.is_empty() {
             return Err(ResultsProblem::BadChoice(

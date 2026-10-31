@@ -29,7 +29,9 @@ struct Fake {
 impl Fake {
     fn fact(&self, n: usize) -> RegisterFacts {
         RegisterFacts {
-            id: format!("00000000-0000-0000-0000-{:012}", n + 1),
+            // Canonical lowercase hyphenated, as the store writes an id back: the last group is
+            // hex, so `n + 1 == 10` is `...000a`, the canonical spelling of `...000A`.
+            id: format!("00000000-0000-0000-0000-{:012x}", n + 1),
             filename: format!("invoice-{n}.pdf"),
             uploaded_at: OffsetDateTime::UNIX_EPOCH,
             status: DocumentStatus::Done,
@@ -88,11 +90,17 @@ impl Results for Arc<Fake> {
             if self.invalid_id {
                 return Err(Error::InvalidSelectionId("not-a-uuid".into()));
             }
+            let mut facts: Vec<RegisterFacts> = (0..self.facts).map(|n| self.fact(n)).collect();
+            // The real store takes a named list as a filter and hands the ids back canonical;
+            // the fake does the same, so a test can see which documents the request named.
+            if let Selection::Documents { ids } = selection {
+                facts.retain(|fact| ids.contains(&fact.id));
+            }
             Ok(RegisterInput {
                 selection: selection.clone(),
                 only_ready,
                 undated_in_tenant: 0,
-                facts: (0..self.facts).map(|n| self.fact(n)).collect(),
+                facts,
             })
         })
     }
@@ -314,6 +322,22 @@ async fn repeated_document_ids_count_once() {
     let (status, _, answer) = send(&app, post(Some(READER), &body)).await;
     assert_eq!(status, StatusCode::OK, "{answer}");
     assert_eq!(json(&answer)["manifest"]["documents"], 1);
+}
+
+#[tokio::test]
+async fn a_document_id_in_another_uuid_spelling_is_the_same_document() {
+    let app = app(&fake(10, false));
+    // The store reads an id with `Uuid::parse_str` and writes it back canonical, so the same
+    // document named in another accepted spelling must still be found.
+    for id in [
+        "00000000-0000-0000-0000-00000000000A",
+        "0000000000000000000000000000000A",
+    ] {
+        let body = serde_json::json!({ "document_ids": [id], "format": "json" }).to_string();
+        let (status, _, answer) = send(&app, post(Some(READER), &body)).await;
+        assert_eq!(status, StatusCode::OK, "{id}: {answer}");
+        assert_eq!(json(&answer)["manifest"]["documents"], 1, "{id}");
+    }
 }
 
 #[tokio::test]
