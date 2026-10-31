@@ -5325,6 +5325,15 @@ git add crates/clearcut-server/src/web/index.html crates/clearcut-server/src/web
 git commit -m "feat(web): add the Register screen with a preview and downloads"
 ```
 
+Review corrections already applied on this branch (keep them when Task 9 edits the same screen):
+
+- Each Documents checkbox is rebuilt with `checked: chosen.has(d.id)` and the "Make a register from these" button is re-synced after every render, so a tick survives the 3-second poll (commit `516009b`).
+- The period choice and both custom date inputs call `previewRegister()` on `change`, so the preview and the download buttons are built from the same request.
+- The checkbox stops `Enter` from reaching the row's key handler; Space still ticks it and the row's own Enter still opens the document.
+- `input[type="date"] { width: auto; min-width: 10.5rem; }` and a 1.15rem checkbox inside `td.choose` were added to the stylesheet.
+- The marker-only web test stays. The browser acceptance now covers the workbook's numeric cell, the two-document selection, the selection download names and the keyboard flows, against a seeded throwaway tenant.
+- Parked for the final review, both Minor: two quick period changes can resolve out of order and leave the earlier rows; the choose checkbox is 1.15rem, under the 24px guidance.
+
 ### Task 9: Bulk intake
 
 **Files:**
