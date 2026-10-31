@@ -694,8 +694,10 @@ function bulkCard(refresh) {
     input);
   const note = h("p", { class: "small muted" },
     "Each document is sent to Anthropic to be read and costs money. Files are uploaded one at a time; a failure does not stop the others.");
+  const batchNote = h("p", { class: "small muted" }, "");
   const list = h("div", {});
   const rows = [];
+  let running = false;
 
   function redraw() {
     list.replaceChildren(h("div", { class: "table-wrap" }, h("table", {},
@@ -771,27 +773,37 @@ function bulkCard(refresh) {
   }
 
   async function run(files) {
+    if (running) {
+      batchNote.textContent = "A batch is already running. Wait for it to finish, then choose the rest.";
+      return;
+    }
+    running = true;
+    batchNote.textContent = "";
     const batch = files.slice(0, 20);
-    if (files.length > 20) {
-      note.textContent = "Only the first 20 files were taken. Choose the rest in another batch.";
-    }
-    rows.length = 0;
-    for (const file of batch) {
-      rows.push({ file, documentId: null, state: h("td", {}, "Waiting"), act: h("td", {}) });
-    }
-    redraw();
-    for (const row of rows) {
-      try {
-        await uploadOne(row);
-      } catch (e) {
-        if (e instanceof AuthError) {
-          key = null;
-          setSignedIn(false);
-          return signIn(e.message);
+    try {
+      if (files.length > 20) {
+        batchNote.textContent = "Only the first 20 files were taken. Choose the rest in another batch.";
+      }
+      rows.length = 0;
+      for (const file of batch) {
+        rows.push({ file, documentId: null, state: h("td", {}, "Waiting"), act: h("td", {}) });
+      }
+      redraw();
+      for (const row of rows) {
+        try {
+          await uploadOne(row);
+        } catch (e) {
+          if (e instanceof AuthError) {
+            key = null;
+            setSignedIn(false);
+            return signIn(e.message);
+          }
         }
       }
+      if (refresh) refresh();
+    } finally {
+      running = false;
     }
-    if (refresh) refresh();
   }
 
   input.addEventListener("change", () => {
@@ -807,7 +819,7 @@ function bulkCard(refresh) {
     if (event.dataTransfer.files.length) run([...event.dataTransfer.files]);
   });
 
-  return h("div", {}, pick, note, list);
+  return h("div", {}, pick, note, batchNote, list);
 }
 
 // ---------------------------------------------------------------- 2. documents ----

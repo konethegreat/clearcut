@@ -281,6 +281,7 @@ mod tests {
             "multiple: true",
             "Try again",
             "Still reading",
+            "Wait for it to finish, then choose the rest.",
         ] {
             assert!(js.contains(marker), "{marker} in app.js");
         }
