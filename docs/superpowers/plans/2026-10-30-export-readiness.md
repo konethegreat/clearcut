@@ -3075,6 +3075,13 @@ git add crates/clearcut-export/Cargo.toml Cargo.lock crates/clearcut-export/src/
 git commit -m "feat(export): lay the register out as JSON, HTML, Markdown and text"
 ```
 
+Review corrections already applied on this branch (keep them when Task 6 edits the same files):
+
+- Markdown escapes every character that can start markup or a link (backslash, backtick, `*`, `_`, `[`, `]`, `<`, `>`, `&`, `#`, `|`) and collapses newlines and tabs to spaces; the notice goes through it too. A document string such as `[Pay](https://evil)` cannot become a link and `<script>` cannot survive as markup.
+- Markdown renders the stated totals table, the line-item caveat, and the version; all three human formats show `only_ready`, `awaiting_left_out`, `undated_in_selection` and `undated_in_tenant` with the "not part of any period, select explicitly" caveat.
+- JSON uses `expect("a register serialises")` instead of turning a failure into an empty file.
+- The format tests assert a stated-totals-only marker and an escaped-link fixture, so a dropped table or broken escaping fails.
+
 ### Task 6: The register in Excel, a zipped CSV bundle and PDF
 
 **Files:**
