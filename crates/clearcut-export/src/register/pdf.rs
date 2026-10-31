@@ -18,6 +18,7 @@ fn count(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
+/// The PDF: the tables a finance team reads, with nothing else in the way.
 pub fn pdf(register: &Register) -> Result<Vec<u8>, PdfError> {
     let mut layout = Layout::new();
     let title = format!("Register {}", register.selection.label());

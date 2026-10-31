@@ -32,6 +32,7 @@ fn money(
     Ok(())
 }
 
+/// The workbook: one sheet for every table, with the reconciliation beneath the VAT table.
 pub fn xlsx(register: &Register) -> Result<Vec<u8>, XlsxError> {
     let bold = Format::new().set_bold();
     let title = Format::new().set_bold().set_font_size(14);
@@ -258,8 +259,8 @@ pub fn xlsx(register: &Register) -> Result<Vec<u8>, XlsxError> {
         head(
             sheet,
             &bold,
-            &["Document", "Reason", "Page", "What to look at"],
-            &[34.0, 24.0, 6.0, 70.0],
+            &["Document", "Reason", "Page", "What to look at", "Document id"],
+            &[34.0, 24.0, 6.0, 70.0, 38.0],
         )?;
         for (i, row) in register.to_check.iter().enumerate() {
             let at = i as u32 + 1;
@@ -269,6 +270,7 @@ pub fn xlsx(register: &Register) -> Result<Vec<u8>, XlsxError> {
                 sheet.write_number(at, 2, f64::from(page))?;
             }
             sheet.write_string_with_format(at, 3, row.sentence.as_str(), &wrap)?;
+            sheet.write_string(at, 4, row.document_id.as_str())?;
         }
     }
 

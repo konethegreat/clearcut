@@ -287,6 +287,16 @@ fn text_in_the_bundle_cannot_become_a_formula() {
 }
 
 #[test]
+fn text_in_the_workbook_cannot_become_a_formula() {
+    let mut register = register();
+    register.rows[0].supplier = Some("=HYPERLINK(\"http://example.com\")".into());
+    let file = render_register(RegisterFormat::Xlsx, &register).unwrap();
+    let all: String = entries(file.bytes).into_iter().map(|(_, text)| text).collect();
+    assert!(all.contains("=HYPERLINK(\"http://example.com\")"));
+    assert!(!all.contains("<f>"));
+}
+
+#[test]
 fn the_register_pdf_is_a_pdf() {
     let file = render_register(RegisterFormat::Pdf, &register()).unwrap();
     assert_eq!(file.content_type, "application/pdf");

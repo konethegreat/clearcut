@@ -194,7 +194,7 @@ pub fn bundle(register: &Register) -> Result<Vec<u8>, ZipError> {
         ),
         (
             "manifest.json",
-            serde_json::to_string_pretty(&register.manifest).unwrap_or_default(),
+            serde_json::to_string_pretty(&register.manifest).expect("a register manifest serialises"),
         ),
     ];
 

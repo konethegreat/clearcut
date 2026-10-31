@@ -15,16 +15,24 @@ use clearcut_core::register::Register;
 /// The formats a register can be downloaded as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegisterFormat {
+    /// The canonical file, every field with exact minor units.
     Json,
+    /// A self-contained page with no script.
     Html,
+    /// Tables for a note, a wiki or a git repository.
     Markdown,
+    /// Lines for a terminal, an email or a quick check.
     Text,
+    /// A six-sheet Excel workbook.
     Xlsx,
+    /// A zipped bundle of CSV files plus the manifest as JSON.
     CsvBundle,
+    /// A PDF of the tables a finance team reads.
     Pdf,
 }
 
 impl RegisterFormat {
+    /// Every format, in the order the API lists them.
     pub const ALL: [RegisterFormat; 7] = [
         RegisterFormat::Json,
         RegisterFormat::Html,
@@ -56,6 +64,7 @@ impl RegisterFormat {
             .find(|format| format.name() == name)
     }
 
+    /// The file extension. The bundle's is `zip`, while its [`name`](Self::name) is `csv`.
     pub fn extension(self) -> &'static str {
         match self {
             RegisterFormat::Json => "json",
@@ -68,6 +77,7 @@ impl RegisterFormat {
         }
     }
 
+    /// The content type the file is served with.
     pub fn content_type(self) -> &'static str {
         match self {
             RegisterFormat::Json => "application/json",
