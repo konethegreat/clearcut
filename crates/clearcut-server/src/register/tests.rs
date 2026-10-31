@@ -29,7 +29,7 @@ struct Fake {
 impl Fake {
     fn fact(&self, n: usize) -> RegisterFacts {
         RegisterFacts {
-            id: format!("00000000-0000-0000-0000-{n:012}"),
+            id: format!("00000000-0000-0000-0000-{:012}", n + 1),
             filename: format!("invoice-{n}.pdf"),
             uploaded_at: OffsetDateTime::UNIX_EPOCH,
             status: DocumentStatus::Done,
@@ -296,4 +296,66 @@ async fn an_id_that_is_not_a_document_id_is_refused() {
     let app = app(&fake(0, true));
     let (status, _, _) = send(&app, post(Some(READER), r#"{"document_ids":["not-a-uuid"]}"#)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn a_body_that_is_not_json_is_refused_after_the_key_is_checked() {
+    let app = app(&fake(1, false));
+    let (status, _, body) = send(&app, post(Some(READER), "{not json")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (status, _, body) = send(&app, post(None, "{not json")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+}
+
+#[tokio::test]
+async fn repeated_document_ids_count_once() {
+    let app = app(&fake(1, false));
+    let body = serde_json::json!({ "document_ids": [ONE, ONE], "format": "json" }).to_string();
+    let (status, _, answer) = send(&app, post(Some(READER), &body)).await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(json(&answer)["manifest"]["documents"], 1);
+}
+
+#[tokio::test]
+async fn a_list_that_partly_matches_is_not_found() {
+    let app = app(&fake(1, false));
+    let body = serde_json::json!({
+        "document_ids": [ONE, "00000000-0000-0000-0000-000000000002"],
+        "format": "json",
+    })
+    .to_string();
+    let (status, _, answer) = send(&app, post(Some(READER), &body)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
+}
+
+#[tokio::test]
+async fn the_other_text_formats_and_the_period_edges() {
+    let app = app(&fake(1, false));
+    for (format, content_type, extension) in [
+        ("html", "text/html; charset=utf-8", "html"),
+        ("md", "text/markdown; charset=utf-8", "md"),
+        ("txt", "text/plain; charset=utf-8", "txt"),
+    ] {
+        let (status, headers, answer) = send(&app, post(Some(READER), &chosen(format))).await;
+        assert_eq!(status, StatusCode::OK, "{format}: {answer}");
+        assert_eq!(headers[header::CONTENT_TYPE], content_type, "{format}");
+        assert_eq!(
+            headers[header::CONTENT_DISPOSITION],
+            format!("attachment; filename=\"clearcut-register-selection.{extension}\""),
+            "{format}"
+        );
+    }
+
+    let (status, _, answer) = send(
+        &app,
+        post(
+            Some(READER),
+            r#"{"from":"2026-03-01","to":"2026-03-01","format":"json"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    let view = json(&answer);
+    assert_eq!(view["only_ready"], false);
+    assert_eq!(view["manifest"]["only_ready"], false);
 }

@@ -37,12 +37,12 @@ pub(crate) struct RegisterRequest {
 /// ends go together; an end before the start is refused. Repeats in the list are counted once.
 fn select(body: &RegisterRequest) -> Result<Selection, ResultsProblem> {
     if let Some(ids) = &body.document_ids {
-        let mut unique: Vec<String> = Vec::with_capacity(ids.len());
-        for id in ids {
-            if !unique.contains(id) {
-                unique.push(id.clone());
-            }
-        }
+        let mut seen = std::collections::HashSet::new();
+        let unique: Vec<String> = ids
+            .iter()
+            .filter(|id| seen.insert(id.as_str()))
+            .cloned()
+            .collect();
         if unique.is_empty() {
             return Err(ResultsProblem::BadChoice(
                 "document_ids must name at least one document",
@@ -124,10 +124,14 @@ pub(crate) async fn make_register(
     let tenant = TenantId(principal.tenant());
     let only_ready = body.only_ready.unwrap_or(false);
     let input = results.register(tenant, &selection, only_ready).await?;
-    if matches!(&selection, Selection::Documents { ids } if input.facts.len() != ids.len()) {
-        return Err(ResultsProblem::Store(Box::new(
-            clearcut_store::Error::DocumentNotFound,
-        )));
+    if let Selection::Documents { ids } = &selection {
+        let returned: std::collections::HashSet<&str> =
+            input.facts.iter().map(|fact| fact.id.as_str()).collect();
+        if input.facts.len() != ids.len() || ids.iter().any(|id| !returned.contains(id.as_str())) {
+            return Err(ResultsProblem::Store(Box::new(
+                clearcut_store::Error::DocumentNotFound,
+            )));
+        }
     }
     let register = build(input).map_err(why)?;
     tracing::info!(

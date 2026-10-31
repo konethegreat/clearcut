@@ -2108,7 +2108,7 @@
                 }
               }
             },
-            "description": "The dates, the list or the format make no sense, or the register is over 500 documents or 50 000 line items"
+            "description": "The body is not a JSON object, an explicit empty document_ids is refused, the dates, the list or the format make no sense, the amounts are too large to add up, or the register is over 500 documents or 50 000 line items"
           },
           "401": {
             "content": {
