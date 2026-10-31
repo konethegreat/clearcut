@@ -4254,7 +4254,7 @@ mod tests;
 
 Run: `cargo test -p clearcut-export register`
 
-Expected: PASS, 7 tests: `every_register_format_makes_a_file_of_the_right_kind`, `text_from_the_document_cannot_become_markup`, `the_same_figures_are_in_every_format`, `the_workbook_has_a_sheet_for_each_table_and_real_numbers`, `the_bundle_holds_a_file_for_every_table_and_the_manifest`, `text_in_the_bundle_cannot_become_a_formula`, `the_register_pdf_is_a_pdf`.
+Expected: PASS, 8 tests: `every_register_format_makes_a_file_of_the_right_kind`, `text_from_the_document_cannot_become_markup`, `the_same_figures_are_in_every_format`, `the_workbook_has_a_sheet_for_each_table_and_real_numbers`, `the_bundle_holds_a_file_for_every_table_and_the_manifest`, `text_in_the_bundle_cannot_become_a_formula`, `text_in_the_workbook_cannot_become_a_formula`, `the_register_pdf_is_a_pdf`.
 
 Run: `cargo test -p clearcut-export`
 
@@ -4266,6 +4266,15 @@ Expected: PASS. The report's own tests (including the PDF and the workbook) prov
 git add crates/clearcut-export/Cargo.toml Cargo.lock crates/clearcut-export/src/xlsx.rs crates/clearcut-export/src/pdf.rs crates/clearcut-export/src/register
 git commit -m "feat(export): lay the register out as a workbook, a CSV bundle and a PDF"
 ```
+
+Review corrections already applied on this branch (keep them when Task 7 consumes these formats):
+
+- `crate::pdf::Style` is `pub(crate)` as well as `Layout` and `BODY`: a `pub(crate) const BODY: Style` passed to a `pub(crate)` method makes the private type part of a crate-visible signature, which `clippy -D warnings` rejects.
+- The register PDF, like `register/xlsx.rs`, passes `tax_category()`'s `&'static str` straight through; the CSV and PDF row builders call `.to_string()` where a `String` is required.
+- zip 9.1.2's `ZipArchive::file_names()` yields `Result<Cow<str>, ZipError>`, so the test helper maps `|name| name.expect("a file name").into_owned()`.
+- The workbook's `To check` sheet ends with a `Document id` column, matching `to-check.csv`, so every workbook table with a document behind it is traceable.
+- The bundle writes `manifest.json` with `.expect("a register manifest serialises")`, never an empty file.
+- The register formats all carry one-line docs, as the Global Constraints require; the task adds 8 tests (Task 5's 3 plus 5 here, the workbook formula test included), so the export register module starts Task 7 at 8.
 
 ### Task 7: `POST /v1/register`
 
