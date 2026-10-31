@@ -182,6 +182,18 @@ pub fn document() -> Value {
             ], None,
             responses(ok_json("200", "The matches", json!({ "type": "object", "properties": { "query": { "type": "string" }, "matches": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "status": { "type": "string" }, "page_count": { "type": ["integer", "null"] }, "original_filename": { "type": "string" }, "created_at": { "type": "string" }, "event_id": { "type": "string" }, "type": { "type": "string" }, "page": { "type": "integer" }, "excerpt": { "type": "string" } } } } } })),
                 &with_auth(&[("400", "The query is too short or too long, or the limit is not 1 to 200")]))) },
+        "/v1/register": { "post": op("The register for a period or a list of documents, as a file: Excel, a zipped CSV bundle, JSON, PDF, HTML, Markdown or plain text", Some("documents:read"), vec![],
+            Some(json!({ "required": true, "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "from": { "type": "string", "format": "date", "description": "First day, included; give it with to" },
+                    "to": { "type": "string", "format": "date", "description": "Last day, included; give it with from" },
+                    "document_ids": { "type": "array", "items": { "type": "string" }, "maxItems": 500, "description": "Exactly these documents; wins over the period" },
+                    "format": { "type": "string", "enum": ["json", "html", "md", "txt", "xlsx", "csv", "pdf"], "default": "xlsx" },
+                    "only_ready": { "type": "boolean", "default": false, "description": "Leave out documents awaiting review, and say how many in the manifest" }
+                } } } } })),
+            responses(json!({ "200": { "description": "The file", "content": { "application/json": {}, "text/html": {}, "text/markdown": {}, "text/plain": {}, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}, "application/zip": {}, "application/pdf": {} } } }),
+                &with_auth(&[("400", "The body is not a JSON object, an explicit empty document_ids is refused, the dates, the list or the format make no sense, the amounts are too large to add up, or the register is over 500 documents or 50 000 line items"), ("404", "A named document is not this account's"), ("503", "The server has no store")]))) },
         "/v1/documents/{id}/events": { "get": op("The events as stored: the source of truth", Some("documents:read"), doc("id"), None,
             responses(ok_json("200", "Events and a one-line-each table", json!({ "type": "object", "properties": { "events": { "type": "array", "items": { "type": "object" } }, "table": { "type": "array", "items": { "type": "object" } } } })), &with_auth(&[("404", "Not found")]))) },
         "/v1/documents/{id}/report": { "get": op("The cited narration; every sentence names the events it comes from", Some("documents:read"),

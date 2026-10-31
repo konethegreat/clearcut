@@ -22,6 +22,7 @@ use axum::Json;
 use clearcut_core::auth::Scope;
 use clearcut_core::event::Event;
 use clearcut_core::narration::report::{narrate, NarrationMode};
+use clearcut_core::register::{RegisterInput, Selection};
 use clearcut_export::{render, DocumentFacts, ExportInput, Format};
 use clearcut_store::{DocId, DocumentInfo, DocumentSummary, SearchHit, Store, TenantId};
 use serde::Serialize;
@@ -51,6 +52,15 @@ pub trait Results: Send + Sync + 'static {
         query: &'a str,
         limit: u32,
     ) -> ResultsFuture<'a, Vec<SearchHit>>;
+
+    /// The documents a selection names, with their current events and the pages waiting for a
+    /// person, in the shape `clearcut_core::register::build` takes.
+    fn register<'a>(
+        &'a self,
+        tenant: TenantId,
+        selection: &'a Selection,
+        only_ready: bool,
+    ) -> ResultsFuture<'a, RegisterInput>;
 }
 
 impl Results for Store {
@@ -73,6 +83,15 @@ impl Results for Store {
         limit: u32,
     ) -> ResultsFuture<'a, Vec<SearchHit>> {
         Box::pin(async move { self.search_events(tenant, query, limit).await })
+    }
+
+    fn register<'a>(
+        &'a self,
+        tenant: TenantId,
+        selection: &'a Selection,
+        only_ready: bool,
+    ) -> ResultsFuture<'a, RegisterInput> {
+        Box::pin(async move { self.register_sources(tenant, selection, only_ready).await })
     }
 }
 
@@ -115,6 +134,9 @@ impl IntoResponse for ResultsProblem {
             ResultsProblem::Store(error) => match *error {
                 clearcut_store::Error::DocumentNotFound => {
                     message(StatusCode::NOT_FOUND, "document not found")
+                }
+                clearcut_store::Error::InvalidSelectionId(id) => {
+                    message(StatusCode::BAD_REQUEST, &format!("not a document id: {id}"))
                 }
                 other => {
                     tracing::error!(error = %other, "a document request failed");
