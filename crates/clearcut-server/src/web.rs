@@ -270,4 +270,23 @@ mod tests {
             assert!(!js.contains(forbidden), "{forbidden} in app.js");
         }
     }
+
+    #[tokio::test]
+    async fn the_upload_screen_takes_a_batch_and_says_what_it_costs() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "function bulkCard",
+            "up to 20 invoices",
+            "Each document is sent to Anthropic to be read and costs money.",
+            "multiple: true",
+            "Try again",
+            "Still reading",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+        // The batch path must not reintroduce markup from a file name or the server.
+        for forbidden in ["innerHTML", "outerHTML", "insertAdjacentHTML"] {
+            assert!(!js.contains(forbidden), "{forbidden} in app.js");
+        }
+    }
 }
