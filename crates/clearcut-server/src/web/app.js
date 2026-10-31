@@ -759,13 +759,14 @@ async function documents() {
                   h(
                     "tr",
                     { class: "click", tabindex: "0", onclick: () => (location.hash = "#/d/" + d.id), onkeydown: (e) => { if (e.key === "Enter") location.hash = "#/d/" + d.id; } },
-                    h("td", {}, h("input", { type: "checkbox", "aria-label": "Choose " + d.original_filename,
+                    h("td", { class: "choose" }, h("input", { type: "checkbox", checked: chosen.has(d.id), "aria-label": "Choose " + d.original_filename,
                       onclick: (event) => {
                         event.stopPropagation();
                         if (event.currentTarget.checked) chosen.add(d.id);
                         else chosen.delete(d.id);
                         makeRegister.disabled = chosen.size === 0;
-                      } })),
+                      },
+                      onkeydown: (event) => { if (event.key === "Enter") event.stopPropagation(); } })),
                     h("td", {}, d.original_filename),
                     h("td", {}, badge(d.status)),
                     h("td", { class: "num" }, d.page_count ?? "–"),
@@ -777,6 +778,7 @@ async function documents() {
           ),
         );
       }
+      makeRegister.disabled = chosen.size === 0;
       if (rows.some((d) => d.status === "received" || d.status === "processing")) timer = setTimeout(load, 3000);
     } catch (e) {
       const shown = failure(e, load);
@@ -1513,7 +1515,10 @@ function registerPage(chosenIds) {
     h("label", { for: "register-period" }, "Period"), choice, custom);
   choice.addEventListener("change", () => {
     custom.hidden = choice.value !== "custom";
+    previewRegister();
   });
+  from.addEventListener("change", previewRegister);
+  to.addEventListener("change", previewRegister);
   const chosenNote = h("p", { class: "small muted" },
     ids.length + (ids.length === 1 ? " chosen document." : " chosen documents."));
 
