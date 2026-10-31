@@ -280,7 +280,7 @@ p { margin: 0 0 14px; }
 }
 .narrow { max-width: 440px; margin: 48px auto; }
 label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 15px; }
-input[type="password"], input[type="text"], input[type="number"] {
+input[type="password"], input[type="text"], input[type="number"], input[type="date"] {
   width: 100%; padding: 11px 13px; font: inherit; color: var(--ink); background: var(--paper);
   border: 1px solid var(--rule-strong); border-radius: 8px;
 }
@@ -290,6 +290,8 @@ select {
   border: 1px solid var(--rule-strong); border-radius: 8px;
 }
 input:focus, select:focus { border-color: var(--accent); }
+input[type="date"] { width: auto; min-width: 10.5rem; }
+td.choose input[type="checkbox"] { width: 1.15rem; height: 1.15rem; }
 button, .button {
   font: 600 15px/1 var(--sans); cursor: pointer; padding: 12px 20px; border-radius: 8px;
   border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
