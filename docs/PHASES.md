@@ -75,7 +75,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not started. Estimates are rough, fo
 - ✅ P4-05 Word (.docx) editable report — **built**
 - ✅ P4-06 CSV (events, lines) and JSON (canonical) — **built** (CSV is the events; lines are in the Excel and Word files)
 - ✅ P4-07 Plain text, Markdown and HTML — **built**
-- ⬜ P4-08 Batch export (many documents → one workbook/zip)
+- ✅ P4-08 Batch export (many documents → one workbook/zip) — **built** (`POST /v1/register`: a period or a list of documents returns the register as an Excel workbook with Register, Lines, VAT by category, Stated totals, To check and Manifest, a zipped CSV bundle, JSON, PDF, HTML, Markdown or plain text; the Register screen previews it and downloads it)
 - 🔄 P4-09 MCP tool: `export_document` **built** (text formats inline; PDF, Excel and Word saved to a configured folder); SDK helpers remain
 
 ## Phase 5 — Dashboard and review UX (≈4 weeks)

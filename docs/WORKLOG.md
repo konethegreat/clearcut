@@ -2,6 +2,19 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-10-30 (part 81): a period register, and the files an accountant asks for
+**Done**
+- **One register from the stored events.** `POST /v1/register` takes a period (the invoice date is read from the events, so an invoice uploaded months late still lands in its own month) or a list of document ids, and answers with the register as a file. Every figure comes from the append-only events. Nothing is stored and no model is called.
+- **Six sheets.** The Excel workbook (`clearcut-export`) carries Register, Lines, VAT by category, Stated totals, To check and Manifest. Amounts are real numeric cells, never formulas.
+- **The other shapes.** A zipped CSV bundle with one table per file and `manifest.json`, plus JSON, PDF, HTML, Markdown and plain text. A CSV cell that starts with `=`, `+`, `-` or `@` gets an apostrophe in front, and HTML and PDF escape text from the document.
+- **Separate money, never netted.** Credit notes stay in their own group, currencies are never added together, undated documents are listed as exceptions instead of being put in a month, and documents that need review have their figures shown apart from the ones that are ready.
+- **The automation rate is on the manifest**, with the counts behind it, so a period shows what it cost a person to finish.
+- **A Register screen.** A period picker or the documents ticked in the list; a preview that agrees with the downloaded JSON; buttons for Excel, the CSV bundle, JSON and PDF.
+- **Bulk intake.** Up to 20 files at once, uploaded one after another, with a row per file. A retry never uploads a file twice: if the upload succeeded, the row follows the document instead.
+- **Tests:** core rules, the store selection against two tenants, every layout, the endpoint (content types, filenames, 400/403/404/503), the Register screen markers and bulk intake; the workspace is green against local Postgres, clippy and fmt clean, and the OpenAPI contract is current.
+- **Docs:** PHASES (P4-08 ✅), ARCHITECTURE (the export crate, the endpoint), LAUNCH (row 3), this entry.
+**Not done:** the Excel workbook has been checked by its XML and the PDF by its bytes, not opened by hand in Excel or a PDF viewer; the register has been tried on synthetic events and the local stack, not on a customer's documents; native accounting files, a VAT201 form, input and output classification, statement support, line categorisation, scheduled or emailed registers and stored export archives remain (spec §14); the MCP export tool (P4-09) is still open.
+
 ## 2026-10-30 (part 80) — the model gets a worked mixed till slip
 **Done**
 - **`prompt-v3` adds a fourth example: a slip where standard goods and a zero-rated staple carry one "all prices include VAT" statement.** The output marks the two standard lines `standard` and the rice `zero_rated`, with every amount as printed. That is the classification the new mixed-page rule depends on, shown rather than only described. The rules are unchanged; only the examples gain one. The renamed golden is `prefix-prompt-v3.txt`, 12 031 bytes, still one cached block.
