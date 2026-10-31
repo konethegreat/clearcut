@@ -44,7 +44,7 @@ fn register() -> Register {
                 doc,
                 "supplier",
                 EventPayload::SupplierIdentified {
-                    name: "<script>alert(1)</script>".into(),
+                    name: "<script>alert(1)</script> [Pay](https://evil)".into(),
                     vat_number: Some("4123456789".into()),
                 },
             ),
@@ -130,6 +130,9 @@ fn text_from_the_document_cannot_become_markup() {
     let html = String::from_utf8(render_register(RegisterFormat::Html, &register).unwrap().bytes).unwrap();
     assert!(!html.contains("<script>"));
     assert!(html.contains("&lt;script&gt;"));
+    // Brackets are plain text in HTML, so a Markdown link cannot form: there is no anchor.
+    assert!(!html.contains("href=\"https://evil\""));
+
     let markdown = String::from_utf8(
         render_register(RegisterFormat::Markdown, &register)
             .unwrap()
@@ -137,7 +140,14 @@ fn text_from_the_document_cannot_become_markup() {
     )
     .unwrap();
     assert!(!markdown.contains("<script>"));
-    assert!(!markdown.contains("]("));
+    assert!(markdown.contains("\\<script\\>"));
+    // The document-derived supplier name carries a Markdown link; every bracket must be escaped.
+    assert!(!markdown.contains("[Pay]("));
+    assert!(markdown.contains("\\[Pay\\]("));
+
+    // JSON is data, not markup: the payload is preserved verbatim instead of escaped.
+    let json = String::from_utf8(render_register(RegisterFormat::Json, &register).unwrap().bytes).unwrap();
+    assert!(json.contains("[Pay](https://evil)"));
 }
 
 #[test]
@@ -145,6 +155,18 @@ fn the_same_figures_are_in_every_format() {
     let register = register();
     for format in RegisterFormat::ALL {
         let text = String::from_utf8(render_register(format, &register).unwrap().bytes).unwrap();
+        // The figures below also appear in the Documents and To check sections, so each format
+        // needs its own marker that only the stated totals section provides.
+        let totals_marker = match format {
+            RegisterFormat::Json => "\"stated_totals\"",
+            RegisterFormat::Html => "<h2>Stated totals</h2>",
+            RegisterFormat::Markdown => "## Stated totals",
+            RegisterFormat::Text => "STATED TOTALS",
+        };
+        assert!(
+            text.contains(totals_marker),
+            "{format:?} carries its stated totals section"
+        );
         assert!(text.contains("INV-1"), "{format:?}");
         assert!(text.contains("R1\u{a0}500.00"), "{format:?}");
         assert!(text.contains("R1\u{a0}725.00"), "{format:?}");
