@@ -99,6 +99,15 @@ impl Results for Arc<Fake> {
             })
         })
     }
+
+    fn register<'a>(
+        &'a self,
+        _tenant: TenantId,
+        _selection: &'a Selection,
+        _only_ready: bool,
+    ) -> ResultsFuture<'a, RegisterInput> {
+        Box::pin(async { unreachable!("the register has its own tests") })
+    }
 }
 
 fn app(fake: &Arc<Fake>) -> Router {

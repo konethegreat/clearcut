@@ -11,6 +11,7 @@ mod guard;
 mod jobs;
 pub mod openapi;
 mod rate_limit;
+mod register;
 mod results;
 mod review;
 mod web;
@@ -55,6 +56,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/v1/documents/{id}/events", get(results::get_events))
         .route("/v1/search", get(results::search))
+        .route("/v1/register", post(register::make_register))
         .route("/v1/documents/{id}/report", get(results::get_report))
         .route("/v1/documents/{id}/export", get(results::export_document))
         .route("/v1/documents/{id}/jobs", get(jobs::list_for_document))

@@ -2036,6 +2036,151 @@
         "x-required-scope": "documents:write"
       }
     },
+    "/v1/register": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "document_ids": {
+                    "description": "Exactly these documents; wins over the period",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 500,
+                    "type": "array"
+                  },
+                  "format": {
+                    "default": "xlsx",
+                    "enum": [
+                      "json",
+                      "html",
+                      "md",
+                      "txt",
+                      "xlsx",
+                      "csv",
+                      "pdf"
+                    ],
+                    "type": "string"
+                  },
+                  "from": {
+                    "description": "First day, included; give it with to",
+                    "format": "date",
+                    "type": "string"
+                  },
+                  "only_ready": {
+                    "default": false,
+                    "description": "Leave out documents awaiting review, and say how many in the manifest",
+                    "type": "boolean"
+                  },
+                  "to": {
+                    "description": "Last day, included; give it with from",
+                    "format": "date",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {},
+              "application/pdf": {},
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {},
+              "application/zip": {},
+              "text/html": {},
+              "text/markdown": {},
+              "text/plain": {}
+            },
+            "description": "The file"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The dates, the list or the format make no sense, or the register is over 500 documents or 50 000 line items"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No valid key (the answer is identical for every failure)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The key lacks the required scope"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A named document is not this account's"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "retry_after_seconds": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "This account has used its requests for the minute; Retry-After says how long to wait",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The server has no store"
+          }
+        },
+        "summary": "The register for a period or a list of documents, as a file: Excel, a zipped CSV bundle, JSON, PDF, HTML, Markdown or plain text",
+        "x-required-scope": "documents:read"
+      }
+    },
     "/v1/search": {
       "get": {
         "parameters": [
