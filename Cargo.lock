@@ -554,6 +554,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde_json",
  "thiserror",
+ "time",
  "zip 9.1.2",
 ]
 

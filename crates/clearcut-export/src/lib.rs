@@ -12,12 +12,14 @@
 
 mod docx;
 mod pdf;
+mod register;
 mod text;
 mod xlsx;
 
 use clearcut_core::event::Event;
 use clearcut_core::export::build;
 pub use clearcut_core::export::{DocumentFacts, ExportModel};
+pub use register::{render_register, RegisterFormat};
 
 /// The formats a document can be downloaded as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

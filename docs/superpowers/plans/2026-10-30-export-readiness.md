@@ -3075,6 +3075,13 @@ git add crates/clearcut-export/Cargo.toml Cargo.lock crates/clearcut-export/src/
 git commit -m "feat(export): lay the register out as JSON, HTML, Markdown and text"
 ```
 
+Review corrections already applied on this branch (keep them when Task 6 edits the same files):
+
+- Markdown escapes every character that can start markup or a link (backslash, backtick, `*`, `_`, `[`, `]`, `<`, `>`, `&`, `#`, `|`) and collapses newlines and tabs to spaces; the notice goes through it too. A document string such as `[Pay](https://evil)` cannot become a link and `<script>` cannot survive as markup.
+- Markdown renders the stated totals table, the line-item caveat, and the version; all three human formats show `only_ready`, `awaiting_left_out`, `undated_in_selection` and `undated_in_tenant` with the "not part of any period, select explicitly" caveat.
+- JSON uses `expect("a register serialises")` instead of turning a failure into an empty file.
+- The format tests assert a stated-totals-only marker and an escaped-link fixture, so a dropped table or broken escaping fails.
+
 ### Task 6: The register in Excel, a zipped CSV bundle and PDF
 
 **Files:**
@@ -4247,7 +4254,7 @@ mod tests;
 
 Run: `cargo test -p clearcut-export register`
 
-Expected: PASS, 7 tests: `every_register_format_makes_a_file_of_the_right_kind`, `text_from_the_document_cannot_become_markup`, `the_same_figures_are_in_every_format`, `the_workbook_has_a_sheet_for_each_table_and_real_numbers`, `the_bundle_holds_a_file_for_every_table_and_the_manifest`, `text_in_the_bundle_cannot_become_a_formula`, `the_register_pdf_is_a_pdf`.
+Expected: PASS, 8 tests: `every_register_format_makes_a_file_of_the_right_kind`, `text_from_the_document_cannot_become_markup`, `the_same_figures_are_in_every_format`, `the_workbook_has_a_sheet_for_each_table_and_real_numbers`, `the_bundle_holds_a_file_for_every_table_and_the_manifest`, `text_in_the_bundle_cannot_become_a_formula`, `text_in_the_workbook_cannot_become_a_formula`, `the_register_pdf_is_a_pdf`.
 
 Run: `cargo test -p clearcut-export`
 
@@ -4259,6 +4266,15 @@ Expected: PASS. The report's own tests (including the PDF and the workbook) prov
 git add crates/clearcut-export/Cargo.toml Cargo.lock crates/clearcut-export/src/xlsx.rs crates/clearcut-export/src/pdf.rs crates/clearcut-export/src/register
 git commit -m "feat(export): lay the register out as a workbook, a CSV bundle and a PDF"
 ```
+
+Review corrections already applied on this branch (keep them when Task 7 consumes these formats):
+
+- `crate::pdf::Style` is `pub(crate)` as well as `Layout` and `BODY`: a `pub(crate) const BODY: Style` passed to a `pub(crate)` method makes the private type part of a crate-visible signature, which `clippy -D warnings` rejects.
+- The register PDF, like `register/xlsx.rs`, passes `tax_category()`'s `&'static str` straight through; the CSV and PDF row builders call `.to_string()` where a `String` is required.
+- zip 9.1.2's `ZipArchive::file_names()` yields `Result<Cow<str>, ZipError>`, so the test helper maps `|name| name.expect("a file name").into_owned()`.
+- The workbook's `To check` sheet ends with a `Document id` column, matching `to-check.csv`, so every workbook table with a document behind it is traceable.
+- The bundle writes `manifest.json` with `.expect("a register manifest serialises")`, never an empty file.
+- The register formats all carry one-line docs, as the Global Constraints require; the task adds 8 tests (Task 5's 3 plus 5 here, the workbook formula test included), so the export register module starts Task 7 at 8.
 
 ### Task 7: `POST /v1/register`
 

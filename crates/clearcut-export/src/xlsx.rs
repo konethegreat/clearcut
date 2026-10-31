@@ -11,11 +11,16 @@ use rust_xlsxwriter::{Format, Workbook, Worksheet, XlsxError};
 
 /// A cell's number from exact minor units. Only here, for the spreadsheet's own number type; the
 /// value is an exact multiple of a cent and stays exact for any amount a spreadsheet can show.
-fn units(amount: &Amount) -> f64 {
+pub(crate) fn units(amount: &Amount) -> f64 {
     amount.minor as f64 / 100.0
 }
 
-fn head(sheet: &mut Worksheet, bold: &Format, titles: &[&str], widths: &[f64]) -> Result<(), XlsxError> {
+pub(crate) fn head(
+    sheet: &mut Worksheet,
+    bold: &Format,
+    titles: &[&str],
+    widths: &[f64],
+) -> Result<(), XlsxError> {
     for (col, title) in titles.iter().enumerate() {
         let col = col as u16;
         sheet.write_string_with_format(0, col, *title, bold)?;
