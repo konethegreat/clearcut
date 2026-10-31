@@ -5566,6 +5566,13 @@ git add crates/clearcut-server/src/web/app.js crates/clearcut-server/src/web.rs
 git commit -m "feat(web): upload a batch of invoices one after another"
 ```
 
+Review corrections already applied on this branch (keep them when Task 10 touches the screens):
+
+- A `running` guard refuses a second batch while one is going with "A batch is already running. Wait for it to finish, then choose the rest.", so a second `run` cannot rewrite `rows` under the first and send a file twice (commit `7c506c2`).
+- The over-20 message goes to its own `batchNote`, never to the cost sentence, so "Each document is sent to Anthropic to be read and costs money..." stays on screen for every batch.
+- Step 6 was done without a worker and with no model call: the synthetic files were byte-identical, every upload deduplicated to the one stored document, and its status was set in the database so the poll completed. The retry path was proven by going offline mid-poll and back, then retrying: GET requests only, no second upload.
+- Parked for the final review, all Minor: a finished batch leaves "A batch is already running..." showing until the next run; the `batchNote` paragraph stays empty (but present) after a small batch; the marker test does not cover the `running` guard; every `bulkCard` has its own `running`, and a `follow` loop outlives the page that started it.
+
 ### Task 10: Documentation, delivery and the live check
 
 **Files:**

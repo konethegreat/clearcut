@@ -680,6 +680,148 @@ function demoEndCard() {
       h("a", { href: REPO, rel: "noreferrer" }, "Read the source")));
 }
 
+// ---------------------------------------------------------------- bulk intake ----
+
+// Several files, one after another through the same upload call. A failure on one does not stop
+// the rest. The batch is capped because every document that is read is sent to Anthropic and
+// costs money; the screen says so before anything is chosen.
+function bulkCard(refresh) {
+  const input = h("input", { type: "file", multiple: true,
+    accept: ".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" });
+  const pick = h("label", { class: "drop" },
+    h("strong", {}, "Choose up to 20 invoices"),
+    " to upload one after another, or drop them here",
+    input);
+  const note = h("p", { class: "small muted" },
+    "Each document is sent to Anthropic to be read and costs money. Files are uploaded one at a time; a failure does not stop the others.");
+  const batchNote = h("p", { class: "small muted" }, "");
+  const list = h("div", {});
+  const rows = [];
+  let running = false;
+
+  function redraw() {
+    list.replaceChildren(h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {},
+        h("th", {}, "File"), h("th", {}, "Status"), h("th", {}, "Open"))),
+      h("tbody", {}, rows.map((row) => h("tr", {},
+        h("td", {}, row.file.name), row.state, row.act))))));
+  }
+
+  function retry(row) {
+    row.act.replaceChildren(h("button", { type: "button", class: "secondary",
+      onclick: () => {
+        row.act.replaceChildren();
+        // A file whose upload succeeded is only asked about again; it is never sent twice.
+        const again = row.documentId ? follow(row) : uploadOne(row);
+        again.catch((e) => {
+          if (e instanceof AuthError) {
+            key = null;
+            setSignedIn(false);
+            signIn(e.message);
+          }
+        });
+      } }, "Try again"));
+  }
+
+  async function follow(row) {
+    row.state.textContent = "Reading…";
+    for (let tries = 0; tries < 120; tries += 1) {
+      let info;
+      try {
+        info = await json("/v1/documents/" + row.documentId);
+      } catch (e) {
+        if (e instanceof AuthError) throw e;
+        row.state.textContent = e.message || "Could not check the document.";
+        retry(row);
+        return;
+      }
+      if (info.status === "done" || info.status === "needs_review") {
+        row.state.replaceChildren(badge(info.status));
+        row.act.replaceChildren(h("a", { href: "#/d/" + row.documentId }, "Open"));
+        if (refresh) refresh();
+        return;
+      }
+      if (info.status !== "received" && info.status !== "processing") {
+        row.state.textContent = "Stopped (" + info.status + ")";
+        retry(row);
+        return;
+      }
+      await new Promise((done) => setTimeout(done, 3000));
+    }
+    row.state.textContent = "Still reading";
+    row.act.replaceChildren(h("a", { href: "#/d/" + row.documentId }, "Open"));
+    if (refresh) refresh();
+  }
+
+  async function uploadOne(row) {
+    row.state.textContent = "Uploading…";
+    try {
+      const response = await api("/v1/documents?filename=" + encodeURIComponent(row.file.name), {
+        method: "POST",
+        headers: { "Content-Type": row.file.type || "application/pdf" },
+        body: row.file,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "The upload was refused (" + response.status + ").");
+      row.documentId = body.document_id;
+      await follow(row);
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      row.state.textContent = e.message || "The upload failed.";
+      retry(row);
+    }
+  }
+
+  async function run(files) {
+    if (running) {
+      batchNote.textContent = "A batch is already running. Wait for it to finish, then choose the rest.";
+      return;
+    }
+    running = true;
+    batchNote.textContent = "";
+    const batch = files.slice(0, 20);
+    try {
+      if (files.length > 20) {
+        batchNote.textContent = "Only the first 20 files were taken. Choose the rest in another batch.";
+      }
+      rows.length = 0;
+      for (const file of batch) {
+        rows.push({ file, documentId: null, state: h("td", {}, "Waiting"), act: h("td", {}) });
+      }
+      redraw();
+      for (const row of rows) {
+        try {
+          await uploadOne(row);
+        } catch (e) {
+          if (e instanceof AuthError) {
+            key = null;
+            setSignedIn(false);
+            return signIn(e.message);
+          }
+        }
+      }
+      if (refresh) refresh();
+    } finally {
+      running = false;
+    }
+  }
+
+  input.addEventListener("change", () => {
+    const files = [...input.files];
+    input.value = "";
+    if (files.length) run(files);
+  });
+  pick.addEventListener("dragover", (event) => { event.preventDefault(); pick.classList.add("over"); });
+  pick.addEventListener("dragleave", () => pick.classList.remove("over"));
+  pick.addEventListener("drop", (event) => {
+    event.preventDefault();
+    pick.classList.remove("over");
+    if (event.dataTransfer.files.length) run([...event.dataTransfer.files]);
+  });
+
+  return h("div", {}, pick, note, batchNote, list);
+}
+
 // ---------------------------------------------------------------- 2. documents ----
 
 async function documents() {
@@ -727,12 +869,16 @@ async function documents() {
   });
 
   const list = h("div", {}, h("div", { class: "states" }, "Loading…"));
+  const bulk = bulkCard(load);
   show(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("p", { class: "eyebrow" }, "Workspace"),
       h("h1", {}, "Documents"),
       h("p", { class: "lede" }, "Upload an invoice to have it read. Everything shown here is checked against the page it came from.")),
     h("div", { class: "card" }, drop, status),
+    h("div", { class: "card" },
+      h("h2", {}, "Upload several"),
+      bulk),
     h("div", { class: "row" }, makeRegister,
       h("p", { class: "small muted" }, "Tick documents to put them in one register.")),
     h("h2", {}, "Your documents"),
