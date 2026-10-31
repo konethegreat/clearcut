@@ -13,6 +13,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **Bulk intake.** Up to 20 files at once, uploaded one after another, with a row per file. A retry never uploads a file twice: if the upload succeeded, the row follows the document instead.
 - **Tests:** core rules, the store selection against two tenants, every layout, the endpoint (content types, filenames, 400/403/404/503), the Register screen markers and bulk intake; the workspace is green against local Postgres, clippy and fmt clean, and the OpenAPI contract is current.
 - **Docs:** PHASES (P4-08 ✅), ARCHITECTURE (the export crate, the endpoint), LAUNCH (row 3), this entry.
+- **Shipped and deployed.** Squash-merged as #122, #123, #124, #125, #126, #127 and #128 (this docs PR); the VM pulled `main`, `docker compose --profile https up -d --build server` rebuilt the server image, and `/health` answered, `/` returned 200 and an empty `POST /v1/register` returned 401; the served `app.js` carries `function registerPage` and `function bulkCard`.
 **Not done:** the Excel workbook has been checked by its XML and the PDF by its bytes, not opened by hand in Excel or a PDF viewer; the register has been tried on synthetic events and the local stack, not on a customer's documents; native accounting files, a VAT201 form, input and output classification, statement support, line categorisation, scheduled or emailed registers and stored export archives remain (spec §14); the MCP export tool (P4-09) is still open.
 
 ## 2026-10-30 (part 80) — the model gets a worked mixed till slip
