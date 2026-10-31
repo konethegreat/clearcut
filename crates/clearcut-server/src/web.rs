@@ -137,6 +137,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_register_screen_is_reachable_and_says_what_it_is() {
+        let (_, _, html) = fetch("/").await;
+        assert!(
+            html.contains("id=\"register-link\"") && html.contains("href=\"#/register\""),
+            "the header links the register"
+        );
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "function registerPage",
+            "const PERIODS",
+            "Last month",
+            "#/register?ids=",
+            "clearcut-register",
+            "The file is built when you ask for it; nothing is kept.",
+            "Check the file against the originals",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+        let (_, _, css) = fetch("/app.css").await;
+        assert!(
+            css.contains("input[type=\"date\"]"),
+            "the custom range's dates are styled"
+        );
+    }
+
+    #[tokio::test]
     async fn the_icon_request_is_redirected_to_the_svg() {
         let (status, headers, _) = fetch("/favicon.ico").await;
         assert_eq!(status, StatusCode::MOVED_PERMANENTLY);

@@ -10,6 +10,7 @@ const REPO = "https://github.com/konethegreat/clearcut";
 const main = document.getElementById("main");
 const signoutButton = document.getElementById("signout");
 const settingsLink = document.getElementById("settings-link");
+const registerLink = document.getElementById("register-link");
 const aboutLink = document.getElementById("about-link");
 const footerLinks = document.getElementById("footer-links");
 const exitDemoButton = document.getElementById("exit-demo");
@@ -18,6 +19,7 @@ const demoLink = document.getElementById("demo-link");
 function setSignedIn(signedIn) {
   signoutButton.hidden = !signedIn;
   settingsLink.hidden = !signedIn;
+  registerLink.hidden = !signedIn;
   aboutLink.hidden = !signedIn;
 }
 
@@ -86,6 +88,21 @@ async function json(path) {
     throw new Error(body.error || "Something went wrong (" + response.status + ").");
   }
   return response.json();
+}
+
+// Saves a response as a file, under the name the server chose when it gave one.
+async function saveFile(response, fallback) {
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "The download failed (" + response.status + ").");
+  }
+  const found = (response.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/);
+  const url = URL.createObjectURL(await response.blob());
+  const link = h("a", { href: url, download: found ? found[1] : fallback });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function failure(error, retry) {
@@ -669,6 +686,11 @@ async function documents() {
   stopPolling();
   const status = h("p", { class: "small muted", role: "status" }, "");
   const fileInput = h("input", { type: "file", accept: ".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" });
+  const chosen = new Set();
+  const makeRegister = h("button", { type: "button", class: "secondary", disabled: true,
+    onclick: () => {
+      location.hash = "#/register?ids=" + [...chosen].join(",");
+    } }, "Make a register from these");
   const drop = h(
     "label",
     { class: "drop" },
@@ -711,6 +733,8 @@ async function documents() {
       h("h1", {}, "Documents"),
       h("p", { class: "lede" }, "Upload an invoice to have it read. Everything shown here is checked against the page it came from.")),
     h("div", { class: "card" }, drop, status),
+    h("div", { class: "row" }, makeRegister,
+      h("p", { class: "small muted" }, "Tick documents to put them in one register.")),
     h("h2", {}, "Your documents"),
     list));
 
@@ -727,7 +751,7 @@ async function documents() {
             h(
               "table",
               {},
-              h("thead", {}, h("tr", {}, h("th", {}, "File"), h("th", {}, "Status"), h("th", { class: "num" }, "Pages"), h("th", {}, "Uploaded"))),
+              h("thead", {}, h("tr", {}, h("th", {}, "Choose"), h("th", {}, "File"), h("th", {}, "Status"), h("th", { class: "num" }, "Pages"), h("th", {}, "Uploaded"))),
               h(
                 "tbody",
                 {},
@@ -735,6 +759,13 @@ async function documents() {
                   h(
                     "tr",
                     { class: "click", tabindex: "0", onclick: () => (location.hash = "#/d/" + d.id), onkeydown: (e) => { if (e.key === "Enter") location.hash = "#/d/" + d.id; } },
+                    h("td", {}, h("input", { type: "checkbox", "aria-label": "Choose " + d.original_filename,
+                      onclick: (event) => {
+                        event.stopPropagation();
+                        if (event.currentTarget.checked) chosen.add(d.id);
+                        else chosen.delete(d.id);
+                        makeRegister.disabled = chosen.size === 0;
+                      } })),
                     h("td", {}, d.original_filename),
                     h("td", {}, badge(d.status)),
                     h("td", { class: "num" }, d.page_count ?? "–"),
@@ -1305,6 +1336,260 @@ async function settingsPage() {
   draw();
 }
 
+// ---------------------------------------------------------------- 4. register ----
+
+const PERIODS = [
+  ["last", "Last month"],
+  ["this", "This month"],
+  ["quarter", "This quarter"],
+  ["custom", "Custom range"],
+];
+
+const REGISTER_KINDS = { invoice: "Invoice", credit_note: "Credit note", unclassified: "Unclassified" };
+
+const REGISTER_TAX = {
+  standard: "Standard",
+  zero_rated: "Zero-rated",
+  exempt: "Exempt",
+  out_of_scope: "Outside scope",
+};
+
+function isoDate(date) {
+  return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" +
+    String(date.getDate()).padStart(2, "0");
+}
+
+// The first and last day of the chosen period, as YYYY-MM-DD. The local calendar decides what
+// "last month" is; the server is given plain dates and does no time-zone arithmetic.
+function periodBounds(choice, from, to) {
+  const now = new Date();
+  if (choice === "custom") return [from, to];
+  if (choice === "this") {
+    return [isoDate(new Date(now.getFullYear(), now.getMonth(), 1)),
+      isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0))];
+  }
+  if (choice === "quarter") {
+    const first = Math.floor(now.getMonth() / 3) * 3;
+    return [isoDate(new Date(now.getFullYear(), first, 1)),
+      isoDate(new Date(now.getFullYear(), first + 3, 0))];
+  }
+  return [isoDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+    isoDate(new Date(now.getFullYear(), now.getMonth(), 0))];
+}
+
+function amountText(amount) {
+  return amount ? amount.text : "–";
+}
+
+function rateText(bps) {
+  const percent = bps / 100;
+  return (Number.isInteger(percent) ? String(percent) : percent.toFixed(1)) + "%";
+}
+
+function previewParts(view) {
+  const m = view.manifest;
+  const parts = [];
+  parts.push(h("div", { class: "card" },
+    h("h2", {}, "This register"),
+    h("p", {}, m.documents + " document(s): " + m.done + " done, " + m.needs_review +
+      " awaiting review, " + m.still_reading + " still reading."),
+    h("p", { class: "small muted" },
+      m.automation_rate_bps == null
+        ? "No finished documents yet, so there is no automation rate."
+        : rateText(m.automation_rate_bps) + " of finished documents needed nobody.",
+      " ",
+      m.undated_in_selection
+        ? m.undated_in_selection + " document(s) have no date and are not in a month. "
+        : "",
+      m.awaiting_left_out
+        ? m.awaiting_left_out + " awaiting review were left out."
+        : "")));
+
+  if (view.rows.length === 0) {
+    parts.push(h("div", { class: "states" }, "No documents in this register. Change the period, or upload an invoice."));
+  } else {
+    const shown = view.rows.slice(0, 200);
+    parts.push(h("h2", {}, "Documents"));
+    parts.push(h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {},
+        h("th", {}, "Date"), h("th", {}, "Supplier"), h("th", {}, "Number"),
+        h("th", {}, "Kind"), h("th", {}, "Status"), h("th", {}, "Currency"),
+        h("th", { class: "num" }, "Net"), h("th", { class: "num" }, "VAT"),
+        h("th", { class: "num" }, "Gross"), h("th", { class: "num" }, "Lines"))),
+      h("tbody", {}, shown.map((row) => h("tr", {},
+        h("td", {}, row.invoice_date || "No date"),
+        h("td", {}, row.supplier || "–"),
+        h("td", {}, row.invoice_number || "–"),
+        h("td", {}, REGISTER_KINDS[row.kind] || row.kind),
+        h("td", {}, badge(row.status)),
+        h("td", {}, row.currency || "–"),
+        h("td", { class: "num" }, amountText(row.net)),
+        h("td", { class: "num" }, amountText(row.vat)),
+        h("td", { class: "num" }, amountText(row.gross)),
+        h("td", { class: "num" }, row.line_count)))))));
+    if (view.rows.length > shown.length) {
+      parts.push(h("p", { class: "small muted" },
+        "Showing the first " + shown.length + " of " + view.rows.length + " documents. The file holds all of them."));
+    }
+  }
+
+  if (view.vat_by_category.length) {
+    const lines = [];
+    for (const group of view.vat_by_category) {
+      for (const [side, part] of [["Ready", group.ready], ["Awaiting review", group.awaiting]]) {
+        if (!part) continue;
+        lines.push(h("tr", {},
+          h("td", {}, group.month), h("td", {}, group.currency),
+          h("td", {}, REGISTER_KINDS[group.kind] || group.kind),
+          h("td", {}, REGISTER_TAX[group.category] || group.category),
+          h("td", { class: "num" }, rateText(group.rate_bps)),
+          h("td", {}, side),
+          h("td", { class: "num" }, part.documents),
+          h("td", { class: "num" }, part.taxable.text),
+          h("td", { class: "num" }, part.vat.text)));
+      }
+    }
+    parts.push(h("h2", {}, "VAT by category"));
+    parts.push(h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {},
+        h("th", {}, "Month"), h("th", {}, "Currency"), h("th", {}, "Kind"),
+        h("th", {}, "Category"), h("th", { class: "num" }, "Rate"), h("th", {}, "Side"),
+        h("th", { class: "num" }, "Documents"), h("th", { class: "num" }, "Taxable"),
+        h("th", { class: "num" }, "VAT"))),
+      h("tbody", {}, lines))));
+  }
+
+  if (view.reconciliation.length) {
+    parts.push(h("h2", {}, "Calculated against stated"));
+    parts.push(h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {},
+        h("th", {}, "Month"), h("th", {}, "Currency"), h("th", {}, "Kind"),
+        h("th", { class: "num" }, "Calculated VAT"), h("th", { class: "num" }, "Stated VAT"),
+        h("th", { class: "num" }, "Difference"), h("th", { class: "num" }, "Documents that disagree"))),
+      h("tbody", {}, view.reconciliation.map((row) => h("tr", {},
+        h("td", {}, row.month), h("td", {}, row.currency),
+        h("td", {}, REGISTER_KINDS[row.kind] || row.kind),
+        h("td", { class: "num" }, row.calculated_vat.text),
+        h("td", { class: "num" }, row.stated_vat.text),
+        h("td", { class: "num" }, row.difference.text),
+        h("td", { class: "num" }, row.documents_disagree)))))));
+  }
+
+  parts.push(h("h2", {}, "To check"));
+  if (view.to_check.length === 0) {
+    parts.push(h("p", { class: "small muted" }, "Nothing is waiting for a person."));
+  } else {
+    parts.push(h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {},
+        h("th", {}, "Document"), h("th", {}, "Reason"), h("th", { class: "num" }, "Page"),
+        h("th", {}, "What to check"))),
+      h("tbody", {}, view.to_check.map((row) => h("tr", {},
+        h("td", {}, row.filename),
+        h("td", {}, row.reason),
+        h("td", { class: "num" }, row.page ?? "–"),
+        h("td", {}, row.sentence)))))));
+  }
+
+  parts.push(h("p", { class: "small muted" }, view.notice));
+  return parts;
+}
+
+function registerPage(chosenIds) {
+  stopPolling();
+  const ids = (chosenIds || "").split(",").map((id) => id.trim()).filter(Boolean);
+
+  const choice = h("select", { id: "register-period" },
+    PERIODS.map(([value, label]) => h("option", { value }, label)));
+  choice.value = "last";
+  const from = h("input", { type: "date", id: "register-from" });
+  const to = h("input", { type: "date", id: "register-to" });
+  const [firstFrom, firstTo] = periodBounds("last", "", "");
+  from.value = firstFrom;
+  to.value = firstTo;
+  const custom = h("span", { class: "row", hidden: true },
+    h("label", { for: "register-from" }, "From"), from,
+    h("label", { for: "register-to" }, "To"), to);
+  const periodRow = h("div", { class: "row", hidden: ids.length > 0 },
+    h("label", { for: "register-period" }, "Period"), choice, custom);
+  choice.addEventListener("change", () => {
+    custom.hidden = choice.value !== "custom";
+  });
+  const chosenNote = h("p", { class: "small muted" },
+    ids.length + (ids.length === 1 ? " chosen document." : " chosen documents."));
+
+  const status = h("p", { class: "small muted", role: "status" }, "");
+  const preview = h("div", {}, h("div", { class: "states" },
+    "The file is built when you ask for it; nothing is kept."));
+
+  function request(format) {
+    if (ids.length) return { document_ids: ids, format };
+    const [start, end] = periodBounds(choice.value, from.value, to.value);
+    if (!start || !end) throw new Error("Choose both dates.");
+    return { from: start, to: end, format };
+  }
+
+  function ask(format) {
+    return api("/v1/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request(format)),
+    });
+  }
+
+  async function previewRegister() {
+    status.className = "small muted";
+    status.textContent = "Building the preview…";
+    try {
+      const response = await ask("json");
+      const view = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(view.error || "The register could not be built (" + response.status + ").");
+      preview.replaceChildren(...previewParts(view));
+      status.textContent = "";
+    } catch (e) {
+      if (e instanceof AuthError) return signIn(e.message);
+      status.className = "small error";
+      status.textContent = e.message || "Something went wrong.";
+    }
+  }
+
+  async function download(format, label) {
+    status.className = "small muted";
+    status.textContent = "Making the " + label + "…";
+    try {
+      await saveFile(await ask(format), "clearcut-register." + (format === "csv" ? "zip" : format));
+      status.textContent = "";
+    } catch (e) {
+      if (e instanceof AuthError) return signIn(e.message);
+      status.className = "small error";
+      status.textContent = e.message || "Something went wrong.";
+    }
+  }
+
+  const button = (format, label) => h("button", {
+    type: "button", class: format === "xlsx" ? "" : "secondary",
+    onclick: () => download(format, label),
+  }, label);
+
+  show(h("div", { class: "page" },
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Workspace"),
+      h("h1", {}, "Register"),
+      h("p", { class: "lede" }, "Every document in a period, with its figures, its VAT and the things that need a person. Check the file against the originals before you use it.")),
+    h("div", { class: "card" },
+      ids.length ? chosenNote : null,
+      periodRow,
+      h("div", { class: "row" },
+        h("button", { type: "button", onclick: previewRegister }, "Preview"),
+        button("xlsx", "Excel"),
+        button("csv", "CSV bundle"),
+        button("json", "JSON"),
+        button("pdf", "PDF")),
+      status),
+    preview));
+
+  previewRegister();
+}
+
 // ---------------------------------------------------------------- routing ----
 
 function route() {
@@ -1318,6 +1603,8 @@ function route() {
   if (hash === "#/trust") return trustPage();
   if (!key) return home("");
   setSignedIn(true);
+  const register = hash.match(/^#\/register(?:\?ids=([0-9a-f,-]+))?$/i);
+  if (register) return registerPage(register[1] || "");
   const match = hash.match(/^#\/d\/([0-9a-f-]{36})$/i);
   if (match) documentPage(match[1]);
   else if (hash === "#/settings") settingsPage();

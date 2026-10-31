@@ -280,7 +280,7 @@ p { margin: 0 0 14px; }
 }
 .narrow { max-width: 440px; margin: 48px auto; }
 label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 15px; }
-input[type="password"], input[type="text"], input[type="number"] {
+input[type="password"], input[type="text"], input[type="number"], input[type="date"] {
   width: 100%; padding: 11px 13px; font: inherit; color: var(--ink); background: var(--paper);
   border: 1px solid var(--rule-strong); border-radius: 8px;
 }
