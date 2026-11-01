@@ -10,8 +10,9 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **Four reviews, four reasons.** A total one rand off the page, a foreign-currency invoice, a line one cent out, and a page with no date. Each confirmation is recorded in page memory and returns to the document with the confirmation banner focused.
 - **Isolation stays.** No API call, key, tenant, storage, upload or model call in the demo; a Rust test fails if `fetch(`, `api(`, `Authorization` or a storage API enters the demo block.
 - **A demo workspace and review queue.** 18 documents with four live counts, filters that update after a confirmation, held rows that carry their reason, and a queue that empties as the four documents are settled. All state stays in page memory; a reload, Start over or Exit demo clears it.
-- **Tests:** `node --check`, the web tests for the data anchors, the four review reasons and the isolation boundary; the demo walked in a browser signed out.
-**Not done:** the workspace, review queue, register and batch replay wait for their slices; no real document is used anywhere.
+- **A demo register.** Summed only from prepared line values: 17 finished rows, nine VAT groups, per-document stated totals, the exceptions, the manifest and a prepared-data audit that names the two expected issues. Five files are built in the page (JSON, CSV, Markdown, plain text, HTML) with a notice, the CSV formula-leader rule and escaped HTML. Confirming the four held documents moves BST's total by R 1.00, puts CS in May and leaves the automation rate at 76.5%.
+- **Tests:** `node --check`, the web tests for the data anchors, the four review reasons, the isolation boundary, the workspace and queue, and the register's five downloads; the demo walked in a browser signed out.
+**Not done:** the batch replay waits for its slice; no real document is used anywhere.
 
 ## 2026-10-30 (part 81): a period register, and the files an accountant asks for
 **Done**
