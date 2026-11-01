@@ -2,6 +2,16 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-11-01 (part 82): the demo becomes a made-up quarter
+**Done**
+- **One fictional SME, one closed quarter.** Kloof Street Coffee Roasters (Pty) Ltd, a made-up Cape Town roastery, receives 18 prepared supplier documents from 1 March to 31 May 2026: standard invoices, a mixed zero-rated and standard dairy invoice, a fine, a credit note, a simplified invoice, a VAT-inclusive till slip, a four-page 45-line invoice, a foreign USD invoice and an undated invoice.
+- **A library home.** Four groups by lesson (everyday, different tax treatments, credit notes, the hard ones), three featured documents, and the honest arithmetic: 13 of 17 finished documents needed nobody, 76.5%.
+- **A journey for every document.** `#/demo/invoice/<id>` runs the simulated timeline, the document with its checks and report, the review for a held document and a browser-built CSV and Markdown export. `#/demo/document/<id>` opens the document directly, or the review when one is waiting.
+- **Four reviews, four reasons.** A total one rand off the page, a foreign-currency invoice, a line one cent out, and a page with no date. Each confirmation is recorded in page memory and returns to the document with the confirmation banner focused.
+- **Isolation stays.** No API call, key, tenant, storage, upload or model call in the demo; a Rust test fails if `fetch(`, `api(`, `Authorization` or a storage API enters the demo block.
+- **Tests:** `node --check`, the web tests for the data anchors, the four review reasons and the isolation boundary; the demo walked in a browser signed out.
+**Not done:** the workspace, review queue, register and batch replay wait for their slices; no real document is used anywhere.
+
 ## 2026-10-30 (part 81): a period register, and the files an accountant asks for
 **Done**
 - **One register from the stored events.** `POST /v1/register` takes a period (the invoice date is read from the events, so an invoice uploaded months late still lands in its own month) or a list of document ids, and answers with the register as a file. Every figure comes from the append-only events. Nothing is stored and no model is called.
