@@ -1020,7 +1020,10 @@ function demoHome() {
       h("p", { class: "eyebrow" }, "Demo"),
       h("h1", {}, "A quarter in the life of an inbox."),
       h("p", { class: "lede" }, "Eighteen supplier documents from March to May 2026, prepared so you can walk the whole workspace without a key: the inbox, the review queue, the register and a batch upload. No model is called, nothing is uploaded and nothing is saved."),
-      h("p", { class: "small muted" }, "Kloof Street Coffee Roasters (Pty) Ltd is a made-up roastery in Cape Town. Every supplier, person and number here is fictional.")),
+      h("p", { class: "small muted" }, "Kloof Street Coffee Roasters (Pty) Ltd is a made-up roastery in Cape Town. Every supplier, person and number here is fictional."),
+      h("div", { class: "demo-hero-actions" },
+        h("a", { class: "button", href: "#/demo/workspace" }, "Open the workspace"),
+        h("a", { class: "button secondary", href: "#/demo/review" }, "See what needs a person"))),
     h("div", { class: "card" },
       h("p", {}, "This sample is built to show the hard cases: a total off by a rand, a line off by a cent, a foreign invoice and an undated page. 13 of the 17 finished documents needed nobody (76.5%); a clean month runs higher.")),
     h("section", { class: "demo-featured" },
@@ -1341,6 +1344,88 @@ function demoEndCard() {
     h("div", { class: "row" },
       h("a", { class: "button", href: "#/" }, "Back to the sign-in page"),
       h("a", { href: REPO, rel: "noreferrer" }, "Read the source")));
+}
+
+function demoStatusCounts(docs) {
+  return {
+    all: docs.length,
+    done: docs.filter((doc) => doc.status === "done").length,
+    needs_review: docs.filter((doc) => doc.status === "needs_review").length,
+    processing: docs.filter((doc) => doc.status === "processing").length,
+  };
+}
+
+function demoWorkspace() {
+  stopPolling();
+  let filter = "all";
+  const body = h("div", {});
+  const draw = () => {
+    const docs = demoDocs();
+    const counts = demoStatusCounts(docs);
+    const shown = filter === "all" ? docs : docs.filter((doc) => doc.status === filter);
+    body.replaceChildren(
+      h("div", { class: "stat-grid" },
+        h("div", { class: "stat-card" }, h("b", {}, counts.all), h("span", {}, "documents")),
+        h("div", { class: "stat-card" }, h("b", {}, counts.done), h("span", {}, "done")),
+        h("div", { class: "stat-card" }, h("b", {}, counts.needs_review), h("span", {}, "need a person")),
+        h("div", { class: "stat-card" }, h("b", {}, counts.processing), h("span", {}, "reading"))),
+      h("p", { class: "small muted" }, "13 of the 17 finished documents never needed a person (76.5%)."),
+      h("div", { class: "filters" },
+        [["all", "All"], ["needs_review", "Needs review"], ["done", "Done"], ["processing", "Reading"]].map(([value, label]) =>
+          h("button", {
+            type: "button", class: "filter", "aria-pressed": String(filter === value),
+            onclick: () => { filter = value; draw(); },
+          }, label + " (" + counts[value] + ")"))),
+      h("div", { class: "table-wrap" }, h("table", { class: "demo-table" },
+        h("caption", { class: "small muted" }, "Documents in this demo"),
+        h("thead", {}, h("tr", {},
+          h("th", {}, "File"), h("th", {}, "Supplier"), h("th", {}, "Number"),
+          h("th", {}, "Date"), h("th", {}, "Status"), h("th", { class: "num" }, "Gross"))),
+        h("tbody", {}, shown.map((doc) => h("tr", {},
+          h("td", { "data-label": "File" }, h("a", { href: "#/demo/document/" + doc.id }, doc.file)),
+          h("td", { "data-label": "Supplier" }, doc.supplier,
+            doc.status === "needs_review"
+              ? h("span", { class: "held-reason" }, doc.check.label)
+              : null),
+          h("td", { "data-label": "Number" }, doc.number),
+          h("td", { "data-label": "Date" }, doc.dateText),
+          h("td", { "data-label": "Status" }, badge(doc.status)),
+          h("td", { "data-label": "Gross", class: "num" }, demoMoney(demoStatedGross(doc), doc.currency))))))),
+      h("p", { class: "small" },
+        h("a", { href: "#/demo/review" }, "See what needs a person")));
+  };
+  show(h("div", { class: "page demo" },
+    demoStrip(),
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Demo workspace"),
+      h("h1", {}, "Documents"),
+      h("p", { class: "lede" }, "The inbox after the roastery's first quarter. Confirming a document in this demo moves it from Needs review to Done here, without a request.")),
+    body));
+  draw();
+}
+
+function demoQueue() {
+  stopPolling();
+  const held = demoDocs().filter((doc) => doc.status === "needs_review");
+  show(h("div", { class: "page demo" },
+    demoStrip(),
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Demo workspace"),
+      h("h1", {}, "Needs a person"),
+      h("p", { class: "lede" }, "The documents the prepared reading could not settle. Each one says what a person has to decide.")),
+    held.length === 0
+      ? h("div", { class: "card" },
+          h("h2", {}, "Nothing is waiting for a person."),
+          h("p", {}, "Every document in this demo has been settled."),
+          h("a", { class: "button", href: "#/demo/workspace" }, "Back to the workspace"))
+      : h("div", { class: "queue" }, held.map((doc) =>
+          h("div", { class: "queue-item" },
+            h("strong", {}, doc.supplier),
+            h("span", { class: "sample-file" }, doc.file),
+            h("span", {}, doc.reason),
+            h("span", { class: "small muted" }, "Gross " + demoMoney(demoStatedGross(doc), doc.currency)),
+            h("a", { class: "button", href: "#/demo/document/" + doc.id }, "Review this document")))),
+    h("p", { class: "small" }, h("a", { href: "#/demo" }, "← Back to the demo"))));
 }
 
 // ---------------------------------------------------------------- bulk intake ----
@@ -2412,6 +2497,8 @@ function route() {
   exitDemoButton.hidden = !hash.startsWith("#/demo");
   demoLink.hidden = hash.startsWith("#/demo");
   if (hash === "#/demo") return demoHome();
+  if (hash === "#/demo/workspace") return demoWorkspace();
+  if (hash === "#/demo/review") return demoQueue();
   const journey = hash.match(/^#\/demo\/(invoice|document)\/([a-z0-9-]+)$/);
   if (journey) return demoJourney(journey[2], journey[1] === "invoice");
   const legacy = hash.match(/^#\/demo\/([a-z0-9-]+)$/);

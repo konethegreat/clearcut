@@ -9,6 +9,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **A journey for every document.** `#/demo/invoice/<id>` runs the simulated timeline, the document with its checks and report, the review for a held document and a browser-built CSV and Markdown export. `#/demo/document/<id>` opens the document directly, or the review when one is waiting.
 - **Four reviews, four reasons.** A total one rand off the page, a foreign-currency invoice, a line one cent out, and a page with no date. Each confirmation is recorded in page memory and returns to the document with the confirmation banner focused.
 - **Isolation stays.** No API call, key, tenant, storage, upload or model call in the demo; a Rust test fails if `fetch(`, `api(`, `Authorization` or a storage API enters the demo block.
+- **A demo workspace and review queue.** 18 documents with four live counts, filters that update after a confirmation, held rows that carry their reason, and a queue that empties as the four documents are settled. All state stays in page memory; a reload, Start over or Exit demo clears it.
 - **Tests:** `node --check`, the web tests for the data anchors, the four review reasons and the isolation boundary; the demo walked in a browser signed out.
 **Not done:** the workspace, review queue, register and batch replay wait for their slices; no real document is used anywhere.
 
