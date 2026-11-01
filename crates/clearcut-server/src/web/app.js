@@ -1024,7 +1024,8 @@ function demoHome() {
       h("div", { class: "demo-hero-actions" },
         h("a", { class: "button", href: "#/demo/workspace" }, "Open the workspace"),
         h("a", { class: "button secondary", href: "#/demo/review" }, "See what needs a person"),
-        h("a", { class: "button secondary", href: "#/demo/register" }, "Open the register"))),
+        h("a", { class: "button secondary", href: "#/demo/register" }, "Open the register"),
+        h("a", { class: "button secondary", href: "#/demo/bulk" }, "Replay a batch"))),
     h("div", { class: "card" },
       h("p", {}, "This sample is built to show the hard cases: a total off by a rand, a line off by a cent, a foreign invoice and an undated page. 13 of the 17 finished documents needed nobody (76.5%); a clean month runs higher.")),
     h("section", { class: "demo-featured" },
@@ -1393,7 +1394,11 @@ function demoWorkspace() {
           h("td", { "data-label": "Status" }, badge(doc.status)),
           h("td", { "data-label": "Gross", class: "num" }, demoMoney(demoStatedGross(doc), doc.currency))))))),
       h("p", { class: "small" },
-        h("a", { href: "#/demo/review" }, "See what needs a person")));
+        h("a", { href: "#/demo/review" }, "See what needs a person"),
+        " · ",
+        h("a", { href: "#/demo/register" }, "Open the register"),
+        " · ",
+        h("a", { href: "#/demo/bulk" }, "Replay a batch")));
   };
   show(h("div", { class: "page demo" },
     demoStrip(),
@@ -1935,6 +1940,80 @@ function demoRegisterPage() {
       buttons,
       status),
     h("p", { class: "small" }, h("a", { href: "#/demo" }, "← Back to the demo"))));
+}
+
+function demoBulk() {
+  stopPolling();
+  const files = [
+    { file: "roastery-spares-rs-2215.pdf", state: "Waiting", outcome: "", link: null },
+    { file: "somerset-soc-114.pdf", state: "Waiting", outcome: "", link: null },
+    { file: "notes.txt", state: "Waiting", outcome: "", link: null },
+  ];
+  const list = h("div", { class: "queue" });
+  const status = h("p", { class: "small muted", role: "status" }, "Ready to replay.");
+  const draw = () => {
+    list.replaceChildren(...files.map((row) => h("div", { class: "queue-item batch-row" },
+      h("strong", {}, row.file),
+      h("span", { class: "batch-state" }, row.state),
+      row.outcome ? h("span", { class: "small" }, row.outcome) : null,
+      row.link ? h("a", { class: "small", href: row.link }, "Open the document") : null)));
+  };
+  const steps = [
+    [0, 0, "Uploading"],
+    [700, 0, "Reading"],
+    [1500, 0, "Done"],
+    [1900, 1, "Uploading"],
+    [2500, 1, "Done"],
+    [2900, 2, "Uploading"],
+    [3500, 2, "Refused"],
+  ];
+  const outcomes = {
+    0: "Accepted as RS-2215. It is the document already reading at the top of the workspace.",
+    1: "The server returned SOC-114. No second read happened and no new document was made.",
+    2: "notes.txt is not a PDF, PNG or JPEG, so it was refused.",
+  };
+  let at = 0;
+  const advance = () => {
+    if (at === steps.length) {
+      status.textContent = "The replay is done. No upload, no model call and no charge.";
+      return;
+    }
+    const [delay, index, state] = steps[at];
+    timer = setTimeout(() => {
+      files[index].state = state;
+      if (outcomes[index] && (state === "Done" || state === "Refused")) files[index].outcome = outcomes[index];
+      if (index === 0 && state === "Done") files[0].link = "#/demo/document/rs-2215";
+      draw();
+      at += 1;
+      advance();
+    }, delay);
+  };
+  const start = () => {
+    stopPolling();
+    for (const row of files) {
+      row.state = "Waiting";
+      row.outcome = "";
+      row.link = null;
+    }
+    status.textContent = "Replaying the batch.";
+    draw();
+    at = 0;
+    advance();
+  };
+  draw();
+  show(h("div", { class: "page demo" },
+    demoStrip(),
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Demo batch"),
+      h("h1", {}, "Replay a batch"),
+      h("p", { class: "lede" }, "Three files that show how a batch behaves: one new document, one duplicate, and one file that is refused. No upload, no model call and no charge.")),
+    h("div", { class: "card" },
+      h("p", { class: "small muted" }, "In the real app this screen sends each file to be read, one after another. Here the rows are simulated and the timers stop when you leave."),
+      h("div", { class: "row" }, h("button", { type: "button", onclick: start }, "Replay the batch")),
+      list,
+      status),
+    h("p", { class: "small" }, h("a", { href: "#/demo" }, "← Back to the demo"))));
+  start();
 }
 
 // ---------------------------------------------------------------- bulk intake ----
@@ -3009,6 +3088,7 @@ function route() {
   if (hash === "#/demo/workspace") return demoWorkspace();
   if (hash === "#/demo/review") return demoQueue();
   if (hash === "#/demo/register") return demoRegisterPage();
+  if (hash === "#/demo/bulk") return demoBulk();
   const journey = hash.match(/^#\/demo\/(invoice|document)\/([a-z0-9-]+)$/);
   if (journey) return demoJourney(journey[2], journey[1] === "invoice");
   const legacy = hash.match(/^#\/demo\/([a-z0-9-]+)$/);

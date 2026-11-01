@@ -177,6 +177,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_demo_batch_replay_tells_three_outcomes() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "function demoBulk",
+            "\"#/demo/bulk\"",
+            "Replay the batch",
+            "roastery-spares-rs-2215.pdf",
+            "somerset-soc-114.pdf",
+            "notes.txt",
+            "No upload, no model call and no charge.",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
     async fn the_demo_workspace_and_queue_match_the_quarter() {
         let (_, _, js) = fetch("/app.js").await;
         for marker in [
