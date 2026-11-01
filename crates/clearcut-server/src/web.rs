@@ -177,6 +177,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_demo_batch_replay_tells_three_outcomes() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "function demoBulk",
+            "\"#/demo/bulk\"",
+            "Replay the batch",
+            "roastery-spares-rs-2215.pdf",
+            "somerset-soc-114.pdf",
+            "notes.txt",
+            "No upload, no model call and no charge.",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_demo_has_every_route_and_control() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "Open the workspace",
+            "See what needs a person",
+            "Open the register",
+            "Replay the batch",
+            "\"#/demo/workspace\"",
+            "\"#/demo/review\"",
+            "\"#/demo/register\"",
+            "\"#/demo/bulk\"",
+            "#/demo/invoice/",
+            "#/demo/document/",
+            "demoJourney(legacy[1], true)",
+            "demoJourney(journey[2], journey[1] === \"invoice\")",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+        let (_, _, css) = fetch("/app.css").await;
+        for marker in [
+            ".stat-grid",
+            ".queue-item",
+            ".downloads",
+            "@media (max-width: 720px)",
+        ] {
+            assert!(css.contains(marker), "{marker} in app.css");
+        }
+    }
+
+    #[tokio::test]
     async fn the_demo_workspace_and_queue_match_the_quarter() {
         let (_, _, js) = fetch("/app.js").await;
         for marker in [

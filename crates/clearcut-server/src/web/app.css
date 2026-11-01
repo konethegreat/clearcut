@@ -498,6 +498,11 @@ tr.error td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .demo-table caption { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--rule); }
 .demo-table th[scope="row"] { width: 38%; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--ink-soft); background: var(--surface); }
 
+.batch-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
+.batch-row strong { grid-column: 1; }
+.batch-state { grid-column: 2; justify-self: end; font-size: 13px; color: var(--muted); }
+.batch-row .small, .batch-row a { grid-column: 1 / -1; }
+
 /* ---------------------------------------------------------------- small ---- */
 @media (max-width: 900px) {
   .hero-inner { grid-template-columns: 1fr; }
