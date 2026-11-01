@@ -11,8 +11,10 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **Isolation stays.** No API call, key, tenant, storage, upload or model call in the demo; a Rust test fails if `fetch(`, `api(`, `Authorization` or a storage API enters the demo block.
 - **A demo workspace and review queue.** 18 documents with four live counts, filters that update after a confirmation, held rows that carry their reason, and a queue that empties as the four documents are settled. All state stays in page memory; a reload, Start over or Exit demo clears it.
 - **A demo register.** Summed only from prepared line values: 17 finished rows, nine VAT groups, per-document stated totals, the exceptions, the manifest and a prepared-data audit that names the two expected issues. Five files are built in the page (JSON, CSV, Markdown, plain text, HTML) with a notice, the CSV formula-leader rule and escaped HTML. Confirming the four held documents moves BST's total by R 1.00, puts CS in May and leaves the automation rate at 76.5%.
-- **Tests:** `node --check`, the web tests for the data anchors, the four review reasons, the isolation boundary, the workspace and queue, and the register's five downloads; the demo walked in a browser signed out.
-**Not done:** the batch replay waits for its slice; no real document is used anywhere.
+- **A batch replay.** Three files, three outcomes: RS-2215 is accepted and reading, SOC-114 returns as the document already in the list, notes.txt is refused. Timers run on the existing single timer, so leaving the screen stops them; Replay resets and runs again.
+- **Cross-screen proof.** Confirmations flow from the queue to the workspace and the register; BST corrects by R 1.00, CS lands in May, the automation rate stays 76.5%; the JSON download matches the preview; the demo is walked signed out with the network panel open and makes no `/v1` request.
+- **Tests:** `node --check`, the web tests for the data anchors, the four review reasons, the isolation boundary, the workspace and queue, the register's five downloads, and every route and control in the demo; the demo walked in a browser signed out.
+**Not done:** the demo remains prepared data: it is not evidence of the reader's accuracy, and no visitor's own file is accepted.
 
 ## 2026-10-30 (part 81): a period register, and the files an accountant asks for
 **Done**
