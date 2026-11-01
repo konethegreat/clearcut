@@ -157,6 +157,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_demo_workspace_and_queue_match_the_quarter() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "function demoWorkspace",
+            "function demoQueue",
+            "\"#/demo/workspace\"",
+            "\"#/demo/review\"",
+            "Open the workspace",
+            "See what needs a person",
+            "Nothing is waiting for a person.",
+            "Review this document",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
     async fn the_demo_shows_every_kind_of_review() {
         let (_, _, js) = fetch("/app.js").await;
         for marker in [
