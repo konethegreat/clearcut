@@ -157,6 +157,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_demo_register_says_what_it_is_and_downloads_five_files() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "function demoRegister",
+            "function demoRegisterPage",
+            "function demoRegisterFile",
+            "clearcut-demo-register-2026-03-01-to-2026-05-31",
+            "ClearCut demo: sample data from a made-up roastery. Not a real register.",
+            "Prepared data checked.",
+            "\"Markdown\"",
+            "\"Plain text\"",
+            "VAT by category",
+            "Stated totals",
+            "Line arithmetic",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
     async fn the_demo_workspace_and_queue_match_the_quarter() {
         let (_, _, js) = fetch("/app.js").await;
         for marker in [

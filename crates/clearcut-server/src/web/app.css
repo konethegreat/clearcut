@@ -493,6 +493,11 @@ tr.error td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
   .filter, .sample-card { transition: none; }
 }
 
+.downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.audit-ok { color: var(--done); }
+.demo-table caption { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--rule); }
+.demo-table th[scope="row"] { width: 38%; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--ink-soft); background: var(--surface); }
+
 /* ---------------------------------------------------------------- small ---- */
 @media (max-width: 900px) {
   .hero-inner { grid-template-columns: 1fr; }
