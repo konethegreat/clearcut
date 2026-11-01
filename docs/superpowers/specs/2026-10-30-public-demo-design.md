@@ -2,6 +2,8 @@
 
 _Written by Kone Tshivhinda & Claude, 30 Oct 2026. Approved in conversation before writing; the decision record behind it is in [ADR-0007](../adr/0007-auth-and-row-level-security.md) for isolation and in this file for the demo._
 
+_Expanded on 1 Nov 2026 by [the comprehensive demo design](2026-11-01-comprehensive-demo-design.md), which adds the fictional quarter, the workspace, the review queue, the register and the batch replay. The isolation, honesty and no-key rules in this document still bind._
+
 ## 1. Why
 
 ClearCut is live at https://145-241-100-85.sslip.io/ but a visitor has no way in. Signing in needs a `ccut_` key, and only the operator can make one. The product's argument (read every page, check every figure, hold what it cannot settle for a person) is invisible until someone has a key and an invoice.
