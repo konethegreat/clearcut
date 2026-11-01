@@ -128,11 +128,70 @@ mod tests {
         let (status, _, js) = fetch("/app.js").await;
         assert_eq!(status, StatusCode::OK);
         for marker in [
-            "const DEMO_SAMPLES",
-            "Sample invoices. Nothing here is saved.",
-            "#/demo/",
+            "const DEMO_DOCUMENTS",
+            "const DEMO_PERIOD = \"1 March to 31 May 2026\"",
+            "Sample documents. Nothing here is saved.",
+            "Kloof Street Coffee Roasters",
+            "March to May 2026",
+            "Eighteen supplier documents",
+            "#/demo/invoice/",
+            "#\\/demo\\/(invoice|document)",
         ] {
             assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_demo_keeps_its_prepared_arithmetic() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "const DEMO_AUTOMATION_BPS = 7650",
+            "net: 4821649",
+            "vat: 723247",
+            "gross: 5544896",
+            "grossRead: 1250100",
+            "grossPrinted: 1250000",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_demo_shows_every_kind_of_review() {
+        let (_, _, js) = fetch("/app.js").await;
+        for marker in [
+            "The reading says R 12 501.00",
+            "A foreign invoice in US dollars",
+            "Line 37 is 3 × R 412.50",
+            "This invoice has no date",
+            "Keep it in US dollars",
+            "Accept the printed line",
+            "Use 12 May 2026",
+        ] {
+            assert!(js.contains(marker), "{marker} in app.js");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_demo_cannot_reach_the_api_or_storage() {
+        let (_, _, js) = fetch("/app.js").await;
+        let start = js
+            .find("// ---------------------------------------------------------------- 1b. the demo ----")
+            .expect("the demo marker");
+        let end = js
+            .find("// ---------------------------------------------------------------- bulk intake ----")
+            .expect("the bulk intake marker");
+        let demo = &js[start..end];
+        for forbidden in [
+            "fetch(",
+            "api(",
+            "Authorization",
+            "localStorage",
+            "sessionStorage",
+            "indexedDB",
+            "document.cookie",
+        ] {
+            assert!(!demo.contains(forbidden), "{forbidden} in the demo");
         }
     }
 

@@ -324,72 +324,199 @@ signoutButton.addEventListener("click", () => {
 });
 
 exitDemoButton.addEventListener("click", () => {
+  stopPolling();
+  demoReset();
   location.hash = "#/";
 });
 
 // ---------------------------------------------------------------- 1b. the demo ----
-// Prepared from two synthetic samples in the repository (crates/clearcut-eval/sample:
-// g-0003 and g-0005). Nothing here calls the API, holds a key or names a tenant: the demo
-// is data in this file and state in this page, so it cannot see or touch an account.
+// Prepared from a made-up roastery's first quarter. Nothing here calls the API, holds a key
+// or names a tenant: the demo is data in this file and state in this page, so it cannot see
+// or touch an account.
 
-const DEMO_NOTE = "Sample invoices. Nothing here is saved.";
+const DEMO_NOTE = "Sample documents. Nothing here is saved.";
+const DEMO_PERIOD = "1 March to 31 May 2026";
+const DEMO_AUTOMATION_BPS = 7650; // 13 of 17 finished documents never needed a person
 
-const DEMO_SAMPLES = [
+const DEMO_KIND = { invoice: "Invoice", credit_note: "Credit note", unclassified: "Unclassified" };
+const DEMO_TAX = { standard: "Standard", zero_rated: "Zero-rated", exempt: "Exempt", out_of_scope: "Outside scope" };
+const DEMO_RATE = { standard: 1500, zero_rated: 0, exempt: 0, out_of_scope: 0 };
+const DEMO_KIND_ORDER = { invoice: 0, credit_note: 1, unclassified: 2 };
+const DEMO_TAX_ORDER = { standard: 0, zero_rated: 1, exempt: 2, out_of_scope: 3 };
+
+const demoLine = (page, description, quantity, unit, net, vat, gross, tax, inclusive) =>
+  ({ page, description, quantity, unit, net, vat, gross, tax: tax || "standard", inclusive: Boolean(inclusive) });
+
+const DEMO_DOCUMENTS = [
   {
     id: "tp-4410",
     file: "tafelberg-tp-4410.pdf",
     supplier: "Tafelberg Print Works CC",
+    address: "12 Bree Street, Cape Town, 8001",
     supplierVat: "4999900102",
     number: "TP-4410",
+    date: "2026-03-03",
     dateText: "3 March 2026",
+    dueText: "17 March 2026",
     pages: 3,
+    kind: "invoice",
+    currency: "ZAR",
     status: "done",
-    note: "Nine standard-rated lines over three pages, read and checked to the cent.",
+    note: "Nine standard lines over three pages, read and checked to the cent.",
     lines: [
-      { page: 1, description: "Business cards, box of 500", quantity: 10, unit: 18500, total: 185000, tax: "standard" },
-      { page: 1, description: "Flyers A5, 1000", quantity: 4, unit: 42000, total: 168000, tax: "standard" },
-      { page: 1, description: "Brochures tri-fold", quantity: 5, unit: 65000, total: 325000, tax: "standard" },
-      { page: 1, description: "Posters A2", quantity: 12, unit: 9500, total: 114000, tax: "standard" },
-      { page: 2, description: "Banners 2m", quantity: 3, unit: 78000, total: 234000, tax: "standard" },
-      { page: 2, description: "Stickers, roll", quantity: 8, unit: 14000, total: 112000, tax: "standard" },
-      { page: 2, description: "Letterheads, ream", quantity: 6, unit: 31000, total: 186000, tax: "standard" },
-      { page: 2, description: "Envelopes DL, box", quantity: 9, unit: 12000, total: 108000, tax: "standard" },
-      { page: 3, description: "Design setup fee", quantity: 1, unit: 150000, total: 150000, tax: "standard" },
+      demoLine(1, "Business cards, box of 500", 10, 18500, 185000, 27750, 212750),
+      demoLine(1, "Flyers A5, 1000", 4, 42000, 168000, 25200, 193200),
+      demoLine(1, "Brochures tri-fold", 5, 65000, 325000, 48750, 373750),
+      demoLine(1, "Posters A2", 12, 9500, 114000, 17100, 131100),
+      demoLine(2, "Banners 2m", 3, 78000, 234000, 35100, 269100),
+      demoLine(2, "Stickers, roll", 8, 14000, 112000, 16800, 128800),
+      demoLine(2, "Letterheads, ream", 6, 31000, 186000, 27900, 213900),
+      demoLine(2, "Envelopes DL, box", 9, 12000, 108000, 16200, 124200),
+      demoLine(3, "Design setup fee", 1, 150000, 150000, 22500, 172500),
     ],
     net: 1582000,
     vat: 237300,
     gross: 1819300,
-    checks: [
-      ["Every line", "Passed", "Each line is quantity times unit price to the cent, over pages 1 to 3."],
-      ["VAT at 15%", "Passed", "R 2 373.00 on R 15 820.00 of standard-rated lines."],
-      ["Net plus VAT", "Passed", "R 15 820.00 plus R 2 373.00 is R 18 193.00, as printed."],
-      ["SA tax-invoice fields", "Passed", "Supplier and recipient VAT numbers, invoice number and date are present."],
+  },
+  {
+    id: "crs-8821",
+    file: "cape-roasters-crs-8821.pdf",
+    supplier: "Cape Roasters Supply",
+    address: "44 Marine Drive, Paarden Eiland, 7405",
+    supplierVat: "4880123456",
+    number: "CRS-8821",
+    date: "2026-03-05",
+    dateText: "5 March 2026",
+    dueText: "19 March 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "Green beans, filters and delivery, with VAT at 15%.",
+    lines: [
+      demoLine(1, "Green beans, 20 kg", 20, 70000, 1400000, 210000, 1610000),
+      demoLine(1, "Filters, case of 12", 1, 420000, 420000, 63000, 483000),
+      demoLine(1, "Delivery", 1, 120000, 120000, 18000, 138000),
     ],
-    report: [
-      ["What this is", "Tafelberg Print Works CC invoiced Sample Client (Pty) Ltd R 18 193.00 on 3 March 2026, invoice TP-4410."],
-      ["What was read", "Nine standard-rated lines over three pages. The largest line is brochures at R 3 250.00."],
-      ["What was checked", "Every line total, VAT at 15%, net plus VAT and the SA tax-invoice fields agree exactly with the page."],
+    net: 1940000,
+    vat: 291000,
+    gross: 2231000,
+  },
+  {
+    id: "dd-1740",
+    file: "drakenstein-dd-1740.pdf",
+    supplier: "Drakenstein Dairy Co-op",
+    address: "R45 Main Road, Wellington, 7655",
+    supplierVat: "4012345678",
+    number: "DD-1740",
+    date: "2026-03-12",
+    dateText: "12 March 2026",
+    dueText: "26 March 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "Milk is zero-rated and cream is standard, on one invoice.",
+    lines: [
+      demoLine(1, "Milk, 200 L", 200, 2500, 500000, 0, 500000, "zero_rated"),
+      demoLine(1, "Cream, 40 L", 40, 3000, 120000, 18000, 138000),
     ],
+    net: 620000,
+    vat: 18000,
+    gross: 638000,
+  },
+  {
+    id: "mf-8092",
+    file: "metro-fines-mf-8092.pdf",
+    supplier: "Cape Metro Fines",
+    address: "Private Bag X1, Bellville, 7535",
+    supplierVat: null,
+    number: "MF-8092",
+    date: "2026-03-18",
+    dateText: "18 March 2026",
+    dueText: "1 April 2026",
+    pages: 1,
+    kind: "unclassified",
+    currency: "ZAR",
+    status: "done",
+    note: "A fine, not a tax invoice. No VAT is claimed.",
+    lines: [
+      demoLine(1, "Parking fine, 18 March", 1, 75000, 75000, 0, 75000, "out_of_scope"),
+    ],
+    net: 75000,
+    vat: 0,
+    gross: 75000,
+  },
+  {
+    id: "wf-55302",
+    file: "wifi-fibre-wf-55302.pdf",
+    supplier: "Wifi & Fibre",
+    address: "9 Long Street, Cape Town, 8001",
+    supplierVat: "4660011223",
+    number: "WF-55302",
+    date: "2026-03-31",
+    dateText: "31 March 2026",
+    dueText: "30 April 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "One monthly service line.",
+    lines: [
+      demoLine(1, "Fibre line, March", 1, 89900, 89900, 13485, 103385),
+    ],
+    net: 89900,
+    vat: 13485,
+    gross: 103385,
+  },
+  {
+    id: "soc-114",
+    file: "somerset-soc-114.pdf",
+    supplier: "Somerset Office Cleaners",
+    address: "21 Somerset Road, Cape Town, 8001",
+    supplierVat: "4770099887",
+    number: "SOC-114",
+    date: "2026-03-31",
+    dateText: "31 March 2026",
+    dueText: "14 April 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "One line; the same file comes back in the batch replay.",
+    lines: [
+      demoLine(1, "Office cleaning, March", 1, 230000, 230000, 34500, 264500),
+    ],
+    net: 230000,
+    vat: 34500,
+    gross: 264500,
   },
   {
     id: "bst-221",
     file: "bergsig-bst-221.pdf",
     supplier: "Bergsig Schools Trust",
-    supplierVat: "4999900104",
+    address: "5 Bergsig Avenue, Durbanville, 7550",
+    supplierVat: null,
     number: "BST-221",
+    date: "2026-04-02",
     dateText: "2 April 2026",
     dueText: "16 April 2026",
     pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
     status: "needs_review",
-    note: "One exempt line, and a total the reader got wrong by one rand.",
+    held: "figure",
+    note: "An exempt tuition invoice whose reading is one rand off the page.",
     lines: [
-      { page: 1, description: "Tuition fees, term 2", quantity: 1, unit: 1250000, total: 1250000, tax: "exempt" },
+      demoLine(1, "Tuition fees, term 2", 1, 1250000, 1250000, 0, 1250000, "exempt"),
     ],
     net: 1250000,
     vat: 0,
     gross: 1250000,
     grossRead: 1250100,
     grossPrinted: 1250000,
+    reason: "The reading says R 12 501.00. The page prints R 12 500.00, and net plus VAT is R 12 500.00.",
+    check: { label: "Total differs", page: 1, sentence: "The reading's gross is R 12 501.00. The page prints R 12 500.00." },
     checks: [
       ["Line total", "Passed", "One line: tuition for one term at R 12 500.00."],
       ["VAT", "Passed", "Tuition is exempt, so no VAT is charged."],
@@ -403,89 +530,558 @@ const DEMO_SAMPLES = [
       ["Figure on the page", "Passed", "R 12 500.00 appears on page 1."],
     ],
     report: [
-      ["What this is", "Bergsig Schools Trust invoiced Sample Client (Pty) Ltd for tuition, invoice BST-221, dated 2 April 2026."],
+      ["What this is", "Bergsig Schools Trust invoiced Kloof Street Coffee Roasters (Pty) Ltd for tuition, invoice BST-221, dated 2 April 2026."],
       ["What was read", "One exempt line: tuition for the second term, R 12 500.00."],
       ["Why it waits", "The reading gives the total as R 12 501.00. Net plus VAT is R 12 500.00, and the page prints R 12 500.00, so the figures do not agree."],
     ],
     reportConfirmed: [
-      ["What this is", "Bergsig Schools Trust invoiced Sample Client (Pty) Ltd for tuition, invoice BST-221, dated 2 April 2026."],
+      ["What this is", "Bergsig Schools Trust invoiced Kloof Street Coffee Roasters (Pty) Ltd for tuition, invoice BST-221, dated 2 April 2026."],
       ["What was read", "One exempt line: tuition for the second term, R 12 500.00."],
       ["What was checked", "With the printed total of R 12 500.00, net plus VAT agrees exactly and the page's figure is the one recorded."],
     ],
   },
+  {
+    id: "ngc-7781",
+    file: "nairobi-ngc-7781.pdf",
+    supplier: "Nairobi Green Coffee Ltd",
+    address: "Ngong Road, Nairobi, Kenya",
+    supplierVat: null,
+    number: "NGC-7781",
+    date: "2026-04-07",
+    dateText: "7 April 2026",
+    dueText: "7 May 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "USD",
+    status: "needs_review",
+    held: "currency",
+    note: "A foreign supplier's invoice in US dollars, with no South African VAT.",
+    lines: [
+      demoLine(1, "Green coffee, 60 kg", 60, 4000, 240000, 0, 240000, "out_of_scope"),
+    ],
+    net: 240000,
+    vat: 0,
+    gross: 240000,
+    taxNote: "VAT (none)",
+    reason: "A foreign invoice in US dollars. No South African VAT is on it; keep it in its own currency.",
+    check: { label: "Foreign currency", page: null, sentence: "A foreign invoice in US dollars. It is never added to rand totals." },
+    checks: [
+      ["Line total", "Passed", "One line: 60 kg at USD 40.00 is USD 2 400.00."],
+      ["Currency", "Differs", "The invoice is in US dollars, not rand."],
+      ["South African VAT", "Differs", "No South African VAT is on this invoice."],
+      ["Net plus VAT", "Passed", "USD 2 400.00 plus USD 0.00 is USD 2 400.00."],
+    ],
+    confirmedChecks: [
+      ["Line total", "Passed", "One line: 60 kg at USD 40.00 is USD 2 400.00."],
+      ["Currency", "Passed", "Kept in US dollars and never added to rand totals."],
+      ["South African VAT", "Passed", "None is claimed."],
+      ["Net plus VAT", "Passed", "USD 2 400.00 plus USD 0.00 is USD 2 400.00."],
+    ],
+    report: [
+      ["What this is", "Nairobi Green Coffee Ltd invoiced Kloof Street Coffee Roasters (Pty) Ltd USD 2 400.00 on 7 April 2026, invoice NGC-7781."],
+      ["What was read", "One line: 60 kg of green coffee at USD 40.00."],
+      ["Why it waits", "The invoice is in US dollars and carries no South African VAT. A person decides to keep it as a foreign-currency expense."],
+    ],
+    reportConfirmed: [
+      ["What this is", "Nairobi Green Coffee Ltd invoiced Kloof Street Coffee Roasters (Pty) Ltd USD 2 400.00 on 7 April 2026, invoice NGC-7781."],
+      ["What was read", "One line: 60 kg of green coffee at USD 40.00."],
+      ["What was decided", "Kept as a foreign-currency expense. It stays in US dollars and is never added to rand totals."],
+    ],
+  },
+  {
+    id: "crs-8840",
+    file: "cape-roasters-crs-8840.pdf",
+    supplier: "Cape Roasters Supply",
+    address: "44 Marine Drive, Paarden Eiland, 7405",
+    supplierVat: "4880123456",
+    number: "CRS-8840",
+    date: "2026-04-18",
+    dateText: "18 April 2026",
+    dueText: "",
+    pages: 1,
+    kind: "credit_note",
+    currency: "ZAR",
+    status: "done",
+    note: "A credit note, kept in its own group and not netted against invoices.",
+    lines: [
+      demoLine(1, "Credit for short delivery, 18 April", 1, 285000, 285000, 42750, 327750),
+    ],
+    net: 285000,
+    vat: 42750,
+    gross: 327750,
+  },
+  {
+    id: "rs-2209",
+    file: "roastery-spares-rs-2209.pdf",
+    supplier: "Roastery Spares CC",
+    address: "7 Victoria Road, Woodstock, 7925",
+    supplierVat: "4550033445",
+    number: "RS-2209",
+    date: "2026-04-22",
+    dateText: "22 April 2026",
+    dueText: "6 May 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "A simplified tax invoice under R 5 000.",
+    lines: [
+      demoLine(1, "Drum bearing kit", 1, 120000, 120000, 18000, 138000),
+    ],
+    net: 120000,
+    vat: 18000,
+    gross: 138000,
+  },
+  {
+    id: "bb-6174",
+    file: "buchu-bean-bb-6174.pdf",
+    supplier: "Buchu & Bean Hardware",
+    address: "88 Lower Main Road, Observatory, 7925",
+    supplierVat: "4330022110",
+    number: "BB-6174",
+    date: "2026-05-06",
+    dateText: "6 May 2026",
+    dueText: "",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "A till slip whose total includes VAT.",
+    lines: [
+      demoLine(1, "Coffee filters", 1, 11500, 10000, 1500, 11500, "standard", true),
+      demoLine(1, "Cleaning cloths", 1, 22750, 19783, 2967, 22750, "standard", true),
+    ],
+    net: 29783,
+    vat: 4467,
+    gross: 34250,
+  },
+  {
+    id: "pp-0091",
+    file: "paper-people-pp-0091.pdf",
+    supplier: "Paper People",
+    address: "Unit 4, Montague Park, Montague Gardens, 7441",
+    supplierVat: "4112233445",
+    number: "PP-0091",
+    date: "2026-05-14",
+    dateText: "14 May 2026",
+    dueText: "13 June 2026",
+    pages: 4,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "needs_review",
+    held: "line",
+    note: "Four pages and 45 lines; one line is a cent out.",
+    lines: [
+      demoLine(1, "Kraft bags", 400, 1200, 480000, 72000, 552000),
+      demoLine(1, "Window bags", 300, 960, 288000, 43200, 331200),
+      demoLine(1, "Bakery boxes", 200, 1900, 380000, 57000, 437000),
+      demoLine(1, "Cup sleeves", 500, 240, 120000, 18000, 138000),
+      demoLine(1, "Napkins", 1000, 120, 120000, 18000, 138000),
+      demoLine(1, "Stirrers", 500, 80, 40000, 6000, 46000),
+      demoLine(1, "Takeaway cups 8oz", 1000, 600, 600000, 90000, 690000),
+      demoLine(1, "Takeaway cups 12oz", 500, 720, 360000, 54000, 414000),
+      demoLine(1, "Lids 8oz", 1000, 200, 200000, 30000, 230000),
+      demoLine(1, "Lids 12oz", 1000, 240, 240000, 36000, 276000),
+      demoLine(1, "Paper straws", 400, 160, 64000, 9600, 73600),
+      demoLine(1, "Coffee filters", 120, 1400, 168000, 25200, 193200),
+      demoLine(2, "Flat lids", 400, 180, 72000, 10800, 82800),
+      demoLine(2, "Cup carriers", 100, 480, 48000, 7200, 55200),
+      demoLine(2, "Paper bags small", 300, 440, 132000, 19800, 151800),
+      demoLine(2, "Paper bags large", 200, 680, 136000, 20400, 156400),
+      demoLine(2, "Greaseproof sheets", 500, 140, 70000, 10500, 80500),
+      demoLine(2, "Foil wrap", 200, 360, 72000, 10800, 82800),
+      demoLine(2, "Cake boxes", 160, 1240, 198400, 29760, 228160),
+      demoLine(2, "Pastry bags", 200, 300, 60000, 9000, 69000),
+      demoLine(2, "Stickers", 500, 120, 60000, 9000, 69000),
+      demoLine(2, "Tape", 24, 1100, 26400, 3960, 30360),
+      demoLine(2, "Labels", 400, 170, 68000, 10200, 78200),
+      demoLine(2, "Receipt rolls", 50, 760, 38000, 5700, 43700),
+      demoLine(3, "Wooden stirrers", 400, 110, 44000, 6600, 50600),
+      demoLine(3, "Sugar sachets", 600, 80, 48000, 7200, 55200),
+      demoLine(3, "Sweetener sachets", 300, 90, 27000, 4050, 31050),
+      demoLine(3, "Tea bags", 200, 190, 38000, 5700, 43700),
+      demoLine(3, "Hot chocolate sachets", 100, 480, 48000, 7200, 55200),
+      demoLine(3, "Cleaning cloths", 80, 300, 24000, 3600, 27600),
+      demoLine(3, "Degreaser", 6, 1700, 10200, 1530, 11730),
+      demoLine(3, "Bin liners", 100, 240, 24000, 3600, 27600),
+      demoLine(3, "Hand soap", 12, 900, 10800, 1620, 12420),
+      demoLine(3, "Sanitiser", 6, 1560, 9360, 1404, 10764),
+      demoLine(3, "Gloves", 300, 180, 54000, 8100, 62100),
+      demoLine(3, "Hairnets", 150, 140, 21000, 3150, 24150),
+      demoLine(4, "Compostable bowls", 3, 41250, 123749, 18562, 142311),
+      demoLine(4, "Bowl lids", 150, 280, 42000, 6300, 48300),
+      demoLine(4, "Wooden forks", 300, 150, 45000, 6750, 51750),
+      demoLine(4, "Napkin dispensers", 12, 2900, 34800, 5220, 40020),
+      demoLine(4, "Menu holders", 20, 1900, 38000, 5700, 43700),
+      demoLine(4, "Loyalty cards", 200, 220, 44000, 6600, 50600),
+      demoLine(4, "Gift boxes", 30, 1640, 49200, 7380, 56580),
+      demoLine(4, "Ribbon", 40, 520, 20800, 3120, 23920),
+      demoLine(4, "Packing tape", 20, 1247, 24940, 3741, 28681),
+    ],
+    net: 4821649,
+    vat: 723247,
+    gross: 5544896,
+    reason: "Line 37 is 3 × R 412.50 = R 1 237.50. The page prints R 1 237.49, so the line is one cent out.",
+    check: { label: "Line arithmetic", page: 4, sentence: "Line 37 is one cent below 3 × R 412.50." },
+    checks: [
+      ["Every line but one", "Passed", "44 lines are quantity times unit price to the cent."],
+      ["Line 37", "Differs", "3 × R 412.50 is R 1 237.50; the page prints R 1 237.49."],
+      ["VAT", "Passed", "R 7 232.47 on the printed net of R 48 216.49."],
+      ["Net plus VAT", "Passed", "R 48 216.49 plus R 7 232.47 is R 55 448.96, as printed."],
+    ],
+    confirmedChecks: [
+      ["Every line but one", "Passed", "44 lines are quantity times unit price to the cent."],
+      ["Line 37", "Passed", "Accepted as printed: R 1 237.49."],
+      ["VAT", "Passed", "R 7 232.47 on the printed net of R 48 216.49."],
+      ["Net plus VAT", "Passed", "R 48 216.49 plus R 7 232.47 is R 55 448.96, as printed."],
+    ],
+    report: [
+      ["What this is", "Paper People invoiced Kloof Street Coffee Roasters (Pty) Ltd R 55 448.96 on 14 May 2026, invoice PP-0091."],
+      ["What was read", "45 packaging lines over four pages. The invoice's totals agree with its printed lines."],
+      ["Why it waits", "Line 37 is 3 boxes at R 412.50, which is R 1 237.50, printed as R 1 237.49. The line is one cent out."],
+    ],
+    reportConfirmed: [
+      ["What this is", "Paper People invoiced Kloof Street Coffee Roasters (Pty) Ltd R 55 448.96 on 14 May 2026, invoice PP-0091."],
+      ["What was read", "45 packaging lines over four pages. The invoice's totals agree with its printed lines."],
+      ["What was decided", "Line 37 is accepted as printed, R 1 237.49. The totals are unchanged."],
+    ],
+  },
+  {
+    id: "cs-441",
+    file: "cape-stationery-cs-441.pdf",
+    supplier: "Cape Stationery",
+    address: "17 Loop Street, Cape Town, 8001",
+    supplierVat: "4998877665",
+    number: "CS-441",
+    date: null,
+    dateText: "No date",
+    dueText: "",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "needs_review",
+    held: "date",
+    note: "No date on the page; the delivery note is dated 12 May.",
+    lines: [
+      demoLine(1, "Office stationery, order 441", 1, 64000, 64000, 9600, 73600),
+    ],
+    net: 64000,
+    vat: 9600,
+    gross: 73600,
+    reason: "This invoice has no date. The delivery note packed with it is dated 12 May 2026.",
+    check: { label: "No date", page: null, sentence: "No date on the page. The delivery note is dated 12 May 2026." },
+    checks: [
+      ["Page fields", "Differs", "The page has no invoice date."],
+      ["Line total", "Passed", "One line at R 640.00."],
+      ["VAT", "Passed", "R 96.00 on R 640.00 at 15%."],
+      ["Net plus VAT", "Passed", "R 640.00 plus R 96.00 is R 736.00."],
+    ],
+    confirmedChecks: [
+      ["Date", "Passed", "Taken from the delivery note: 12 May 2026."],
+      ["Line total", "Passed", "One line at R 640.00."],
+      ["VAT", "Passed", "R 96.00 on R 640.00 at 15%."],
+      ["Net plus VAT", "Passed", "R 640.00 plus R 96.00 is R 736.00."],
+    ],
+    report: [
+      ["What this is", "Cape Stationery invoiced Kloof Street Coffee Roasters (Pty) Ltd R 736.00, invoice CS-441."],
+      ["What was read", "One standard line: office stationery, R 640.00 plus R 96.00 VAT."],
+      ["Why it waits", "The page has no date. The delivery note packed with it is dated 12 May 2026, so a person confirms which date the invoice takes."],
+    ],
+    reportConfirmed: [
+      ["What this is", "Cape Stationery invoiced Kloof Street Coffee Roasters (Pty) Ltd R 736.00, invoice CS-441, dated 12 May 2026."],
+      ["What was read", "One standard line: office stationery, R 640.00 plus R 96.00 VAT."],
+      ["What was decided", "The delivery note's date, 12 May 2026, is recorded, so the invoice lands in May."],
+    ],
+  },
+  {
+    id: "cp-3301",
+    file: "cape-packaging-cp-3301.pdf",
+    supplier: "Cape Packaging",
+    address: "3 Neptune Street, Paarden Eiland, 7405",
+    supplierVat: "4556677889",
+    number: "CP-3301",
+    date: "2026-04-09",
+    dateText: "9 April 2026",
+    dueText: "23 April 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "Cups, lids and napkins, with VAT at 15%.",
+    lines: [
+      demoLine(1, "Paper cups", 1000, 900, 900000, 135000, 1035000),
+      demoLine(1, "Lids", 1000, 250, 250000, 37500, 287500),
+      demoLine(1, "Napkins", 1000, 145, 145000, 21750, 166750),
+    ],
+    net: 1295000,
+    vat: 194250,
+    gross: 1489250,
+  },
+  {
+    id: "cc-7712",
+    file: "cape-couriers-cc-7712.pdf",
+    supplier: "Cape Couriers CC",
+    address: "2 Sable Road, Maitland, 7405",
+    supplierVat: "4667788990",
+    number: "CC-7712",
+    date: "2026-04-30",
+    dateText: "30 April 2026",
+    dueText: "14 May 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "Local and after-hours deliveries.",
+    lines: [
+      demoLine(1, "Local deliveries", 60, 3500, 210000, 31500, 241500),
+      demoLine(1, "After-hours deliveries", 11, 9000, 99000, 14850, 113850),
+    ],
+    net: 309000,
+    vat: 46350,
+    gross: 355350,
+  },
+  {
+    id: "ksp-0331",
+    file: "kloof-properties-ksp-0331.pdf",
+    supplier: "Kloof Street Properties CC",
+    address: "88 Kloof Street, Gardens, 8001",
+    supplierVat: "4223344556",
+    number: "KSP-0331",
+    date: "2026-05-01",
+    dateText: "1 May 2026",
+    dueText: "1 May 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "Commercial rent for May, with VAT at 15%.",
+    lines: [
+      demoLine(1, "Commercial rent, May 2026", 1, 1850000, 1850000, 277500, 2127500),
+    ],
+    net: 1850000,
+    vat: 277500,
+    gross: 2127500,
+  },
+  {
+    id: "bse-4410",
+    file: "bright-spark-bse-4410.pdf",
+    supplier: "Bright Spark Electrical CC",
+    address: "19 Voortrekker Road, Goodwood, 7460",
+    supplierVat: "4776655443",
+    number: "BSE-4410",
+    date: "2026-05-20",
+    dateText: "20 May 2026",
+    dueText: "3 June 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "done",
+    note: "A repair, with parts and labour.",
+    lines: [
+      demoLine(1, "Parts, replacement element", 1, 98000, 98000, 14700, 112700),
+      demoLine(1, "Labour, 5 hours", 5, 22000, 110000, 16500, 126500),
+    ],
+    net: 208000,
+    vat: 31200,
+    gross: 239200,
+  },
+  {
+    id: "rs-2215",
+    file: "roastery-spares-rs-2215.pdf",
+    supplier: "Roastery Spares CC",
+    address: "7 Victoria Road, Woodstock, 7925",
+    supplierVat: "4550033445",
+    number: "RS-2215",
+    date: "2026-05-29",
+    dateText: "29 May 2026",
+    dueText: "12 June 2026",
+    pages: 1,
+    kind: "invoice",
+    currency: "ZAR",
+    status: "processing",
+    note: "Uploaded minutes ago and still reading.",
+    lines: [],
+  },
 ];
 
-function demoSample(id) {
-  return DEMO_SAMPLES.find((sample) => sample.id === id) || null;
+// Confirmations live only in this page's memory. A reload, Start over or Exit demo clears them.
+const demoConfirmed = new Map();
+
+function demoDocs() {
+  return DEMO_DOCUMENTS.map(demoResolve);
 }
 
-function demoMoney(minor) {
+function demoDoc(id) {
+  return DEMO_DOCUMENTS.find((doc) => doc.id === id) || null;
+}
+
+function demoResolve(doc) {
+  const done = demoConfirmed.get(doc.id);
+  return done ? { ...doc, ...done, status: "done", confirmed: true } : doc;
+}
+
+function demoHeldResolution(doc) {
+  if (doc.held === "figure") return { gross: doc.grossPrinted };
+  if (doc.held === "currency") return { foreignCurrency: true };
+  if (doc.held === "line") return { acceptedLine: 37 };
+  return { date: "2026-05-12", dateText: "12 May 2026" };
+}
+
+function demoReset() {
+  demoConfirmed.clear();
+}
+
+function demoMoney(minor, currency) {
+  if (minor == null) return "–";
   const sign = minor < 0 ? "-" : "";
   const abs = Math.abs(minor);
   const whole = String(Math.floor(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return sign + "R " + whole + "." + String(abs % 100).padStart(2, "0");
+  const amount = whole + "." + String(abs % 100).padStart(2, "0");
+  return (currency === "USD" ? "USD " : "R ") + sign + amount;
 }
 
-function demoStrip(sample, onRestart) {
+function demoKind(doc) {
+  return DEMO_KIND[doc.kind] || doc.kind;
+}
+
+// BST's row shows the reading's total until a person confirms the printed one.
+function demoStatedGross(doc) {
+  if (doc.status === "processing") return null;
+  return doc.status === "needs_review" && doc.held === "figure" ? doc.grossRead : doc.gross;
+}
+
+function demoChecks(doc) {
+  if (doc.confirmed && doc.confirmedChecks) return doc.confirmedChecks;
+  return doc.checks || demoChecksFor(doc);
+}
+
+function demoChecksFor(doc) {
+  return [
+    ["Every line", "Passed", doc.lines.length === 1 ? "The one line agrees with the page." : "Each of the " + doc.lines.length + " lines agrees with the page."],
+    ["VAT", "Passed", doc.vat === 0 ? "No VAT is charged." : "VAT agrees with the document's totals."],
+    ["Net plus VAT", "Passed", demoMoney(doc.net, doc.currency) + " plus " + demoMoney(doc.vat, doc.currency) + " is " + demoMoney(doc.gross, doc.currency) + "."],
+    ["Figures on the page", "Passed", "Every amount recorded appears on the page."],
+  ];
+}
+
+function demoReport(doc) {
+  if (doc.confirmed && doc.reportConfirmed) return doc.reportConfirmed;
+  return doc.report || demoReportFor(doc);
+}
+
+function demoReportFor(doc) {
+  const kind = doc.kind === "credit_note" ? "credit note" : doc.kind === "unclassified" ? "document" : "invoice";
+  return [
+    ["What this is", doc.supplier + " sent Kloof Street Coffee Roasters (Pty) Ltd " + demoMoney(doc.gross, doc.currency) + " on " + doc.dateText + ", " + kind + " " + doc.number + "."],
+    ["What was read", doc.lines.length + " line" + (doc.lines.length === 1 ? "" : "s") + " over " + doc.pages + " page" + (doc.pages === 1 ? "" : "s") + "."],
+    ["What was checked", "Every line, the VAT and net plus VAT agree with the page."],
+  ];
+}
+
+function demoStrip() {
   return h("div", { class: "demo-strip" },
     h("span", { class: "demo-chip" }, "Demo"),
     h("span", { class: "demo-strip-text" }, DEMO_NOTE),
     h("span", { class: "demo-actions" },
-      h("button", { type: "button", class: "link", onclick: () => { location.hash = "#/"; } }, "Exit demo"),
-      sample && onRestart ? h("button", { type: "button", class: "link", onclick: onRestart }, "Start over") : null));
+      h("button", { type: "button", class: "link", onclick: () => { demoReset(); route(); } }, "Start over"),
+      h("a", { class: "link", href: "#/demo" }, "Back to the demo"),
+      h("button", { type: "button", class: "link", onclick: () => { stopPolling(); demoReset(); location.hash = "#/"; } }, "Exit demo")));
 }
 
-function demoCard(sample) {
-  return h("a", { class: "sample-card", href: "#/demo/" + sample.id },
-    h("span", { class: "sample-file" }, sample.file),
-    h("strong", {}, sample.supplier),
-    h("span", { class: "small muted" }, "Invoice " + sample.number + " · " + sample.pages + (sample.pages === 1 ? " page" : " pages") + " · " + demoMoney(sample.gross)),
-    badge(sample.status),
-    h("span", { class: "small" }, sample.note));
+function demoCard(doc) {
+  const gross = demoStatedGross(doc);
+  return h("a", { class: "sample-card", href: "#/demo/invoice/" + doc.id },
+    h("span", { class: "sample-file" }, doc.file),
+    h("strong", {}, doc.supplier),
+    h("span", { class: "small muted" }, demoKind(doc) + " " + doc.number + " · " + doc.dateText + " · " + (gross == null ? "–" : demoMoney(gross, doc.currency))),
+    badge(doc.status),
+    h("span", { class: "small" }, doc.note));
 }
+
+const DEMO_FEATURED = ["pp-0091", "bst-221", "crs-8840"];
+
+const DEMO_LIBRARY = [
+  ["Everyday invoices", ["tp-4410", "crs-8821", "wf-55302", "soc-114", "cp-3301", "cc-7712", "ksp-0331", "bse-4410"]],
+  ["Different tax treatments", ["dd-1740", "mf-8092", "rs-2209", "bb-6174", "ngc-7781"]],
+  ["Credit notes", ["crs-8840"]],
+  ["The hard ones", ["bst-221", "pp-0091", "cs-441", "rs-2215"]],
+];
 
 function demoHome() {
   stopPolling();
+  const featured = DEMO_FEATURED.map((id) => demoCard(demoResolve(demoDoc(id))));
+  const library = DEMO_LIBRARY.map(([title, ids]) =>
+    h("section", { class: "library-group" },
+      h("h2", {}, title),
+      h("div", { class: "library-grid" }, ids.map((id) => demoCard(demoResolve(demoDoc(id)))))));
   show(h("div", { class: "page demo" },
-    demoStrip(null, null),
+    demoStrip(),
     h("div", { class: "page-head" },
       h("p", { class: "eyebrow" }, "Demo"),
-      h("h1", {}, "Two invoices, read end to end."),
-      h("p", { class: "lede" }, "These are made-up invoices from ClearCut's test set. The readings, the timelines and the checks are prepared in advance: no model is called, nothing is uploaded and nothing here is saved.")),
-    h("div", { class: "sample-grid" }, DEMO_SAMPLES.map(demoCard)),
+      h("h1", {}, "A quarter in the life of an inbox."),
+      h("p", { class: "lede" }, "Eighteen supplier documents from March to May 2026, prepared so you can walk the whole workspace without a key: the inbox, the review queue, the register and a batch upload. No model is called, nothing is uploaded and nothing is saved."),
+      h("p", { class: "small muted" }, "Kloof Street Coffee Roasters (Pty) Ltd is a made-up roastery in Cape Town. Every supplier, person and number here is fictional.")),
+    h("div", { class: "card" },
+      h("p", {}, "This sample is built to show the hard cases: a total off by a rand, a line off by a cent, a foreign invoice and an undated page. 13 of the 17 finished documents needed nobody (76.5%); a clean month runs higher.")),
+    h("section", { class: "demo-featured" },
+      h("h2", {}, "Start with these"),
+      h("div", { class: "demo-featured-grid" }, featured)),
+    h("section", { class: "library" }, library),
     h("p", { class: "small muted" }, "In the real app a model reads each page, every figure is checked against the page it came from, and what cannot be settled goes to a person. ClearCut is invite-only while in alpha: ask for a key from whoever sent you this link.")));
 }
 
-function demoPage(id) {
+function demoJourney(id, withTimeline) {
   stopPolling();
-  const sample = demoSample(id);
-  if (!sample) {
+  const base = demoDoc(id);
+  if (!base) {
     location.hash = "#/demo";
     return;
   }
-  const state = { phase: "timeline", confirmed: false, redraw: null };
+  const state = { phase: "document", focus: false, redraw: null };
   const stage = h("div", {});
+  const initial = () => {
+    if (withTimeline) return "timeline";
+    if (base.status === "processing") return "reading";
+    if (base.status === "needs_review" && !demoConfirmed.has(base.id)) return "review";
+    return "document";
+  };
+  state.phase = initial();
   const draw = () => {
+    const doc = demoResolve(base);
+    let node;
     if (state.phase === "timeline") {
-      stage.replaceChildren(demoTimeline(sample, () => { state.phase = "document"; draw(); }));
+      node = demoTimeline(doc, () => {
+        state.phase = doc.status === "processing" ? "reading" : "document";
+        draw();
+      });
     } else if (state.phase === "review") {
-      stage.replaceChildren(demoReview(sample, state, draw));
+      node = demoReview(doc, state, draw);
+    } else if (state.phase === "reading") {
+      node = demoReading(doc);
     } else {
-      stage.replaceChildren(demoDocument(sample, state));
+      node = demoDocumentScreen(doc, state, draw);
+    }
+    stage.replaceChildren(node);
+    if (state.focus) {
+      const banner = node.querySelector(".banner.ok");
+      if (banner) banner.focus();
+      state.focus = false;
     }
   };
   state.redraw = draw;
   show(h("div", { class: "page demo" },
-    demoStrip(sample, () => { location.hash = "#/demo"; }),
-    h("p", { class: "small" }, h("a", { href: "#/demo" }, "← All samples")),
+    demoStrip(),
+    h("p", { class: "small" }, h("a", { href: "#/demo" }, "← Back to the demo")),
     stage));
   draw();
 }
 
-function demoTimeline(sample, done) {
-  const steps = ["File accepted", sample.pages + (sample.pages === 1 ? " page found" : " pages found")];
-  for (let page = 1; page <= sample.pages; page += 1) steps.push("Reading page " + page + " of " + sample.pages);
-  steps.push("Checking every figure", sample.status === "needs_review" ? "Needs review" : "Done");
+function demoTimeline(doc, done) {
+  const steps = ["File accepted", doc.pages + (doc.pages === 1 ? " page found" : " pages found")];
+  for (let page = 1; page <= doc.pages; page += 1) steps.push("Reading page " + page + " of " + doc.pages);
+  if (doc.status !== "processing") {
+    steps.push("Checking every figure", doc.status === "needs_review" ? "Needs review" : "Done");
+  }
   const list = h("ol", { class: "timeline", "aria-label": "What the demo is doing" });
   const status = h("p", { class: "small muted", role: "status" }, "");
   const progress = h("progress", { class: "demo-progress", max: steps.length, value: 0 });
@@ -503,13 +1099,24 @@ function demoTimeline(sample, done) {
   };
   advance();
   return h("div", { class: "card" },
-    h("h1", {}, sample.file),
+    h("h1", {}, doc.file),
     h("p", { class: "small muted" }, "This timeline is simulated. No model is called and no file is uploaded."),
     progress,
     status,
     list,
     h("div", { class: "actions" },
       h("button", { type: "button", class: "secondary", onclick: () => { stopPolling(); done(); } }, "Skip to the result")));
+}
+
+function demoReading(doc) {
+  return h("div", {},
+    h("div", { class: "row" }, h("h1", {}, doc.file), badge("processing")),
+    h("p", { class: "small muted" }, doc.supplier + " · " + demoKind(doc) + " " + doc.number + " · " + doc.dateText + " · prepared sample"),
+    h("div", { class: "card" },
+      h("h2", {}, "Still reading."),
+      h("p", {}, "The pages have been read, but the figures are not finished yet. There is nothing to review or export until the reading finishes."),
+      h("p", { class: "small muted" }, "In the real app this waits on the worker and the model. Here it stays like this on purpose: the demo cannot finish a reading it never started.")),
+    demoEndCard());
 }
 
 function demoChecklist(rows) {
@@ -521,133 +1128,189 @@ function demoChecklist(rows) {
         h("span", { class: "small muted" }, detail))));
 }
 
-function demoReport(sample, confirmed) {
-  const rows = confirmed && sample.reportConfirmed ? sample.reportConfirmed : sample.report;
-  return h("div", { class: "report" },
-    rows.map(([heading, text]) => h("div", {}, h("h3", {}, heading), h("p", {}, text))));
+function demoConfirmationNote(doc) {
+  if (doc.held === "figure") return "The printed total " + demoMoney(doc.grossPrinted, doc.currency) + " is recorded.";
+  if (doc.held === "date") return "The invoice is dated " + doc.dateText + ", from the delivery note.";
+  if (doc.held === "line") return "Line 37 is accepted as printed.";
+  if (doc.held === "currency") return "It stays in US dollars and is never added to rand totals.";
+  return "The document is done.";
 }
 
-function demoChecks(sample, confirmed) {
-  return confirmed && sample.confirmedChecks ? sample.confirmedChecks : sample.checks;
-}
-
-function demoDocument(sample, state) {
-  const held = sample.status === "needs_review" && !state.confirmed;
+function demoDocumentScreen(doc, state, redraw) {
+  const held = doc.status === "needs_review";
   const parts = [
-    h("div", { class: "row" }, h("h1", {}, sample.file), badge(held ? "needs_review" : "done")),
+    h("div", { class: "row" }, h("h1", {}, doc.file), badge(doc.status)),
     h("p", { class: "small muted" },
-      sample.supplier + " · Invoice " + sample.number + " · " + sample.dateText + " · " +
-      sample.pages + (sample.pages === 1 ? " page" : " pages") + " · prepared sample"),
+      doc.supplier + " · " + demoKind(doc) + " " + doc.number + " · " + doc.dateText + " · " +
+      doc.pages + (doc.pages === 1 ? " page" : " pages") + " · prepared sample"),
   ];
   if (held) {
     parts.push(
       h("div", { class: "banner", role: "note" },
         h("strong", {}, "A person needs to look at this document. "),
-        "The reading says the total is " + demoMoney(sample.grossRead) + "; the page prints " + demoMoney(sample.grossPrinted) + ".",
+        doc.reason,
         h("br"),
         h("span", { class: "small muted" }, "Nothing was sent to a model and nothing is stored: this is the demo's prepared reading."),
         h("div", { class: "actions" },
-          h("button", { type: "button", onclick: () => { state.phase = "review"; state.redraw(); } }, "Review this page"))));
+          h("button", { type: "button", onclick: () => { state.phase = "review"; redraw(); } }, "Review this page"))));
   }
-  if (sample.status === "needs_review" && state.confirmed) {
+  if (doc.confirmed) {
     parts.push(
-      h("div", { class: "banner ok", role: "status" },
+      h("div", { class: "banner ok", role: "status", tabindex: "-1" },
         h("strong", {}, "Confirmed by you in this demo. "),
-        "In the real app the correction would be recorded as yours, against your key, without a model call."));
+        demoConfirmationNote(doc)));
   }
-  parts.push(h("h2", {}, "Figures checked"), demoChecklist(demoChecks(sample, state.confirmed)));
-  parts.push(h("h2", {}, "Report"), demoReport(sample, state.confirmed));
-  if (!held) {
-    parts.push(h("h2", {}, "Export"), demoExportPanel(sample, state.confirmed));
-  }
+  parts.push(h("h2", {}, "Figures checked"), demoChecklist(demoChecks(doc)));
+  parts.push(h("h2", {}, "Report"), h("div", { class: "report" },
+    demoReport(doc).map(([heading, text]) => h("div", {}, h("h3", {}, heading), h("p", {}, text)))));
+  if (!held) parts.push(h("h2", {}, "Export"), demoExportPanel(doc));
   parts.push(demoEndCard());
   return h("div", {}, parts);
 }
 
-function demoReview(sample, state, redraw) {
-  const back = () => { state.phase = "document"; redraw(); };
-  const sheet = h("div", { class: "invoice-sheet", "aria-label": "Sample invoice " + sample.number },
+function demoConfirmLabel(doc) {
+  if (doc.held === "figure") return "Confirm " + demoMoney(doc.grossPrinted, doc.currency);
+  if (doc.held === "currency") return "Keep it in US dollars";
+  if (doc.held === "line") return "Accept the printed line";
+  return "Use 12 May 2026";
+}
+
+function demoReviewSheet(doc) {
+  const lines = doc.held === "line" ? doc.lines.filter((line) => line.page === 4) : doc.lines;
+  const rows = lines.map((line) => {
+    const number = doc.lines.indexOf(line) + 1;
+    const amount = doc.held === "line" && number === 37
+      ? h("mark", {}, demoMoney(line.net, doc.currency))
+      : demoMoney(line.net, doc.currency);
+    return h("tr", {},
+      h("td", {}, doc.held === "line" ? "Line " + number + " · " + line.description : line.description),
+      h("td", { class: "num" }, line.quantity),
+      h("td", { class: "num" }, demoMoney(line.unit, doc.currency)),
+      h("td", { class: "num" }, amount));
+  });
+  return h("div", { class: "invoice-sheet", "aria-label": "Sample document " + doc.number },
     h("div", { class: "invoice-head" },
       h("div", {},
-        h("strong", {}, sample.supplier),
-        h("span", { class: "small muted" }, "3 Kerk Street, Stellenbosch, 7600"),
-        h("span", { class: "small muted" }, "VAT " + sample.supplierVat)),
+        h("strong", {}, doc.supplier),
+        h("span", { class: "small muted" }, doc.address),
+        h("span", { class: "small muted" }, doc.supplierVat ? "VAT " + doc.supplierVat : "No South African VAT number")),
       h("div", { class: "invoice-meta" },
-        h("span", {}, "Invoice " + sample.number),
-        h("span", {}, sample.dateText),
-        h("span", {}, "Due " + sample.dueText))),
+        h("span", {}, demoKind(doc) + " " + doc.number),
+        h("span", {}, doc.date ? doc.dateText : "No date printed"),
+        doc.dueText ? h("span", {}, "Due " + doc.dueText) : null)),
     h("table", {},
-      h("thead", {}, h("tr", {}, h("th", {}, "Description"), h("th", { class: "num" }, "Qty"), h("th", { class: "num" }, "Amount"))),
-      h("tbody", {},
-        sample.lines.map((line) =>
-          h("tr", {},
-            h("td", {}, line.description),
-            h("td", { class: "num" }, line.quantity),
-            h("td", { class: "num" }, demoMoney(line.total)))))),
+      h("thead", {}, h("tr", {},
+        h("th", {}, "Description"), h("th", { class: "num" }, "Qty"),
+        h("th", { class: "num" }, "Unit"), h("th", { class: "num" }, "Amount"))),
+      h("tbody", {}, rows)),
     h("div", { class: "invoice-totals" },
-      h("div", {}, h("span", {}, "Net"), h("b", {}, demoMoney(sample.net))),
-      h("div", {}, h("span", {}, "VAT (exempt)"), h("b", {}, demoMoney(sample.vat))),
-      h("div", { class: "due" }, h("span", {}, "Total"), h("b", {}, h("mark", {}, demoMoney(sample.grossPrinted))))));
+      h("div", {}, h("span", {}, "Net"), h("b", {}, demoMoney(doc.net, doc.currency))),
+      h("div", {}, h("span", {}, doc.taxNote || "VAT"), h("b", {}, demoMoney(doc.vat, doc.currency))),
+      h("div", { class: "due" }, h("span", {}, "Total"), h("b", {},
+        doc.held === "figure" ? h("mark", {}, demoMoney(doc.grossPrinted, doc.currency)) : demoMoney(doc.gross, doc.currency)))));
+}
+
+function demoReviewReading(doc) {
+  const fields = h("dl", { class: "reading" });
+  fields.append(h("dt", {}, "Document number"), h("dd", {}, doc.number));
+  if (doc.held === "date") {
+    fields.append(h("dt", {}, "Date"), h("dd", { class: "error" }, "Not found"));
+  } else {
+    fields.append(h("dt", {}, "Date"), h("dd", {}, doc.dateText));
+  }
+  if (doc.held === "figure") {
+    fields.append(h("dt", {}, "Total (gross)"), h("dd", { class: "error" }, demoMoney(doc.grossRead, doc.currency)));
+  }
+  if (doc.held === "currency") {
+    fields.append(h("dt", {}, "Currency"), h("dd", {}, "US dollars"));
+    fields.append(h("dt", {}, "South African VAT"), h("dd", {}, "None"));
+  }
+  if (doc.held === "line") {
+    fields.append(h("dt", {}, "Net"), h("dd", {}, demoMoney(doc.net, doc.currency)));
+    fields.append(h("dt", {}, "Line 37"), h("dd", { class: "error" },
+      "3 × " + demoMoney(41250, doc.currency) + " = " + demoMoney(123750, doc.currency)));
+  }
+  return [
+    h("h2", {}, "What the reader says"),
+    fields,
+    h("div", { class: "banner", role: "note" },
+      h("strong", {}, "What needs a person. "),
+      doc.reason),
+    doc.held === "date"
+      ? h("div", { class: "card" },
+          h("h3", {}, "The delivery note"),
+          h("p", {}, "Packed with the invoice and dated 12 May 2026. The review uses that date."))
+      : null,
+  ];
+}
+
+function demoReview(doc, state, redraw) {
+  const back = () => { state.phase = "document"; redraw(); };
   return h("div", {},
-    h("div", { class: "row" }, h("h1", {}, "Review " + sample.file), badge("needs_review")),
-    h("p", { class: "small muted" }, "This page is a recreation of the made-up sample invoice, so it reads the same in dark mode."),
+    h("div", { class: "row" }, h("h1", {}, "Review " + doc.file), badge("needs_review")),
+    h("p", { class: "small muted" }, "This page is a recreation of the made-up sample document, so it reads the same in dark mode."),
     h("div", { class: "review-split" },
-      sheet,
-      h("div", { class: "card" },
-        h("h2", {}, "What the reader says"),
-        h("dl", { class: "reading" },
-          h("dt", {}, "Invoice number"), h("dd", {}, sample.number),
-          h("dt", {}, "Date"), h("dd", {}, sample.dateText),
-          h("dt", {}, "Total (gross)"), h("dd", { class: "error" }, demoMoney(sample.grossRead))),
-        h("div", { class: "banner", role: "note" },
-          h("strong", {}, "The total does not match. "),
-          "The reading says " + demoMoney(sample.grossRead) + ". The page prints " + demoMoney(sample.grossPrinted) +
-          ", and net plus VAT is " + demoMoney(sample.net + sample.vat) + "."),
+      demoReviewSheet(doc),
+      h("div", { class: "card" }, demoReviewReading(doc),
         h("p", { class: "small muted" }, "In the real app this is a form: the correction is checked by the same rules as a model's reading, recorded as yours and costs nothing."),
         h("div", { class: "row" },
-          h("button", { type: "button", onclick: () => { state.confirmed = true; back(); } }, "Confirm " + demoMoney(sample.grossPrinted)),
+          h("button", {
+            type: "button",
+            onclick: () => {
+              demoConfirmed.set(doc.id, demoHeldResolution(doc));
+              state.phase = "document";
+              state.focus = true;
+              redraw();
+            },
+          }, demoConfirmLabel(doc)),
           h("button", { type: "button", class: "secondary", onclick: back }, "Back to the document")))));
 }
 
-function demoExport(sample, confirmed, format) {
-  const total = confirmed ? sample.grossPrinted ?? sample.gross : sample.gross;
-  const cell = (value) => '"' + String(value).replaceAll('"', '""') + '"';
+function demoCsvCell(value) {
+  let text = String(value == null ? "" : value);
+  if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
+  return '"' + text.replaceAll('"', '""') + '"';
+}
+
+function demoExport(doc, format) {
   if (format === "csv") {
-    const rows = [[
-      "# ClearCut demo. Sample data, not a real invoice.",
-      ["supplier", "invoice", "date", "page", "description", "quantity", "unit", "line_total", "tax"].map(cell).join(","),
-    ].join("\n")];
-    for (const line of sample.lines) {
-      rows.push([sample.supplier, sample.number, sample.dateText, line.page, line.description, line.quantity,
-        demoMoney(line.unit), demoMoney(line.total), line.tax].map(cell).join(","));
+    const rows = [[demoCsvCell("ClearCut demo. Sample data, not a real invoice.")]];
+    rows.push(["supplier", "document", "date", "page", "description", "quantity", "unit", "line_net", "line_vat", "line_gross", "tax"].map(demoCsvCell).join(","));
+    for (const line of doc.lines) {
+      rows.push([doc.supplier, doc.number, doc.dateText, line.page, line.description, line.quantity,
+        demoMoney(line.unit, doc.currency), demoMoney(line.net, doc.currency),
+        demoMoney(line.vat, doc.currency), demoMoney(line.gross, doc.currency), DEMO_TAX[line.tax]].map(demoCsvCell).join(","));
     }
-    rows.push(["", "", "", "", "Net", "", "", demoMoney(sample.net), ""].map(cell).join(","));
-    rows.push(["", "", "", "", "VAT", "", "", demoMoney(sample.vat), ""].map(cell).join(","));
-    rows.push(["", "", "", "", "Total", "", "", demoMoney(total), ""].map(cell).join(","));
+    rows.push(["", "", "", "", "Net", "", "", demoMoney(doc.net, doc.currency), "", "", ""].map(demoCsvCell).join(","));
+    rows.push(["", "", "", "", "VAT", "", "", demoMoney(doc.vat, doc.currency), "", "", ""].map(demoCsvCell).join(","));
+    rows.push(["", "", "", "", "Total", "", "", demoMoney(doc.gross, doc.currency), "", "", ""].map(demoCsvCell).join(","));
     return rows.join("\n");
   }
-  const lines = sample.lines.map((line) =>
-    "| " + line.page + " | " + line.description + " | " + line.quantity + " | " + demoMoney(line.unit) + " | " + demoMoney(line.total) + " |");
+  const lines = doc.lines.map((line) =>
+    "| " + line.page + " | " + line.description + " | " + line.quantity + " | " +
+    demoMoney(line.unit, doc.currency) + " | " + demoMoney(line.net, doc.currency) + " | " +
+    demoMoney(line.vat, doc.currency) + " | " + demoMoney(line.gross, doc.currency) + " | " +
+    DEMO_TAX[line.tax] + " |");
   return [
     "# ClearCut demo: sample data, not a real invoice",
     "",
-    "**" + sample.supplier + "** · invoice " + sample.number + " · " + sample.dateText,
+    "**" + doc.supplier + "** · " + demoKind(doc).toLowerCase() + " " + doc.number + " · " + doc.dateText,
     "",
-    "| Page | Description | Qty | Unit | Line |",
-    "|---:|---|---:|---:|---:|",
+    "| Page | Description | Qty | Unit | Net | VAT | Line total | Tax |",
+    "|---:|---|---:|---:|---:|---:|---:|---|",
     ...lines,
     "",
-    "Net " + demoMoney(sample.net),
-    "VAT " + demoMoney(sample.vat),
-    "**Total " + demoMoney(total) + "**",
+    "Net " + demoMoney(doc.net, doc.currency),
+    "VAT " + demoMoney(doc.vat, doc.currency),
+    "**Total " + demoMoney(doc.gross, doc.currency) + "**",
   ].join("\n");
 }
 
-function demoExportPanel(sample, confirmed) {
+function demoExportPanel(doc) {
   const out = h("pre", { class: "demo-output", tabindex: "0" }, "Choose CSV or Markdown.");
   const note = h("p", { class: "small muted", role: "status" }, "");
   const build = (format) => {
-    out.textContent = demoExport(sample, confirmed, format);
+    out.textContent = demoExport(doc, format);
     note.textContent = "Built in this page from the sample's figures. No file was requested from the server.";
   };
   const copy = h("button", {
@@ -1749,8 +2412,10 @@ function route() {
   exitDemoButton.hidden = !hash.startsWith("#/demo");
   demoLink.hidden = hash.startsWith("#/demo");
   if (hash === "#/demo") return demoHome();
-  const sample = hash.match(/^#\/demo\/([a-z0-9-]+)$/);
-  if (sample) return demoPage(sample[1]);
+  const journey = hash.match(/^#\/demo\/(invoice|document)\/([a-z0-9-]+)$/);
+  if (journey) return demoJourney(journey[2], journey[1] === "invoice");
+  const legacy = hash.match(/^#\/demo\/([a-z0-9-]+)$/);
+  if (legacy) return demoJourney(legacy[1], true);
   if (hash === "#/trust") return trustPage();
   if (!key) return home("");
   setSignedIn(true);
