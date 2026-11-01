@@ -445,6 +445,21 @@ tr.error td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .reading dt { color: var(--muted); }
 .reading dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 
+.demo-featured { margin: 30px 0; }
+.demo-featured h2, .library h2, .library-group h2 { font-family: var(--serif); }
+.demo-featured h2 { font-size: 26px; }
+.demo-featured-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.library { margin: 34px 0; display: grid; gap: 30px; }
+.library-group h2 { font-size: 24px; margin-bottom: 12px; }
+.library-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.demo-hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 6px; }
+@media (max-width: 900px) {
+  .demo-featured-grid, .library-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 600px) {
+  .demo-featured-grid, .library-grid { grid-template-columns: 1fr; }
+}
+
 /* ---------------------------------------------------------------- small ---- */
 @media (max-width: 900px) {
   .hero-inner { grid-template-columns: 1fr; }
