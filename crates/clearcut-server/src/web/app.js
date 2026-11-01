@@ -1023,7 +1023,8 @@ function demoHome() {
       h("p", { class: "small muted" }, "Kloof Street Coffee Roasters (Pty) Ltd is a made-up roastery in Cape Town. Every supplier, person and number here is fictional."),
       h("div", { class: "demo-hero-actions" },
         h("a", { class: "button", href: "#/demo/workspace" }, "Open the workspace"),
-        h("a", { class: "button secondary", href: "#/demo/review" }, "See what needs a person"))),
+        h("a", { class: "button secondary", href: "#/demo/review" }, "See what needs a person"),
+        h("a", { class: "button secondary", href: "#/demo/register" }, "Open the register"))),
     h("div", { class: "card" },
       h("p", {}, "This sample is built to show the hard cases: a total off by a rand, a line off by a cent, a foreign invoice and an undated page. 13 of the 17 finished documents needed nobody (76.5%); a clean month runs higher.")),
     h("section", { class: "demo-featured" },
@@ -1425,6 +1426,514 @@ function demoQueue() {
             h("span", {}, doc.reason),
             h("span", { class: "small muted" }, "Gross " + demoMoney(demoStatedGross(doc), doc.currency)),
             h("a", { class: "button", href: "#/demo/document/" + doc.id }, "Review this document")))),
+    h("p", { class: "small" }, h("a", { href: "#/demo" }, "← Back to the demo"))));
+}
+
+const DEMO_REGISTER_NOTICE = "ClearCut demo: sample data from a made-up roastery. Not a real register.";
+const DEMO_REGISTER_FROM = "2026-03-01";
+const DEMO_REGISTER_TO = "2026-05-31";
+
+function demoStatedTotals(docs) {
+  return docs
+    .filter((doc) => doc.status === "done" || doc.status === "needs_review")
+    .map((doc) => {
+      const gross = demoStatedGross(doc);
+      return {
+        date: doc.dateText,
+        supplier: doc.supplier,
+        number: doc.number,
+        currency: doc.currency,
+        net: doc.net,
+        vat: doc.vat,
+        gross,
+        agrees: doc.net + doc.vat === gross,
+      };
+    });
+}
+
+function demoToCheck(docs) {
+  const rows = [];
+  for (const doc of docs) {
+    if (doc.status === "processing") {
+      rows.push({ file: doc.file, reason: "Still reading", page: "–", sentence: "Uploaded minutes ago. Its figures are not in the register yet." });
+    } else if (doc.status === "needs_review" && doc.check) {
+      rows.push({
+        file: doc.file,
+        reason: doc.check.label,
+        page: doc.check.page == null ? "–" : doc.check.page,
+        sentence: doc.check.sentence,
+      });
+    }
+  }
+  return rows;
+}
+
+function demoManifest(docs) {
+  const done = docs.filter((doc) => doc.status === "done").length;
+  const awaiting = docs.filter((doc) => doc.status === "needs_review").length;
+  const reading = docs.filter((doc) => doc.status === "processing").length;
+  const finished = done + awaiting;
+  return {
+    period: DEMO_PERIOD,
+    documents: docs.length,
+    done,
+    awaiting,
+    reading,
+    finished,
+    without_person: docs.filter((doc) => doc.status === "done" && !doc.held).length,
+    settled: docs.filter((doc) => doc.confirmed).length,
+    automation_bps: DEMO_AUTOMATION_BPS,
+    undated: docs.filter((doc) => doc.status !== "processing" && !doc.date).length,
+    currencies: [...new Set(docs.filter((doc) => doc.status !== "processing").map((doc) => doc.currency))],
+    credit_notes: docs.filter((doc) => doc.kind === "credit_note" && doc.status !== "processing").length,
+    notice: DEMO_REGISTER_NOTICE,
+  };
+}
+
+function demoAudit(docs) {
+  const issues = [];
+  const expected = new Set();
+  for (const doc of docs) {
+    if (doc.status === "processing") continue;
+    let net = 0;
+    let vat = 0;
+    for (const line of doc.lines) {
+      if (line.net + line.vat !== line.gross) {
+        issues.push(doc.file + ": a line's net plus VAT is not its gross.");
+      }
+      const arithmetic = line.inclusive ? line.gross : line.net;
+      if (line.quantity * line.unit !== arithmetic) {
+        if (doc.id === "pp-0091" && line.description === "Compostable bowls") {
+          expected.add("PP-0091 line 37 is one cent below its arithmetic");
+        } else {
+          issues.push(doc.file + ": a line's quantity times unit price is not its amount.");
+        }
+      }
+      net += line.net;
+      vat += line.vat;
+    }
+    if (net !== doc.net || vat !== doc.vat) {
+      issues.push(doc.file + ": the lines do not sum to the document's net and VAT.");
+    }
+    if (doc.net + doc.vat !== doc.gross) {
+      issues.push(doc.file + ": net plus VAT is not the gross.");
+    }
+    if (doc.status === "needs_review" && doc.held === "figure" && doc.grossRead !== doc.grossPrinted) {
+      expected.add("BST-221's reading is one rand above the printed total");
+    }
+  }
+  return { issues, expected: [...expected] };
+}
+
+function demoRegister() {
+  const docs = demoDocs();
+  const finished = docs.filter((doc) => doc.status === "done" || doc.status === "needs_review");
+  const rows = finished
+    .map((doc) => ({
+      id: doc.id,
+      date: doc.date,
+      dateText: doc.dateText,
+      supplier: doc.supplier,
+      number: doc.number,
+      kind: DEMO_KIND[doc.kind],
+      status: doc.status,
+      currency: doc.currency,
+      net: doc.net,
+      vat: doc.vat,
+      gross: demoStatedGross(doc),
+      lines: doc.lines.length,
+    }))
+    .sort((a, b) => (a.date || "9999-99-99").localeCompare(b.date || "9999-99-99") || a.supplier.localeCompare(b.supplier));
+
+  const groups = new Map();
+  for (const doc of finished) {
+    if (!doc.date) continue;
+    const month = doc.date.slice(0, 7);
+    const byTax = new Map();
+    for (const line of doc.lines) {
+      const found = byTax.get(line.tax) || { taxable: 0, vat: 0, docs: new Set() };
+      found.taxable += line.net;
+      found.vat += line.vat;
+      found.docs.add(doc.id);
+      byTax.set(line.tax, found);
+    }
+    for (const [tax, sums] of byTax) {
+      const side = doc.status === "done" ? "Ready" : "Awaiting review";
+      const key = [month, doc.currency, doc.kind, tax, side].join("|");
+      const group = groups.get(key) || {
+        month,
+        currency: doc.currency,
+        kind: DEMO_KIND[doc.kind],
+        kindOrder: DEMO_KIND_ORDER[doc.kind],
+        category: DEMO_TAX[tax],
+        taxOrder: DEMO_TAX_ORDER[tax],
+        rate: DEMO_RATE[tax],
+        side,
+        documents: new Set(),
+        taxable: 0,
+        vat: 0,
+      };
+      group.taxable += sums.taxable;
+      group.vat += sums.vat;
+      for (const id of sums.docs) group.documents.add(id);
+      groups.set(key, group);
+    }
+  }
+  const vatByCategory = [...groups.values()]
+    .map((group) => ({ ...group, documents: group.documents.size }))
+    .sort((a, b) =>
+      a.month.localeCompare(b.month) ||
+      (a.currency === "ZAR" ? 0 : 1) - (b.currency === "ZAR" ? 0 : 1) ||
+      a.kindOrder - b.kindOrder ||
+      a.taxOrder - b.taxOrder ||
+      (a.side === "Ready" ? 0 : 1) - (b.side === "Ready" ? 0 : 1));
+
+  const stated = demoStatedTotals(docs);
+  return {
+    rows,
+    vatByCategory,
+    stated,
+    toCheck: demoToCheck(docs),
+    manifest: demoManifest(docs),
+    audit: demoAudit(docs),
+    vatAgrees: rows
+      .filter((row) => row.date)
+      .every((row) => {
+        const doc = demoDoc(row.id);
+        return doc.lines.reduce((sum, line) => sum + line.vat, 0) === doc.vat;
+      }),
+  };
+}
+
+function demoRegisterPreview(model) {
+  const m = model.manifest;
+  const parts = [];
+
+  parts.push(h("div", { class: "card" },
+    h("h2", {}, "This register"),
+    h("p", {}, "Period fixed in the demo: " + DEMO_PERIOD + "."),
+    h("p", {}, m.documents + " documents: " + m.done + " done, " + m.awaiting + " awaiting review, " + m.reading + " still reading."),
+    h("p", {}, rateText(m.automation_bps) + " of finished documents needed nobody: " + m.without_person + " of " + m.finished + "."),
+    h("p", { class: "small muted" }, "Credit notes are kept apart and currencies are never added together.")));
+
+  parts.push(h("h2", {}, "Documents"));
+  parts.push(h("div", { class: "table-wrap" }, h("table", { class: "demo-table" },
+    h("caption", { class: "small muted" }, "The " + model.rows.length + " finished documents"),
+    h("thead", {}, h("tr", {},
+      h("th", {}, "Date"), h("th", {}, "Supplier"), h("th", {}, "Number"), h("th", {}, "Kind"),
+      h("th", {}, "Status"), h("th", {}, "Currency"), h("th", { class: "num" }, "Net"),
+      h("th", { class: "num" }, "VAT"), h("th", { class: "num" }, "Gross"), h("th", { class: "num" }, "Lines"))),
+    h("tbody", {}, model.rows.map((row) => h("tr", {},
+      h("td", { "data-label": "Date" }, row.dateText),
+      h("td", { "data-label": "Supplier" }, row.supplier),
+      h("td", { "data-label": "Number" }, row.number),
+      h("td", { "data-label": "Kind" }, row.kind),
+      h("td", { "data-label": "Status" }, badge(row.status)),
+      h("td", { "data-label": "Currency" }, row.currency),
+      h("td", { "data-label": "Net", class: "num" }, demoMoney(row.net, row.currency)),
+      h("td", { "data-label": "VAT", class: "num" }, demoMoney(row.vat, row.currency)),
+      h("td", { "data-label": "Gross", class: "num" }, demoMoney(row.gross, row.currency)),
+      h("td", { "data-label": "Lines", class: "num" }, row.lines)))))));
+
+  parts.push(h("h2", {}, "VAT by category"));
+  parts.push(h("div", { class: "table-wrap" }, h("table", { class: "demo-table" },
+    h("caption", { class: "small muted" }, "Dated documents, grouped by month, currency, kind, category, rate and side"),
+    h("thead", {}, h("tr", {},
+      h("th", {}, "Month"), h("th", {}, "Currency"), h("th", {}, "Kind"), h("th", {}, "Category"),
+      h("th", { class: "num" }, "Rate"), h("th", {}, "Side"), h("th", { class: "num" }, "Documents"),
+      h("th", { class: "num" }, "Taxable"), h("th", { class: "num" }, "VAT"))),
+    h("tbody", {}, model.vatByCategory.map((group) => h("tr", {},
+      h("td", { "data-label": "Month" }, group.month),
+      h("td", { "data-label": "Currency" }, group.currency),
+      h("td", { "data-label": "Kind" }, group.kind),
+      h("td", { "data-label": "Category" }, group.category),
+      h("td", { "data-label": "Rate", class: "num" }, rateText(group.rate)),
+      h("td", { "data-label": "Side" }, group.side),
+      h("td", { "data-label": "Documents", class: "num" }, group.documents),
+      h("td", { "data-label": "Taxable", class: "num" }, demoMoney(group.taxable, group.currency)),
+      h("td", { "data-label": "VAT", class: "num" }, demoMoney(group.vat, group.currency))))))));
+
+  parts.push(h("h2", {}, "Stated totals"));
+  parts.push(h("div", { class: "table-wrap" }, h("table", { class: "demo-table" },
+    h("caption", { class: "small muted" }, "Each finished document's own totals"),
+    h("thead", {}, h("tr", {},
+      h("th", {}, "Date"), h("th", {}, "Supplier"), h("th", {}, "Number"),
+      h("th", { class: "num" }, "Net"), h("th", { class: "num" }, "VAT"),
+      h("th", { class: "num" }, "Gross"), h("th", {}, "Net plus VAT"))),
+    h("tbody", {}, model.stated.map((row) => h("tr", {},
+      h("td", { "data-label": "Date" }, row.date),
+      h("td", { "data-label": "Supplier" }, row.supplier),
+      h("td", { "data-label": "Number" }, row.number),
+      h("td", { "data-label": "Net", class: "num" }, demoMoney(row.net, row.currency)),
+      h("td", { "data-label": "VAT", class: "num" }, demoMoney(row.vat, row.currency)),
+      h("td", { "data-label": "Gross", class: "num" }, demoMoney(row.gross, row.currency)),
+      h("td", { "data-label": "Net plus VAT" }, row.agrees ? "Agrees" : "Differs by " + demoMoney(row.gross - row.net - row.vat, row.currency))))))));
+  parts.push(h("p", { class: "small muted" }, model.vatAgrees
+    ? "Every dated document's stated VAT agrees with its lines."
+    : "A dated document's stated VAT does not agree with its lines. See the audit below."));
+
+  parts.push(h("h2", {}, "To check"));
+  if (model.toCheck.length === 0) {
+    parts.push(h("p", { class: "small muted" }, "Nothing is waiting for a person."));
+  } else {
+    parts.push(h("div", { class: "table-wrap" }, h("table", { class: "demo-table" },
+      h("caption", { class: "small muted" }, "Reasons this register is not final"),
+      h("thead", {}, h("tr", {},
+        h("th", {}, "Document"), h("th", {}, "Reason"), h("th", { class: "num" }, "Page"), h("th", {}, "What to check"))),
+      h("tbody", {}, model.toCheck.map((row) => h("tr", {},
+        h("td", { "data-label": "Document" }, row.file),
+        h("td", { "data-label": "Reason" }, row.reason),
+        h("td", { "data-label": "Page", class: "num" }, row.page),
+        h("td", { "data-label": "What to check" }, row.sentence)))))));
+  }
+
+  parts.push(h("h2", {}, "Manifest"));
+  const m2 = model.manifest;
+  const manifestRows = [
+    ["Period", m2.period],
+    ["Documents", m2.documents],
+    ["Done", m2.done],
+    ["Awaiting review", m2.awaiting],
+    ["Still reading", m2.reading],
+    ["Finished", m2.finished],
+    ["Finished without a person", m2.without_person],
+    ["Settled by a person", m2.settled],
+    ["Automation rate", rateText(m2.automation_bps)],
+    ["Undated", m2.undated],
+    ["Currencies", m2.currencies.join(", ")],
+    ["Credit notes", m2.credit_notes],
+    ["Notice", m2.notice],
+  ];
+  parts.push(h("div", { class: "table-wrap" }, h("table", { class: "demo-table" },
+    h("caption", { class: "small muted" }, "What this register counted"),
+    h("tbody", {}, manifestRows.map(([label, value]) => h("tr", {},
+      h("th", { scope: "row" }, label),
+      h("td", {}, value)))))));
+
+  parts.push(h("p", { class: model.audit.issues.length ? "small error" : "small audit-ok", role: "status" },
+    model.audit.issues.length
+      ? "The prepared data does not check out: " + model.audit.issues.join(" ")
+      : "Prepared data checked."));
+  if (model.audit.expected.length) {
+    parts.push(h("p", { class: "small muted" }, "Expected in this sample: " + model.audit.expected.join("; ") + "."));
+  }
+  return parts;
+}
+
+function demoRegisterName(ext) {
+  return "clearcut-demo-register-2026-03-01-to-2026-05-31." + ext;
+}
+
+function demoDownload(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = h("a", { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function demoMdCell(value) {
+  return String(value == null ? "" : value).replaceAll("|", "\\|").replaceAll("\n", " ");
+}
+
+function demoEscape(value) {
+  return String(value == null ? "" : value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function demoRegisterFile(model, format) {
+  const m = model.manifest;
+  if (format === "json") {
+    return JSON.stringify({
+      notice: DEMO_REGISTER_NOTICE,
+      period: { from: DEMO_REGISTER_FROM, to: DEMO_REGISTER_TO, label: DEMO_PERIOD },
+      manifest: m,
+      rows: model.rows.map((row) => ({
+        date: row.date,
+        supplier: row.supplier,
+        number: row.number,
+        kind: row.kind,
+        status: row.status,
+        currency: row.currency,
+        net: row.net,
+        vat: row.vat,
+        gross: row.gross,
+        line_count: row.lines,
+      })),
+      vat_by_category: model.vatByCategory.map((group) => ({
+        month: group.month,
+        currency: group.currency,
+        kind: group.kind,
+        category: group.category,
+        rate_bps: group.rate,
+        side: group.side,
+        documents: group.documents,
+        taxable: group.taxable,
+        vat: group.vat,
+      })),
+      stated_totals: model.stated.map((row) => ({
+        date: row.date,
+        supplier: row.supplier,
+        number: row.number,
+        currency: row.currency,
+        net: row.net,
+        vat: row.vat,
+        gross: row.gross,
+        net_plus_vat_is_gross: row.agrees,
+      })),
+      to_check: model.toCheck,
+      audit: model.audit,
+    }, null, 2) + "\n";
+  }
+
+  if (format === "csv") {
+    const rows = [[demoCsvCell(DEMO_REGISTER_NOTICE)]];
+    rows.push(["Date", "Supplier", "Number", "Kind", "Status", "Currency", "Net", "VAT", "Gross", "Lines"].map(demoCsvCell).join(","));
+    for (const row of model.rows) {
+      rows.push([
+        row.dateText, row.supplier, row.number, row.kind, STATUS[row.status] || row.status,
+        row.currency, demoMoney(row.net, row.currency), demoMoney(row.vat, row.currency),
+        demoMoney(row.gross, row.currency), row.lines,
+      ].map(demoCsvCell).join(","));
+    }
+    return rows.join("\n") + "\n";
+  }
+
+  if (format === "md") {
+    const lines = [
+      DEMO_REGISTER_NOTICE,
+      "",
+      "# Register",
+      "",
+      "Period: " + DEMO_PERIOD,
+      "",
+      m.documents + " documents: " + m.done + " done, " + m.awaiting + " awaiting review, " + m.reading + " still reading. " + rateText(m.automation_bps) + " of finished documents needed nobody.",
+      "",
+      "## Documents",
+      "",
+      "| Date | Supplier | Number | Kind | Status | Currency | Net | VAT | Gross | Lines |",
+      "|---|---|---|---|---|---|---:|---:|---:|---:|",
+      ...model.rows.map((row) => "| " + [
+        row.dateText, row.supplier, row.number, row.kind, STATUS[row.status] || row.status,
+        row.currency, demoMoney(row.net, row.currency), demoMoney(row.vat, row.currency),
+        demoMoney(row.gross, row.currency), row.lines,
+      ].map(demoMdCell).join(" | ") + " |"),
+      "",
+      "## VAT by category",
+      "",
+      "| Month | Currency | Kind | Category | Rate | Side | Documents | Taxable | VAT |",
+      "|---|---|---|---|---:|---|---:|---:|---:|",
+      ...model.vatByCategory.map((group) => "| " + [
+        group.month, group.currency, group.kind, group.category, rateText(group.rate), group.side,
+        group.documents, demoMoney(group.taxable, group.currency), demoMoney(group.vat, group.currency),
+      ].map(demoMdCell).join(" | ") + " |"),
+      "",
+      "## To check",
+      "",
+      model.toCheck.length
+        ? model.toCheck.map((row) => "- " + row.file + ": " + row.reason + ". " + row.sentence).join("\n")
+        : "Nothing is waiting for a person.",
+    ];
+    return lines.join("\n") + "\n";
+  }
+
+  if (format === "txt") {
+    const lines = [
+      DEMO_REGISTER_NOTICE,
+      "",
+      "REGISTER",
+      "Period: " + DEMO_PERIOD,
+      m.documents + " documents: " + m.done + " done, " + m.awaiting + " awaiting review, " + m.reading + " still reading.",
+      "",
+      "DOCUMENTS",
+      ["Date", "Supplier", "Number", "Kind", "Status", "Currency", "Net", "VAT", "Gross", "Lines"].join(" | "),
+      ...model.rows.map((row) => [
+        row.dateText, row.supplier, row.number, row.kind, STATUS[row.status] || row.status,
+        row.currency, demoMoney(row.net, row.currency), demoMoney(row.vat, row.currency),
+        demoMoney(row.gross, row.currency), row.lines,
+      ].join(" | ")),
+      "",
+      "VAT BY CATEGORY",
+      ["Month", "Currency", "Kind", "Category", "Rate", "Side", "Documents", "Taxable", "VAT"].join(" | "),
+      ...model.vatByCategory.map((group) => [
+        group.month, group.currency, group.kind, group.category, rateText(group.rate), group.side,
+        group.documents, demoMoney(group.taxable, group.currency), demoMoney(group.vat, group.currency),
+      ].join(" | ")),
+      "",
+      "TO CHECK",
+      model.toCheck.length
+        ? model.toCheck.map((row) => row.file + ": " + row.reason + ". " + row.sentence).join("\n")
+        : "Nothing is waiting for a person.",
+    ];
+    return lines.join("\n") + "\n";
+  }
+
+  const rows = model.rows.map((row) => "<tr>" + [
+    row.dateText, row.supplier, row.number, row.kind, STATUS[row.status] || row.status,
+    row.currency, demoMoney(row.net, row.currency), demoMoney(row.vat, row.currency),
+    demoMoney(row.gross, row.currency), row.lines,
+  ].map((cell) => "<td>" + demoEscape(cell) + "</td>").join("") + "</tr>").join("\n");
+  const groups = model.vatByCategory.map((group) => "<tr>" + [
+    group.month, group.currency, group.kind, group.category, rateText(group.rate), group.side,
+    group.documents, demoMoney(group.taxable, group.currency), demoMoney(group.vat, group.currency),
+  ].map((cell) => "<td>" + demoEscape(cell) + "</td>").join("") + "</tr>").join("\n");
+  const checks = model.toCheck.length
+    ? "<ul>" + model.toCheck.map((row) => "<li>" + demoEscape(row.file + ": " + row.reason + ". " + row.sentence) + "</li>").join("") + "</ul>"
+    : "<p>Nothing is waiting for a person.</p>";
+  return [
+    "<!doctype html>",
+    "<!-- " + DEMO_REGISTER_NOTICE + " -->",
+    "<html lang=\"en\"><head><meta charset=\"utf-8\"><title>ClearCut demo register</title>",
+    "<style>body{font:15px/1.5 system-ui,sans-serif;margin:32px;color:#17191a}h1{font-size:26px}table{border-collapse:collapse;margin:12px 0 28px}th,td{border:1px solid #ccc;padding:6px 9px;text-align:left}th{background:#f3f1ea}.notice{background:#fff4d6;border:1px solid #c99a2e;padding:10px 12px}</style>",
+    "</head><body>",
+    "<p class=\"notice\">" + demoEscape(DEMO_REGISTER_NOTICE) + "</p>",
+    "<h1>Register</h1>",
+    "<p>Period: " + demoEscape(DEMO_PERIOD) + "</p>",
+    "<p>" + demoEscape(m.documents + " documents: " + m.done + " done, " + m.awaiting + " awaiting review, " + m.reading + " still reading. " + rateText(m.automation_bps) + " of finished documents needed nobody.") + "</p>",
+    "<h2>Documents</h2>",
+    "<table><thead><tr><th>Date</th><th>Supplier</th><th>Number</th><th>Kind</th><th>Status</th><th>Currency</th><th>Net</th><th>VAT</th><th>Gross</th><th>Lines</th></tr></thead><tbody>",
+    rows,
+    "</tbody></table>",
+    "<h2>VAT by category</h2>",
+    "<table><thead><tr><th>Month</th><th>Currency</th><th>Kind</th><th>Category</th><th>Rate</th><th>Side</th><th>Documents</th><th>Taxable</th><th>VAT</th></tr></thead><tbody>",
+    groups,
+    "</tbody></table>",
+    "<h2>To check</h2>",
+    checks,
+    "</body></html>",
+  ].join("\n") + "\n";
+}
+
+function demoRegisterPage() {
+  stopPolling();
+  const model = demoRegister();
+  const status = h("p", { class: "small muted", role: "status" }, "");
+  const buttons = h("div", { class: "downloads" },
+    [["json", "JSON", "application/json"], ["csv", "CSV", "text/csv"], ["md", "Markdown", "text/markdown"],
+      ["txt", "Plain text", "text/plain"], ["html", "HTML", "text/html"]].map(([ext, label, type]) =>
+      h("button", {
+        type: "button", class: "secondary",
+        onclick: () => {
+          demoDownload(demoRegisterName(ext), demoRegisterFile(model, ext), type);
+          status.textContent = "Built in this page. Nothing was requested from a server.";
+        },
+      }, label)));
+  show(h("div", { class: "page demo" },
+    demoStrip(),
+    h("div", { class: "page-head" },
+      h("p", { class: "eyebrow" }, "Demo register"),
+      h("h1", {}, "Register"),
+      h("p", { class: "lede" }, "Every finished document in the quarter, with its figures, its VAT and the things that need a person. The period is fixed in the demo: " + DEMO_PERIOD + ".")),
+    demoRegisterPreview(model),
+    h("div", { class: "card" },
+      h("h2", {}, "Downloads"),
+      h("p", { class: "small muted" }, "The real app also builds Excel, a zipped CSV bundle and PDF. The demo builds these five in the browser."),
+      buttons,
+      status),
     h("p", { class: "small" }, h("a", { href: "#/demo" }, "← Back to the demo"))));
 }
 
@@ -2499,6 +3008,7 @@ function route() {
   if (hash === "#/demo") return demoHome();
   if (hash === "#/demo/workspace") return demoWorkspace();
   if (hash === "#/demo/review") return demoQueue();
+  if (hash === "#/demo/register") return demoRegisterPage();
   const journey = hash.match(/^#\/demo\/(invoice|document)\/([a-z0-9-]+)$/);
   if (journey) return demoJourney(journey[2], journey[1] === "invoice");
   const legacy = hash.match(/^#\/demo\/([a-z0-9-]+)$/);
