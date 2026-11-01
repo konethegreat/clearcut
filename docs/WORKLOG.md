@@ -14,7 +14,8 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **A batch replay.** Three files, three outcomes: RS-2215 is accepted and reading, SOC-114 returns as the document already in the list, notes.txt is refused. Timers run on the existing single timer, so leaving the screen stops them; Replay resets and runs again.
 - **Cross-screen proof.** Confirmations flow from the queue to the workspace and the register; BST corrects by R 1.00, CS lands in May, the automation rate stays 76.5%; the JSON download matches the preview; the demo is walked signed out with the network panel open and makes no `/v1` request.
 - **Tests:** `node --check`, the web tests for the data anchors, the four review reasons, the isolation boundary, the workspace and queue, the register's five downloads, and every route and control in the demo; the demo walked in a browser signed out.
-**Not done:** the demo remains prepared data: it is not evidence of the reader's accuracy, and no visitor's own file is accepted. The live host still serves the previous build: this machine has no private key for `clearcut-trial`, and the Oracle Cloud Agent Run Command plugin accepted but never delivered the rebuild commands, so the deploy waits for the key or an operator with SSH access.
+- **Shipped and deployed.** Each slice squash-merged as #131, #132, #133 and #134; the VM pulled `main` and rebuilt the server image; `/health` answered `{"status":"ok","version":"0.1.0"}`, `/` returned 200, and the served `app.js` carries `demoWorkspace`, `demoRegisterPage` and `demoBulk` (grep count 3).
+**Not done:** the demo remains prepared data: it is not evidence of the reader's accuracy, and no visitor's own file is accepted.
 
 ## 2026-10-30 (part 81): a period register, and the files an accountant asks for
 **Done**
