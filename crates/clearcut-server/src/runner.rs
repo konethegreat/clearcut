@@ -251,13 +251,7 @@ mod tests {
             limits.unavailable,
             ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"]
         );
-        assert_eq!(
-            limits.max_output_tokens.get("claude-haiku-5-5"),
-            Some(&64_000)
-        );
-        assert_eq!(
-            limits.max_input_tokens.get("claude-haiku-5-5"),
-            Some(&200_000)
-        );
+        assert_eq!(limits.max_output_tokens.get("claude-haiku-5-5"), Some(&64_000));
+        assert_eq!(limits.max_input_tokens.get("claude-haiku-5-5"), Some(&200_000));
     }
 }

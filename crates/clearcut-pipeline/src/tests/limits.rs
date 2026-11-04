@@ -19,10 +19,7 @@ fn the_settings_skip_a_model_the_key_cannot_use_and_clamp_its_answer() {
         .iter()
         .map(|rung| rung.model.as_str())
         .collect();
-    assert_eq!(
-        names,
-        ["claude-haiku-5-5", "claude-opus-5-5", "claude-fable-5-1"]
-    );
+    assert_eq!(names, ["claude-haiku-5-5", "claude-opus-5-5", "claude-fable-5-1"]);
     assert_eq!(settings.router().policy.rungs()[0].max_output_tokens, 10_000);
     assert_eq!(
         settings.router().model_input_limits.get("claude-haiku-5-5"),

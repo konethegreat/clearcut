@@ -289,8 +289,8 @@ fn an_answer_cut_off_is_retried_once_at_the_truncation_ceiling() {
 
 #[test]
 fn a_policy_whose_truncation_ceiling_is_its_answer_ceiling_ends_too_long_at_once() {
-    let policy = RouterPolicy::new(RouterPolicy::default_ladder().rungs().to_vec(), 16_000, 5, 3, 10)
-        .unwrap();
+    let policy =
+        RouterPolicy::new(RouterPolicy::default_ladder().rungs().to_vec(), 16_000, 5, 3, 10).unwrap();
     let (mut reader, _) = PageReader::start(&policy, 100);
     let step = reader.on_outcome(Outcome::Truncated);
     assert_eq!(review_of(&step), (ReviewReason::TooLong, None));

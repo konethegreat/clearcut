@@ -206,7 +206,9 @@ impl TryFrom<UncheckedReader> for PageReader {
             .cap_override
             .is_some_and(|cap| cap == 0 || cap > truncation_ceiling)
         {
-            return Err(broken("the raised answer cap is outside 1 to the truncation ceiling"));
+            return Err(broken(
+                "the raised answer cap is outside 1 to the truncation ceiling",
+            ));
         }
         if raw
             .best
