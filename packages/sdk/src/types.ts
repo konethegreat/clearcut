@@ -54,7 +54,7 @@ export interface UploadedDocument {
   byte_size: number;
   /** The cleaned name sent with this upload (for a repeat, the document keeps the name it first had). */
   filename: string;
-  media_type: "application/pdf" | "image/png" | "image/jpeg" | "image/tiff" | "application/xml";
+  media_type: "application/pdf" | "image/png" | "image/jpeg";
 }
 
 /** Where a document is in the pipeline. */

@@ -17,7 +17,7 @@
 //! | stored | `201 Created`, or `200 OK` if this tenant had uploaded the same bytes before |
 //! | no valid key | `401` (identical for every failure, see [`crate::auth`]) |
 //! | key lacks `documents:write` | `403`, naming the scope |
-//! | not a PDF, PNG, JPEG, TIFF or XML | `415`, listing what is accepted |
+//! | not a PDF, PNG or JPEG | `415`, listing what is accepted |
 //! | over the size limit | `413`, saying the limit |
 //! | would overfill the account's storage | `507`, saying how much is used and the quota |
 //! | empty, or the sender went away | `400` |
@@ -209,8 +209,6 @@ fn explain(error: IntakeError) -> Response {
                     MediaType::Pdf.as_str(),
                     MediaType::Png.as_str(),
                     MediaType::Jpeg.as_str(),
-                    MediaType::Tiff.as_str(),
-                    MediaType::Xml.as_str(),
                 ],
             })),
         )

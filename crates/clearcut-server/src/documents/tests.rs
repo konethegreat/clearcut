@@ -351,9 +351,7 @@ async fn each_intake_refusal_has_its_own_status_and_leaks_nothing() {
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             serde_json::json!({
                 "error": "unsupported media type",
-                "accepted": [
-                    "application/pdf", "image/png", "image/jpeg", "image/tiff", "application/xml"
-                ],
+                "accepted": ["application/pdf", "image/png", "image/jpeg"],
             }),
         ),
         (

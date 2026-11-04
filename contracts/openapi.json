@@ -960,7 +960,7 @@
                 }
               }
             },
-            "description": "Not a PDF, PNG, JPEG, TIFF or XML"
+            "description": "Not a PDF, PNG or JPEG"
           },
           "429": {
             "content": {

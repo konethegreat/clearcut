@@ -89,8 +89,8 @@ export type UploadBytes = Blob | ArrayBuffer | Uint8Array;
 
 export interface UploadOptions {
   /**
-   * What kind of file this is: `application/pdf`, `image/png`, `image/jpeg`,
-   * `image/tiff` or `application/xml`. Taken from a Blob's own type if you give
+   * What kind of file this is: `application/pdf`,
+   * `image/png` or `image/jpeg`. Taken from a Blob's own type if you give
    * one; required otherwise.
    */
   contentType?: string;
