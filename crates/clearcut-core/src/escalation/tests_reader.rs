@@ -271,7 +271,7 @@ fn a_review_verdict_ends_the_page_without_escalating() {
 // ---------- an answer that was cut off ----------
 
 #[test]
-fn an_answer_cut_off_below_the_ceiling_is_retried_once_with_the_ceiling() {
+fn an_answer_cut_off_is_retried_once_at_the_truncation_ceiling() {
     let policy = RouterPolicy::default_ladder()
         .with_enabled("claude-haiku-5-5", false)
         .unwrap();
@@ -280,17 +280,18 @@ fn an_answer_cut_off_below_the_ceiling_is_retried_once_with_the_ceiling() {
     let plan = call(&step);
     assert_eq!(plan.kind, CallKind::RetryTruncated);
     assert_eq!(plan.rung, 1);
-    assert_eq!(plan.max_output_tokens, 16_000);
+    assert_eq!(plan.max_output_tokens, 32_000);
     assert_eq!(plan.attempt, 2);
-    // Cut off again at the ceiling: the page is too dense for one call.
+    // Cut off again at the raised ceiling: the page is too dense for one call.
     let step = reader.on_outcome(Outcome::Truncated);
     assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
 }
 
 #[test]
-fn an_answer_cut_off_at_the_ceiling_is_too_long_at_once() {
-    // The first rung already has the ceiling.
-    let (mut reader, _) = default_start();
+fn a_policy_whose_truncation_ceiling_is_its_answer_ceiling_ends_too_long_at_once() {
+    let policy = RouterPolicy::new(RouterPolicy::default_ladder().rungs().to_vec(), 16_000, 5, 3, 10)
+        .unwrap();
+    let (mut reader, _) = PageReader::start(&policy, 100);
     let step = reader.on_outcome(Outcome::Truncated);
     assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
 }
@@ -310,12 +311,25 @@ fn the_retry_after_a_cut_off_uses_the_raised_cap_only_for_that_rung() {
     let (mut reader, _) = default_start();
     reader.on_outcome(escalate(1)); // now on Sonnet (12 000)
     let step = reader.on_outcome(Outcome::Truncated);
-    assert_eq!(call(&step).max_output_tokens, 16_000);
+    assert_eq!(call(&step).max_output_tokens, 32_000);
     // The retry is read but fails the checks; the next rung (Opus, 8 000) has its own cap.
     let step = reader.on_outcome(escalate(1));
     let plan = call(&step);
     assert_eq!(plan.model, "claude-opus-5-5");
     assert_eq!(plan.max_output_tokens, 8_000);
+}
+
+#[test]
+fn a_stored_carry_without_a_truncation_ceiling_still_resumes_and_ends_a_second_cut_off() {
+    let (mut reader, _) = PageReader::start(&RouterPolicy::default_ladder(), 100);
+    reader.on_outcome(Outcome::Truncated); // the retry at 32 000 is waiting for an answer
+    let mut value = serde_json::to_value(&reader).unwrap();
+    value.as_object_mut().unwrap().remove("truncation_ceiling");
+    let mut back: PageReader = serde_json::from_value(value).unwrap();
+    // The old carry had no field, so it adopts the cap it is already using: a second cut-off
+    // is at that cap, and the page ends too long.
+    let step = back.on_outcome(Outcome::Truncated);
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
 }
 
 // ---------- an answer that is not valid ----------
@@ -724,7 +738,7 @@ fn a_stored_reader_that_breaks_its_own_rules_is_refused() {
         ),
         (
             "a cap raised past the ceiling",
-            Box::new(|v| v["cap_override"] = json!(16_001)),
+            Box::new(|v| v["cap_override"] = json!(32_001)),
         ),
         ("a raised cap of zero", Box::new(|v| v["cap_override"] = json!(0))),
         ("a best attempt of zero", Box::new(|v| v["best"] = json!([0, 1]))),

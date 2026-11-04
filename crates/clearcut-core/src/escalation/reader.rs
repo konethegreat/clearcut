@@ -20,7 +20,7 @@
 //! reach it: the adapter has already retried them and the job queue retries after that, so the
 //! driver stops the document there and resumes from the stored machine (it is `Serialize`).
 
-use super::policy::{check_ceiling, check_rung};
+use super::policy::{check_ceiling, check_rung, check_truncation_ceiling};
 use super::{
     Assessment, ConfidenceBasis, EscalationReason, Note, Picture, ReviewReason, RouterPolicy, Rung,
     ThinkingEffort, Verdict,
@@ -124,6 +124,8 @@ struct Planned {
 pub struct PageReader {
     rungs: Vec<Planned>,
     ceiling: u32,
+    /// What a cut-off retry may ask for. At least `ceiling`; see `RouterPolicy`.
+    truncation_ceiling: u32,
     /// The fewer of the page's cap and the calls the document has left.
     call_limit: u32,
     /// Where in `rungs` the current rung is.
@@ -134,8 +136,9 @@ pub struct PageReader {
     issued: u32,
     /// Whether the current rung has already had its invalid-answer retry.
     invalid_retried: bool,
-    /// The answer cap in use on the current rung, once a cut-off raised it to the ceiling. That
-    /// is also what stops a second cut-off retry: the cap is then no longer below the ceiling.
+    /// The answer cap in use on the current rung, once a cut-off raised it to the truncation
+    /// ceiling. That is also what stops a second cut-off retry: the cap is then no longer below
+    /// the truncation ceiling.
     cap_override: Option<u32>,
     /// The attempt with the fewest blocking issues so far, and how many it had.
     best: Option<(u32, u32)>,
@@ -151,6 +154,8 @@ pub struct PageReader {
 struct UncheckedReader {
     rungs: Vec<Planned>,
     ceiling: u32,
+    #[serde(default)]
+    truncation_ceiling: Option<u32>,
     call_limit: u32,
     position: usize,
     calls_made: u32,
@@ -171,6 +176,13 @@ impl TryFrom<UncheckedReader> for PageReader {
 
     fn try_from(raw: UncheckedReader) -> Result<Self> {
         check_ceiling(raw.ceiling).map_err(|_| broken("the answer ceiling is not one the provider takes"))?;
+        // A carry stored before the field existed adopts the cap it is already using, so a job
+        // that spans the deploy resumes instead of being refused.
+        let truncation_ceiling = raw
+            .truncation_ceiling
+            .unwrap_or(raw.ceiling.max(raw.cap_override.unwrap_or(0)));
+        check_truncation_ceiling(raw.ceiling, truncation_ceiling)
+            .map_err(|_| broken("the truncation ceiling is outside the answer ceiling to 64000"))?;
         for planned in &raw.rungs {
             check_rung(&planned.rung, raw.ceiling)
                 .map_err(|_| broken("a rung is not one a policy could hold"))?;
@@ -185,8 +197,11 @@ impl TryFrom<UncheckedReader> for PageReader {
         if raw.calls_made > raw.issued {
             return Err(broken("more calls were made than were planned"));
         }
-        if raw.cap_override.is_some_and(|cap| cap == 0 || cap > raw.ceiling) {
-            return Err(broken("the raised answer cap is outside 1 to the ceiling"));
+        if raw
+            .cap_override
+            .is_some_and(|cap| cap == 0 || cap > truncation_ceiling)
+        {
+            return Err(broken("the raised answer cap is outside 1 to the truncation ceiling"));
         }
         if raw
             .best
@@ -211,6 +226,7 @@ impl TryFrom<UncheckedReader> for PageReader {
         Ok(PageReader {
             rungs: raw.rungs,
             ceiling: raw.ceiling,
+            truncation_ceiling,
             call_limit: raw.call_limit,
             position: raw.position,
             calls_made: raw.calls_made,
@@ -241,6 +257,7 @@ impl PageReader {
         let mut reader = PageReader {
             rungs,
             ceiling: policy.answer_ceiling(),
+            truncation_ceiling: policy.truncation_ceiling(),
             call_limit: policy.max_calls_per_page().min(document_calls_left),
             position: 0,
             calls_made: 0,
@@ -299,11 +316,12 @@ impl PageReader {
             Outcome::Read(assessment) => self.on_read(assessment),
             Outcome::NotConverted => self.escalate(EscalationReason::ReadingProblems),
             Outcome::Truncated => {
-                if self.current_cap() < self.ceiling {
-                    self.cap_override = Some(self.ceiling);
+                if self.current_cap() < self.truncation_ceiling {
+                    self.cap_override = Some(self.truncation_ceiling);
                     self.retry(CallKind::RetryTruncated)
                 } else {
-                    // At the ceiling already: a stronger model would be cut off the same way.
+                    // At the truncation ceiling: a stronger model cannot be asked for more room
+                    // than the policy allows, so a person decides (a split comes in Slice B).
                     self.review(ReviewReason::TooLong)
                 }
             }
