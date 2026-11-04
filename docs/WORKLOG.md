@@ -2,6 +2,18 @@
 
 _Newest first. Append an entry for each working session. Written by Kone Tshivhinda & Claude._
 
+## 2026-11-04 (part 84): a dense page gets more room, and the ladder knows the key
+**Done**
+- **A cut-off may ask for 32 000 tokens.** `RouterPolicy` gains `truncation_ceiling` (default 32 000, at least the answer ceiling, at most the provider's 64 000). A page cut off at 16 000 is retried once at 32 000; a second cut-off ends `too_long`. A policy built with `new` keeps its old ceiling, and a stored carry without the field resumes at the ceiling it started with. The budget check still runs first, so a retry that would breach the R5 document cap ends `budget` instead.
+- **A context overflow is its own outcome.** The adapter maps a 400 that says the prompt is too long to `ProviderError::ContextExceeded` (unbilled); the router labels it `escalated` with reason `input_too_large` and the state machine moves to the next rung without ever resending the same input. At the top rung it ends `too_long`.
+- **A rung that cannot fit is not called.** The router compares the estimated input plus the largest answer with the model's `max_input_tokens` and skips a rung that cannot hold it, labelled `not_sent` and not counted as a call.
+- **The ladder knows the tenant's key.** The server asks the free Models API once per tenant key, caches the answer for an hour, drops models the key cannot use (absent, retired, no structured outputs or no picture) and clamps each rung's answer to what the model reports. A failed check leaves the full ladder in place.
+- **A text drop is visible.** A page whose text is above the 200 KB sending limit is still read from its picture, and now records `{ "type": "text_dropped", "bytes": n }` in its notes; the `document.read` audit adds `pages_text_dropped`. No text is stored or logged.
+- **Intake matches the worker.** TIFF and XML are refused before the body is read; the API lists PDF, PNG and JPEG, and the SDK and OpenAPI say the same.
+- **No migration, no prompt change.** The reading schema stays `reading-v3`, the prompt stays `prompt-v3`, and every new field is additive JSON.
+- **Tests:** core (policy and reader, including the stored-carry default and the 14-outcome exhaustive run), provider and adapter mapping, router pre-flight and text drop, pipeline settings narrowing and audit counting, the server's key-to-limits mapping, intake media types, and the contract check.
+**Not done:** page parts (Slice B), scans without OCR (B.2), the bounded repair round (C) and coverage evidence (D) are not started; a page that is still too dense after the 32 000 retry still ends `too_long` and is still a person's.
+
 ## 2026-11-03 (part 83): what happens to a long invoice, written down
 **Done**
 - **The question, traced through the code.** A dense page that reaches the 16 000 token answer cap ends `too_long`: the cap equals the ceiling, so there is no retry, and the two stronger rungs have smaller caps (12 000 and 8 000), so escalation cannot ask for more room. A page whose answer exceeds 200 lines is cut by the converter and reported `too_many_lines`. Either way the page is `needs_review`, and because assembly runs only when every page is read, one such page produces no events and no register rows.
