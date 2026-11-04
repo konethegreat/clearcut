@@ -308,6 +308,47 @@ fn the_call_caps_must_be_above_zero() {
     );
 }
 
+// ---------- the truncation ceiling (ADR-0018 amendment) ----------
+
+#[test]
+fn the_default_ladder_may_retry_a_cut_off_with_thirty_two_thousand_tokens() {
+    let policy = RouterPolicy::default_ladder();
+    assert_eq!(policy.answer_ceiling(), 16_000);
+    assert_eq!(policy.truncation_ceiling(), 32_000);
+}
+
+#[test]
+fn a_policy_built_with_new_keeps_its_old_ceiling() {
+    let policy = build(vec![rung("a")]).unwrap();
+    assert_eq!(policy.truncation_ceiling(), 16_000);
+}
+
+#[test]
+fn a_truncation_ceiling_below_the_answer_ceiling_or_over_the_provider_maximum_is_refused() {
+    let base = build(vec![rung("a")]).unwrap();
+    assert!(base.clone().with_truncation_ceiling(15_999).is_err());
+    assert!(base.clone().with_truncation_ceiling(64_001).is_err());
+    assert_eq!(
+        base.with_truncation_ceiling(32_000).unwrap().truncation_ceiling(),
+        32_000
+    );
+}
+
+#[test]
+fn a_policy_read_from_text_without_a_truncation_ceiling_gets_the_default() {
+    let mut value = serde_json::to_value(RouterPolicy::default_ladder()).unwrap();
+    value.as_object_mut().unwrap().remove("truncation_ceiling");
+    let back: RouterPolicy = serde_json::from_value(value).unwrap();
+    assert_eq!(back.truncation_ceiling(), 32_000);
+
+    // A policy whose answer ceiling is already above the default keeps its own ceiling.
+    let mut value =
+        serde_json::to_value(RouterPolicy::new(vec![rung("a")], 50_000, 5, 3, 10).unwrap()).unwrap();
+    value.as_object_mut().unwrap().remove("truncation_ceiling");
+    let back: RouterPolicy = serde_json::from_value(value).unwrap();
+    assert_eq!(back.truncation_ceiling(), 50_000);
+}
+
 // ---------- a policy read back is checked like one built ----------
 
 #[test]

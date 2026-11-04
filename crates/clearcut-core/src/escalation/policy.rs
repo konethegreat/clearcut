@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 /// The most a provider will take as the largest answer (the API's own limit).
 const PROVIDER_MAX_OUTPUT_TOKENS: u32 = 64_000;
+/// What a cut-off answer is retried with unless a policy says otherwise (ADR-0018 amendment).
+pub const DEFAULT_TRUNCATION_CEILING: u32 = 32_000;
 /// The longest model id the provider takes.
 const MAX_MODEL_ID_LEN: usize = 128;
 
@@ -48,6 +50,9 @@ pub struct RouterPolicy {
     rungs: Vec<Rung>,
     /// What a cut-off answer is retried with (the adapter's non-streaming limit by default).
     answer_ceiling: u32,
+    /// The most a cut-off retry may ask for. It is at least the answer ceiling and at most the
+    /// provider's own maximum. The budget still checks the retry before it is sent.
+    truncation_ceiling: u32,
     max_calls_per_page: u32,
     document_calls_per_page: u32,
     document_calls_extra: u32,
@@ -58,6 +63,8 @@ pub struct RouterPolicy {
 struct UncheckedPolicy {
     rungs: Vec<Rung>,
     answer_ceiling: u32,
+    #[serde(default)]
+    truncation_ceiling: Option<u32>,
     max_calls_per_page: u32,
     document_calls_per_page: u32,
     document_calls_extra: u32,
@@ -67,13 +74,17 @@ impl TryFrom<UncheckedPolicy> for RouterPolicy {
     type Error = Error;
 
     fn try_from(raw: UncheckedPolicy) -> Result<Self> {
+        let truncation = raw
+            .truncation_ceiling
+            .unwrap_or(raw.answer_ceiling.max(DEFAULT_TRUNCATION_CEILING));
         RouterPolicy::new(
             raw.rungs,
             raw.answer_ceiling,
             raw.max_calls_per_page,
             raw.document_calls_per_page,
             raw.document_calls_extra,
-        )
+        )?
+        .with_truncation_ceiling(truncation)
     }
 }
 
@@ -85,6 +96,16 @@ fn invalid(why: &'static str) -> Error {
 pub(super) fn check_ceiling(answer_ceiling: u32) -> Result<()> {
     if answer_ceiling == 0 || answer_ceiling > PROVIDER_MAX_OUTPUT_TOKENS {
         return Err(invalid("the answer ceiling is outside 1 to 64000"));
+    }
+    Ok(())
+}
+
+/// The truncation ceiling must leave room for the answer ceiling and stay inside the provider's.
+pub(super) fn check_truncation_ceiling(answer_ceiling: u32, truncation_ceiling: u32) -> Result<()> {
+    if truncation_ceiling < answer_ceiling || truncation_ceiling > PROVIDER_MAX_OUTPUT_TOKENS {
+        return Err(invalid(
+            "the truncation ceiling is outside the answer ceiling to 64000",
+        ));
     }
     Ok(())
 }
@@ -130,6 +151,7 @@ impl RouterPolicy {
             return Err(invalid("at least one rung must be on"));
         }
         check_ceiling(answer_ceiling)?;
+        check_truncation_ceiling(answer_ceiling, answer_ceiling)?;
         if max_calls_per_page == 0 || document_calls_per_page == 0 {
             return Err(invalid("a call cap must be above zero"));
         }
@@ -142,6 +164,7 @@ impl RouterPolicy {
         Ok(RouterPolicy {
             rungs,
             answer_ceiling,
+            truncation_ceiling: answer_ceiling,
             max_calls_per_page,
             document_calls_per_page,
             document_calls_extra,
@@ -180,6 +203,7 @@ impl RouterPolicy {
                 rung("claude-fable-5-1", ThinkingEffort::High, 4_000, 200, 2_576, false),
             ],
             answer_ceiling: 16_000,
+            truncation_ceiling: DEFAULT_TRUNCATION_CEILING,
             max_calls_per_page: 5,
             document_calls_per_page: 3,
             document_calls_extra: 10,
@@ -198,6 +222,18 @@ impl RouterPolicy {
 
     pub fn answer_ceiling(&self) -> u32 {
         self.answer_ceiling
+    }
+
+    pub fn truncation_ceiling(&self) -> u32 {
+        self.truncation_ceiling
+    }
+
+    /// The same policy with a different ceiling for a cut-off retry. It must leave room for the
+    /// answer ceiling and stay inside what the provider takes.
+    pub fn with_truncation_ceiling(mut self, ceiling: u32) -> Result<Self> {
+        check_truncation_ceiling(self.answer_ceiling, ceiling)?;
+        self.truncation_ceiling = ceiling;
+        Ok(self)
     }
 
     pub fn max_calls_per_page(&self) -> u32 {
@@ -226,7 +262,8 @@ impl RouterPolicy {
             self.max_calls_per_page,
             self.document_calls_per_page,
             self.document_calls_extra,
-        )
+        )?
+        .with_truncation_ceiling(self.truncation_ceiling)
     }
 
     /// The same policy without the models a key cannot use (from the Models API, or an answer
