@@ -69,6 +69,7 @@ use clearcut_provider::{
 use estimate::{call_estimate, uncached_text_bytes, Sizes};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -90,6 +91,9 @@ pub struct RouterConfig {
     pub redaction: RedactionPolicy,
     /// Conventions confirmed by this tenant's reviewers; `None` until that memory exists.
     pub tenant_rules: Option<String>,
+    /// Each model's context window, when the Models API has told us. A model that is absent is
+    /// not checked: the call is made and the provider answers.
+    pub model_input_limits: BTreeMap<String, u64>,
 }
 
 impl RouterConfig {
@@ -104,7 +108,14 @@ impl RouterConfig {
             cache_ttl: CacheTtl::default(),
             redaction: RedactionPolicy::BestEffort,
             tenant_rules: None,
+            model_input_limits: BTreeMap::new(),
         }
+    }
+
+    /// The same configuration with the models' context windows, from the key's own model list.
+    pub fn with_input_limits(mut self, limits: BTreeMap<String, u64>) -> Self {
+        self.model_input_limits = limits;
+        self
     }
 }
 
@@ -739,6 +750,18 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             height: rendered.height(),
             max_output_tokens: plan.max_output_tokens,
         });
+        // A model whose window cannot hold the page plus its largest answer is not asked: the
+        // provider would refuse the call, and a stronger model has more room.
+        if let Some(limit) = self.config.model_input_limits.get(&plan.model).copied() {
+            let wanted = estimate
+                .prefix_tokens
+                .saturating_add(estimate.page_input_tokens)
+                .saturating_add(u64::from(estimate.max_output_tokens));
+            if wanted > limit {
+                run.record_unsent(plan, Some(manifest), CallLabel::NotSent(ReviewReason::TooLong));
+                return Attempted::just(Outcome::InputTooLarge);
+            }
+        }
         let worst = match self
             .config
             .prices

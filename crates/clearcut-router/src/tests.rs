@@ -1036,6 +1036,24 @@ async fn a_context_overflow_escalates_without_retrying_the_same_input() {
 }
 
 #[tokio::test]
+async fn a_model_whose_window_cannot_hold_the_page_is_skipped() {
+    let mut cfg = config();
+    cfg.model_input_limits.insert(HAIKU.to_string(), 1_000);
+    let provider = FakeProvider::scripted(vec![answer_from(SONNET, &clean_reading())]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = finished(
+        router(&provider, &worker, cfg)
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+
+    assert_eq!(read_outcome(&result).0, 1);
+    assert_eq!(result.calls[0].label, CallLabel::NotSent(ReviewReason::TooLong));
+    assert_eq!(result.calls[0].cost, Cost::ZERO);
+    assert_eq!(provider.call_count(), 1, "only Sonnet was asked");
+}
+
+#[tokio::test]
 async fn a_context_overflow_at_every_rung_goes_to_a_person_as_too_long() {
     let provider = FakeProvider::scripted(vec![
         Err(ProviderError::ContextExceeded),
