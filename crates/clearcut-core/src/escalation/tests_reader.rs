@@ -1,6 +1,7 @@
 // Written by Kone Tshivhinda & Claude
 use super::*;
 use crate::reading::ProblemKind;
+use std::collections::BTreeMap;
 
 // ---------- the outcomes a test feeds in ----------
 
@@ -271,7 +272,7 @@ fn a_review_verdict_ends_the_page_without_escalating() {
 // ---------- an answer that was cut off ----------
 
 #[test]
-fn an_answer_cut_off_below_the_ceiling_is_retried_once_with_the_ceiling() {
+fn an_answer_cut_off_is_retried_once_at_the_truncation_ceiling() {
     let policy = RouterPolicy::default_ladder()
         .with_enabled("claude-haiku-5-5", false)
         .unwrap();
@@ -280,17 +281,18 @@ fn an_answer_cut_off_below_the_ceiling_is_retried_once_with_the_ceiling() {
     let plan = call(&step);
     assert_eq!(plan.kind, CallKind::RetryTruncated);
     assert_eq!(plan.rung, 1);
-    assert_eq!(plan.max_output_tokens, 16_000);
+    assert_eq!(plan.max_output_tokens, 32_000);
     assert_eq!(plan.attempt, 2);
-    // Cut off again at the ceiling: the page is too dense for one call.
+    // Cut off again at the raised ceiling: the page is too dense for one call.
     let step = reader.on_outcome(Outcome::Truncated);
     assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
 }
 
 #[test]
-fn an_answer_cut_off_at_the_ceiling_is_too_long_at_once() {
-    // The first rung already has the ceiling.
-    let (mut reader, _) = default_start();
+fn a_policy_whose_truncation_ceiling_is_its_answer_ceiling_ends_too_long_at_once() {
+    let policy =
+        RouterPolicy::new(RouterPolicy::default_ladder().rungs().to_vec(), 16_000, 5, 3, 10).unwrap();
+    let (mut reader, _) = PageReader::start(&policy, 100);
     let step = reader.on_outcome(Outcome::Truncated);
     assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
 }
@@ -310,12 +312,65 @@ fn the_retry_after_a_cut_off_uses_the_raised_cap_only_for_that_rung() {
     let (mut reader, _) = default_start();
     reader.on_outcome(escalate(1)); // now on Sonnet (12 000)
     let step = reader.on_outcome(Outcome::Truncated);
-    assert_eq!(call(&step).max_output_tokens, 16_000);
+    assert_eq!(call(&step).max_output_tokens, 32_000);
     // The retry is read but fails the checks; the next rung (Opus, 8 000) has its own cap.
     let step = reader.on_outcome(escalate(1));
     let plan = call(&step);
     assert_eq!(plan.model, "claude-opus-5-5");
     assert_eq!(plan.max_output_tokens, 8_000);
+}
+
+#[test]
+fn a_cut_off_on_a_clamped_model_does_not_ask_for_more_than_it_takes() {
+    // The Models API says Haiku takes 10 000, so the rung asks for 10 000 and a cut-off at that
+    // has nowhere to go: the page ends too long instead of asking for the policy's 32 000.
+    let policy = RouterPolicy::default_ladder()
+        .with_output_limits(&BTreeMap::from([("claude-haiku-5-5".to_string(), 10_000)]));
+    let (mut reader, step) = PageReader::start(&policy, 100);
+    assert_eq!(call(&step).max_output_tokens, 10_000);
+    let step = reader.on_outcome(Outcome::Truncated);
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
+}
+
+#[test]
+fn a_cut_off_on_a_model_with_room_retries_at_its_own_limit() {
+    // Haiku's cap stays 16 000 but the model takes 20 000: the retry asks for 20 000, not the
+    // policy's 32 000, and a second cut-off ends the page.
+    let policy = RouterPolicy::default_ladder()
+        .with_output_limits(&BTreeMap::from([("claude-haiku-5-5".to_string(), 20_000)]));
+    let (mut reader, step) = PageReader::start(&policy, 100);
+    assert_eq!(call(&step).max_output_tokens, 16_000);
+    let step = reader.on_outcome(Outcome::Truncated);
+    let plan = call(&step);
+    assert_eq!(plan.kind, CallKind::RetryTruncated);
+    assert_eq!(plan.max_output_tokens, 20_000);
+    let step = reader.on_outcome(Outcome::Truncated);
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
+}
+
+#[test]
+fn a_stored_carry_without_a_retry_ceiling_retries_at_the_reader_ceiling() {
+    let (reader, _) = PageReader::start(&RouterPolicy::default_ladder(), 100);
+    let mut value = serde_json::to_value(&reader).unwrap();
+    for planned in value["rungs"].as_array_mut().unwrap() {
+        planned.as_object_mut().unwrap().remove("retry_ceiling");
+    }
+    let mut back: PageReader = serde_json::from_value(value).unwrap();
+    let step = back.on_outcome(Outcome::Truncated);
+    assert_eq!(call(&step).max_output_tokens, 32_000);
+}
+
+#[test]
+fn a_stored_carry_without_a_truncation_ceiling_still_resumes_and_ends_a_second_cut_off() {
+    let (mut reader, _) = PageReader::start(&RouterPolicy::default_ladder(), 100);
+    reader.on_outcome(Outcome::Truncated); // the retry at 32 000 is waiting for an answer
+    let mut value = serde_json::to_value(&reader).unwrap();
+    value.as_object_mut().unwrap().remove("truncation_ceiling");
+    let mut back: PageReader = serde_json::from_value(value).unwrap();
+    // The old carry had no field, so it adopts the cap it is already using: a second cut-off
+    // is at that cap, and the page ends too long.
+    let step = back.on_outcome(Outcome::Truncated);
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
 }
 
 // ---------- an answer that is not valid ----------
@@ -397,6 +452,67 @@ fn a_call_that_never_happened_is_not_counted() {
     let (mut reader, _) = default_start();
     reader.on_outcome(Outcome::Refused);
     assert_eq!(reader.calls_made(), 1);
+}
+
+// ---------- a page that is too large for the window ----------
+
+#[test]
+fn a_context_overflow_escalates_and_never_retries_the_same_input() {
+    let (mut reader, _) = default_start();
+    let step = reader.on_outcome(Outcome::ContextExceeded);
+    let plan = call(&step);
+    assert_eq!(
+        plan.kind,
+        CallKind::Escalation {
+            from: 0,
+            reason: EscalationReason::InputTooLarge
+        }
+    );
+    assert_eq!(plan.rung, 1);
+    assert_eq!(reader.calls_made(), 1, "the refused call was still a call");
+}
+
+#[test]
+fn a_context_overflow_at_the_top_rung_ends_too_long() {
+    let (mut reader, _) = default_start();
+    let step = feed(
+        &mut reader,
+        vec![
+            Outcome::ContextExceeded,
+            Outcome::ContextExceeded,
+            Outcome::ContextExceeded,
+        ],
+    );
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
+}
+
+#[test]
+fn a_rung_that_cannot_hold_the_input_is_skipped_without_counting_a_call() {
+    let (mut reader, _) = default_start();
+    let step = reader.on_outcome(Outcome::InputTooLarge);
+    assert_eq!(reader.calls_made(), 0, "nothing was sent, so nothing is counted");
+    let plan = call(&step);
+    assert_eq!(
+        plan.kind,
+        CallKind::Escalation {
+            from: 0,
+            reason: EscalationReason::InputTooLarge
+        }
+    );
+}
+
+#[test]
+fn a_rung_that_cannot_hold_the_input_at_the_top_ends_too_long() {
+    let (mut reader, _) = default_start();
+    let step = feed(
+        &mut reader,
+        vec![
+            Outcome::InputTooLarge,
+            Outcome::InputTooLarge,
+            Outcome::InputTooLarge,
+        ],
+    );
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
 }
 
 // ---------- a model the key cannot use ----------
@@ -561,38 +677,39 @@ fn alphabet() -> Vec<Outcome> {
         Outcome::CannotBeSentSafely,
         Outcome::BudgetRefused,
         Outcome::RungUnavailable,
+        Outcome::ContextExceeded,
+        Outcome::InputTooLarge,
     ]
 }
 
-/// Runs `outcomes` (cycling the picks) until the page ends; returns how many calls were issued.
+/// Runs `outcomes` (cycling the picks) until the page ends; returns how many calls were made.
+///
+/// A rung that cannot hold the input is skipped without a call, so the count that the caps
+/// bound is the calls made, not the plans handed out.
 fn run(policy: &RouterPolicy, doc_calls: u32, picks: &[usize], letters: &[Outcome]) -> (u32, bool) {
     let (mut reader, mut step) = PageReader::start(policy, doc_calls);
-    let mut issued = u32::from(matches!(step, Step::Call(_)));
     let mut turns = 0;
     while let Step::Call(_) = step {
         let pick = picks[turns % picks.len()];
         step = reader.on_outcome(letters[pick].clone());
-        if matches!(step, Step::Call(_)) {
-            issued += 1;
-        }
         turns += 1;
         assert!(turns <= 64, "the page did not end");
     }
-    (issued, reader.is_done())
+    (reader.calls_made(), reader.is_done())
 }
 
 #[test]
 fn every_sequence_of_outcomes_ends_within_the_page_cap() {
-    // All 12^5 sequences of five outcomes: the default cap is five calls, so each must be over.
+    // All n^5 sequences of five outcomes: the default cap is five calls, so each must be over.
     let policy = RouterPolicy::default_ladder();
     let letters = alphabet();
     let n = letters.len();
     let mut picks = [0usize; 5];
     let mut count = 0u32;
     loop {
-        let (issued, finished) = run(&policy, 1_000, &picks, &letters);
+        let (calls, finished) = run(&policy, 1_000, &picks, &letters);
         assert!(finished, "{picks:?}");
-        assert!(issued <= policy.max_calls_per_page(), "{picks:?} issued {issued}");
+        assert!(calls <= policy.max_calls_per_page(), "{picks:?} made {calls}");
         count += 1;
         // Next sequence, counting in base n.
         let mut i = 0;
@@ -633,11 +750,13 @@ fn generated_policies_and_outcomes_never_exceed_a_cap() {
         if next() % 3 == 0 {
             policy = policy.without_models(&["claude-sonnet-5-5"]);
         }
-        let picks: Vec<usize> = (0..8).map(|_| usize::try_from(next() % 12).unwrap()).collect();
-        let (issued, finished) = run(&policy, doc_calls, &picks, &letters);
+        let picks: Vec<usize> = (0..8)
+            .map(|_| usize::try_from(next() % letters.len() as u64).unwrap())
+            .collect();
+        let (calls, finished) = run(&policy, doc_calls, &picks, &letters);
         assert!(finished);
-        assert!(issued <= per_page, "{issued} calls with a cap of {per_page}");
-        assert!(issued <= doc_calls, "{issued} calls with {doc_calls} left");
+        assert!(calls <= per_page, "{calls} calls with a cap of {per_page}");
+        assert!(calls <= doc_calls, "{calls} calls with {doc_calls} left");
     }
 }
 
@@ -724,7 +843,7 @@ fn a_stored_reader_that_breaks_its_own_rules_is_refused() {
         ),
         (
             "a cap raised past the ceiling",
-            Box::new(|v| v["cap_override"] = json!(16_001)),
+            Box::new(|v| v["cap_override"] = json!(32_001)),
         ),
         ("a raised cap of zero", Box::new(|v| v["cap_override"] = json!(0))),
         ("a best attempt of zero", Box::new(|v| v["best"] = json!([0, 1]))),
@@ -747,6 +866,14 @@ fn a_stored_reader_that_breaks_its_own_rules_is_refused() {
         (
             "a picture the worker would refuse",
             Box::new(|v| v["rungs"][0]["rung"]["picture"]["max_edge"] = json!(9_999)),
+        ),
+        (
+            "a retry ceiling past the truncation ceiling",
+            Box::new(|v| v["rungs"][0]["retry_ceiling"] = json!(32_001)),
+        ),
+        (
+            "a retry ceiling under the rung's answer cap",
+            Box::new(|v| v["rungs"][0]["retry_ceiling"] = json!(15_999)),
         ),
     ];
     for (case, change) in cases {

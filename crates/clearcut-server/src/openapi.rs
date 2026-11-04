@@ -165,7 +165,7 @@ pub fn document() -> Value {
                 responses(json!({
                     "201": { "description": "Stored and queued to be read", "content": { "application/json": { "schema": { "type": "object", "properties": { "document_id": { "type": "string" }, "job_id": { "type": ["string", "null"] }, "duplicate": { "type": "boolean" }, "sha256": { "type": "string" }, "byte_size": { "type": "integer" }, "filename": { "type": "string" }, "media_type": { "type": "string" } } } } } },
                     "200": { "description": "This tenant had uploaded exactly these bytes before; the existing document is returned" } }),
-                    &with_auth(&[("413", "Over the size limit"), ("415", "Not a PDF, PNG, JPEG, TIFF or XML"), ("507", "Storing this file would overfill the account's storage quota")]))),
+                    &with_auth(&[("413", "Over the size limit"), ("415", "Not a PDF, PNG or JPEG"), ("507", "Storing this file would overfill the account's storage quota")]))),
             "get": op("The tenant's most recent documents, newest first", Some("documents:read"), vec![], None,
                 responses(ok_json("200", "A list", json!({ "type": "object", "properties": { "documents": { "type": "array", "items": { "type": "object" } } } })), &auth)),
         },

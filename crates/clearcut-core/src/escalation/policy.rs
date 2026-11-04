@@ -4,9 +4,12 @@
 use super::ThinkingEffort;
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The most a provider will take as the largest answer (the API's own limit).
 const PROVIDER_MAX_OUTPUT_TOKENS: u32 = 64_000;
+/// What a cut-off answer is retried with unless a policy says otherwise (ADR-0018 amendment).
+pub const DEFAULT_TRUNCATION_CEILING: u32 = 32_000;
 /// The longest model id the provider takes.
 const MAX_MODEL_ID_LEN: usize = 128;
 
@@ -48,6 +51,14 @@ pub struct RouterPolicy {
     rungs: Vec<Rung>,
     /// What a cut-off answer is retried with (the adapter's non-streaming limit by default).
     answer_ceiling: u32,
+    /// The most a cut-off retry may ask for. It is at least the answer ceiling and at most the
+    /// provider's own maximum. The budget still checks the retry before it is sent.
+    truncation_ceiling: u32,
+    /// What the Models API said each ladder model accepts as an answer, when it said anything.
+    /// A retry never asks a model for more than this. It narrows one tenant key's policy, so it
+    /// is not written out.
+    #[serde(skip_serializing)]
+    answer_limits: BTreeMap<String, u32>,
     max_calls_per_page: u32,
     document_calls_per_page: u32,
     document_calls_extra: u32,
@@ -58,6 +69,8 @@ pub struct RouterPolicy {
 struct UncheckedPolicy {
     rungs: Vec<Rung>,
     answer_ceiling: u32,
+    #[serde(default)]
+    truncation_ceiling: Option<u32>,
     max_calls_per_page: u32,
     document_calls_per_page: u32,
     document_calls_extra: u32,
@@ -67,13 +80,17 @@ impl TryFrom<UncheckedPolicy> for RouterPolicy {
     type Error = Error;
 
     fn try_from(raw: UncheckedPolicy) -> Result<Self> {
+        let truncation = raw
+            .truncation_ceiling
+            .unwrap_or(raw.answer_ceiling.max(DEFAULT_TRUNCATION_CEILING));
         RouterPolicy::new(
             raw.rungs,
             raw.answer_ceiling,
             raw.max_calls_per_page,
             raw.document_calls_per_page,
             raw.document_calls_extra,
-        )
+        )?
+        .with_truncation_ceiling(truncation)
     }
 }
 
@@ -85,6 +102,16 @@ fn invalid(why: &'static str) -> Error {
 pub(super) fn check_ceiling(answer_ceiling: u32) -> Result<()> {
     if answer_ceiling == 0 || answer_ceiling > PROVIDER_MAX_OUTPUT_TOKENS {
         return Err(invalid("the answer ceiling is outside 1 to 64000"));
+    }
+    Ok(())
+}
+
+/// The truncation ceiling must leave room for the answer ceiling and stay inside the provider's.
+pub(super) fn check_truncation_ceiling(answer_ceiling: u32, truncation_ceiling: u32) -> Result<()> {
+    if truncation_ceiling < answer_ceiling || truncation_ceiling > PROVIDER_MAX_OUTPUT_TOKENS {
+        return Err(invalid(
+            "the truncation ceiling is outside the answer ceiling to 64000",
+        ));
     }
     Ok(())
 }
@@ -113,8 +140,10 @@ pub(crate) fn plain_model_id(id: &str) -> bool {
 }
 
 impl RouterPolicy {
-    /// Checks and keeps a policy. `answer_ceiling` is what a cut-off answer is retried with.
-    /// A page may make `max_calls_per_page` calls; a document of `n` pages may make
+    /// Checks and keeps a policy. `answer_ceiling` is what a cut-off answer is retried with,
+    /// which is this constructor's old behaviour; [`RouterPolicy::default_ladder`] and a policy
+    /// read from text default the truncation ceiling to 32 000 instead. A page may make
+    /// `max_calls_per_page` calls; a document of `n` pages may make
     /// `document_calls_per_page x n + document_calls_extra`.
     pub fn new(
         rungs: Vec<Rung>,
@@ -130,6 +159,7 @@ impl RouterPolicy {
             return Err(invalid("at least one rung must be on"));
         }
         check_ceiling(answer_ceiling)?;
+        check_truncation_ceiling(answer_ceiling, answer_ceiling)?;
         if max_calls_per_page == 0 || document_calls_per_page == 0 {
             return Err(invalid("a call cap must be above zero"));
         }
@@ -142,6 +172,8 @@ impl RouterPolicy {
         Ok(RouterPolicy {
             rungs,
             answer_ceiling,
+            truncation_ceiling: answer_ceiling,
+            answer_limits: BTreeMap::new(),
             max_calls_per_page,
             document_calls_per_page,
             document_calls_extra,
@@ -180,6 +212,8 @@ impl RouterPolicy {
                 rung("claude-fable-5-1", ThinkingEffort::High, 4_000, 200, 2_576, false),
             ],
             answer_ceiling: 16_000,
+            truncation_ceiling: DEFAULT_TRUNCATION_CEILING,
+            answer_limits: BTreeMap::new(),
             max_calls_per_page: 5,
             document_calls_per_page: 3,
             document_calls_extra: 10,
@@ -198,6 +232,18 @@ impl RouterPolicy {
 
     pub fn answer_ceiling(&self) -> u32 {
         self.answer_ceiling
+    }
+
+    pub fn truncation_ceiling(&self) -> u32 {
+        self.truncation_ceiling
+    }
+
+    /// The same policy with a different ceiling for a cut-off retry. It must leave room for the
+    /// answer ceiling and stay inside what the provider takes.
+    pub fn with_truncation_ceiling(mut self, ceiling: u32) -> Result<Self> {
+        check_truncation_ceiling(self.answer_ceiling, ceiling)?;
+        self.truncation_ceiling = ceiling;
+        Ok(self)
     }
 
     pub fn max_calls_per_page(&self) -> u32 {
@@ -220,13 +266,16 @@ impl RouterPolicy {
             .find(|r| r.model == model)
             .ok_or_else(|| invalid("no such model in the ladder"))?;
         rung.enabled = enabled;
-        RouterPolicy::new(
+        let mut narrowed = RouterPolicy::new(
             rungs,
             self.answer_ceiling,
             self.max_calls_per_page,
             self.document_calls_per_page,
             self.document_calls_extra,
-        )
+        )?
+        .with_truncation_ceiling(self.truncation_ceiling)?;
+        narrowed.answer_limits = self.answer_limits.clone();
+        Ok(narrowed)
     }
 
     /// The same policy without the models a key cannot use (from the Models API, or an answer
@@ -236,5 +285,32 @@ impl RouterPolicy {
         let mut narrowed = self.clone();
         narrowed.rungs.retain(|r| !models.contains(&r.model.as_str()));
         narrowed
+    }
+
+    /// The same policy with each rung's answer cap clamped to what its model accepts. A model
+    /// that is not named, or whose limit is zero, keeps its cap. The limits are remembered, so a
+    /// cut-off retry asks for [`RouterPolicy::retry_ceiling_for`], not blindly for the ceiling.
+    pub fn with_output_limits(&self, limits: &BTreeMap<String, u32>) -> Self {
+        let mut narrowed = self.clone();
+        for rung in &mut narrowed.rungs {
+            if let Some(max) = limits.get(&rung.model).copied().filter(|max| *max > 0) {
+                rung.max_output_tokens = rung.max_output_tokens.min(max);
+            }
+        }
+        narrowed.answer_limits = limits
+            .iter()
+            .filter(|(model, max)| **max > 0 && narrowed.rungs.iter().any(|rung| &rung.model == *model))
+            .map(|(model, max)| (model.clone(), *max))
+            .collect();
+        narrowed
+    }
+
+    /// The largest answer a cut-off retry may ask for on `model`: the truncation ceiling, or the
+    /// model's own limit when the Models API reported a smaller one.
+    pub fn retry_ceiling_for(&self, model: &str) -> u32 {
+        match self.answer_limits.get(model).copied().filter(|max| *max > 0) {
+            Some(max) => self.truncation_ceiling.min(max),
+            None => self.truncation_ceiling,
+        }
     }
 }

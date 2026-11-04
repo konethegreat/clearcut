@@ -1,6 +1,6 @@
 # ADR-0018: The model router and the escalation ladder
 
-Status: **Accepted and implemented** (approved by Kone Tshivhinda, 2026-10-25, with all eight recommended answers below; for question 6 the per-document cap grows with the pages; built in eight steps, 25 to 27 October 2026, **not yet run against the real API**) · Date: 2026-10-25 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted and implemented** (approved by Kone Tshivhinda, 2026-10-25, with all eight recommended answers below; for question 6 the per-document cap grows with the pages; built in eight steps, 25 to 27 October 2026, **not yet run against the real API**) · Amended 4 November 2026 (Slice A of the long-invoice design): a cut-off answer is retried at a truncation ceiling of 32 000 tokens (the budget still refuses a retry that would breach a cap); a context overflow is `ProviderError::ContextExceeded` and escalates once per rung without ever repeating the same input; a rung whose context window cannot hold the page plus its largest answer is not called; the server narrows the ladder once an hour from the free Models API using the tenant's own key. · Date: 2026-10-25 · Deciders: Kone Tshivhinda, Claude
 Task P2-14, with the page-reading half of P2-06 and the per-call log of P2-15. Builds on [ADR-0005](0005-model-strategy-escalation.md) (the ladder), [ADR-0011](0011-bring-your-own-anthropic-key.md) (the user's key, budgets, errors), [ADR-0012](0012-anthropic-adapter.md) (the adapter and its failures), [ADR-0013](0013-model-facing-reading-shape.md) (what the model returns), [ADR-0014](0014-context-pack-builder.md) (what is sent), [ADR-0017](0017-document-analysis-stage.md) (how each page is read) and [research 06](../research/06-anthropic-api.md) (the API's facts). Design only; nothing is built until this is approved. **No model has been called in the whole project yet**, so every number below that depends on real model behaviour is a starting value for the gold set to correct.
 
 ## What it is
@@ -226,3 +226,30 @@ Two new tables, both under row-level security and erased with the document. **Th
 6. **Budgets (§6):** reserve the worst case of the next call; the defaults of §2; 5 calls a page and 3 per page plus 10 per document; and should the **per-document cap grow with the page count** (the larger of R5 and R0.50 a page), or stay a flat R5?
 7. **Storage (§8):** `page_readings` keeps the final reading (invoice content, erased with the document) and the best draft of a page sent to review, but not the readings of rejected attempts; `model_calls` keeps metadata only. Agreed?
 8. **The picture grows on the upper rungs (200 dpi, 2 576 px) and `image_first`/`image_only` pages get the `unverified_text_layer` label,** with `prompt-v1` edited in place because no live call has happened: agreed?
+
+## Amendment: the ladder knows the key and may ask for more room (4 November 2026)
+
+The ladder is still data, and the deterministic checks are still the judge. Three limits move:
+
+- `RouterPolicy` has `truncation_ceiling`, default 32 000, at least the answer ceiling and at most
+  the provider's 64 000. A cut-off below it is retried once at it; a cut-off at it ends `too_long`.
+  The budget check runs first, so a Sonnet retry at 32 000 is refused on a document whose R5 cap
+  cannot hold it and the page ends `budget`. That is the honest outcome, not a lost reading.
+  When the Models API reported that a model takes less than the ceiling, that rung's retry asks
+  for the model's own limit instead, and a model already cut off at its own limit ends `too_long`
+  without a pointless retry.
+- A context overflow is its own error and outcome. It escalates to the next rung, which has a
+  larger window, and never resends the same request. At the top rung it ends `too_long`.
+- Before a call, the router compares the estimated input plus the largest answer with the model's
+  `max_input_tokens`, when the Models API reported it, and skips a rung that cannot fit. The skip
+  is not a call: it is logged `not_sent` with reason `too_long` and does not count against the
+  document's call allowance.
+
+The server asks the Models API once per tenant key and caches the answer for an hour. A model that
+is absent, retired, or unable to take structured output or a picture is left out of the ladder. If
+the check itself fails, or succeeds but names none of the ladder's models, the full ladder is
+used: the provider's `ModelUnavailable` path already skips a rung and remembers it for the hour,
+and a suspiciously empty answer never empties the ladder.
+
+`PageReader` stores the truncation ceiling in its carry with a serde default, so a job that spans
+this deploy resumes at the ceiling it started with.

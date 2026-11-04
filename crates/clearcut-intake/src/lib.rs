@@ -6,7 +6,7 @@
 //! drift apart. It knows nothing about HTTP. In order, an upload:
 //!
 //! 1. needs the `documents:write` scope, checked **before anything is read**;
-//! 2. must be an accepted media type (PDF, PNG, JPEG, TIFF or XML), also checked
+//! 2. must be an accepted media type (PDF, PNG or JPEG), also checked
 //!    before the body is read, so a rejected request costs nothing;
 //! 3. is refused up front if its declared length is over the limit, and in any
 //!    case is cut off the moment it actually exceeds the limit, whatever the
@@ -30,7 +30,7 @@
 //!
 //! Uploaded files are untrusted bytes. Nothing here opens or parses them beyond
 //! checking the first few bytes against the declared media type (a PDF must
-//! start `%PDF-`, an image with its signature, XML with `<`); the file name is
+//! start `%PDF-`, an image with its signature); the file name is
 //! kept only as cleaned metadata and never forms a path.
 //!
 //! Deletion lives here too: a person's delete and the server's retention sweep
@@ -53,8 +53,6 @@ pub enum MediaType {
     Pdf,
     Png,
     Jpeg,
-    Tiff,
-    Xml,
 }
 
 impl MediaType {
@@ -67,8 +65,6 @@ impl MediaType {
             "application/pdf" => Some(MediaType::Pdf),
             "image/png" => Some(MediaType::Png),
             "image/jpeg" => Some(MediaType::Jpeg),
-            "image/tiff" => Some(MediaType::Tiff),
-            "application/xml" | "text/xml" => Some(MediaType::Xml),
             _ => None,
         }
     }
@@ -79,14 +75,12 @@ impl MediaType {
             MediaType::Pdf => "application/pdf",
             MediaType::Png => "image/png",
             MediaType::Jpeg => "image/jpeg",
-            MediaType::Tiff => "image/tiff",
-            MediaType::Xml => "application/xml",
         }
     }
 }
 
-/// How many leading bytes are looked at to tell the type: enough for a byte-order mark, some
-/// whitespace and the first tag of an XML file.
+/// How many leading bytes are looked at to tell the type: enough for the longest signature (a
+/// PNG's eight bytes).
 const HEAD_BYTES: usize = 64;
 
 /// A stream whose first `filled` bytes are already read: the head is handed out again, then
@@ -115,51 +109,13 @@ impl<R: AsyncRead + Unpin> AsyncRead for Prefixed<R> {
     }
 }
 
-/// Whether the leading bytes match what the media type promises. XML is the lenient one: an
-/// optional byte-order mark, then whitespace, then the first tag, which may be UTF-16.
+/// Whether the leading bytes match what the media type promises.
 fn signature_matches(media_type: MediaType, head: &[u8]) -> bool {
     match media_type {
         MediaType::Pdf => head.starts_with(b"%PDF-"),
         MediaType::Png => head.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
         MediaType::Jpeg => head.starts_with(&[0xFF, 0xD8, 0xFF]),
-        MediaType::Tiff => head.starts_with(b"II*\0") || head.starts_with(b"MM\0*"),
-        MediaType::Xml => xml_starts(head),
     }
-}
-
-fn xml_starts(head: &[u8]) -> bool {
-    if let Some(rest) = head.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
-        return first_is_tag(rest);
-    }
-    if let Some(rest) = head.strip_prefix(&[0xFF, 0xFE]) {
-        return utf16_first_is_tag(rest, true);
-    }
-    if let Some(rest) = head.strip_prefix(&[0xFE, 0xFF]) {
-        return utf16_first_is_tag(rest, false);
-    }
-    first_is_tag(head)
-}
-
-fn first_is_tag(bytes: &[u8]) -> bool {
-    bytes
-        .iter()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .is_some_and(|byte| *byte == b'<')
-}
-
-fn utf16_first_is_tag(bytes: &[u8], little_endian: bool) -> bool {
-    for pair in bytes.as_chunks::<2>().0 {
-        let unit = if little_endian {
-            u16::from_le_bytes([pair[0], pair[1]])
-        } else {
-            u16::from_be_bytes([pair[0], pair[1]])
-        };
-        match unit {
-            0x20 | 0x09 | 0x0A | 0x0D => continue,
-            _ => return unit == u16::from(b'<'),
-        }
-    }
-    false
 }
 
 /// The longest file name kept, in characters.

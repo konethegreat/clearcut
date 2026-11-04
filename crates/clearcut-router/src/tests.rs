@@ -21,7 +21,7 @@ use clearcut_docproc::{
     DocumentProblem, FakeWorker, PageContent, PageParts, PageSource, PageWord, ProcessError, RenderedPage,
     WordBox,
 };
-use clearcut_pack::{DocumentContext, ImageState, RedactionPolicy};
+use clearcut_pack::{DocumentContext, ImageState, RedactionPolicy, MAX_PAGE_TEXT_BYTES};
 use clearcut_provider::{
     Block, FakeProvider, ImageType, KeyProblem, ModelRequest, ModelResponse, ProviderError, Usage,
 };
@@ -930,7 +930,7 @@ async fn an_answer_with_an_extra_field_is_not_the_shape() {
 }
 
 #[tokio::test]
-async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_adapter_allows() {
+async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_policy_allows() {
     let cut = Usage {
         input_tokens: 6_000,
         output_tokens: 12_000,
@@ -951,7 +951,7 @@ async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_adapter_allows
 
     let requests = provider.requests();
     assert_eq!(requests[0].max_output_tokens(), 12_000);
-    assert_eq!(requests[1].max_output_tokens(), 16_000);
+    assert_eq!(requests[1].max_output_tokens(), 32_000);
     assert_eq!(requests[1].model(), SONNET);
     assert_eq!(result.calls[0].label, CallLabel::Truncated);
     assert_eq!(result.calls[1].kind, CallKind::RetryTruncated);
@@ -960,13 +960,18 @@ async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_adapter_allows
 
 #[tokio::test]
 async fn a_page_too_dense_for_one_answer_goes_to_a_person() {
-    // The first rung already has the ceiling, so a stronger model would be cut off the same way.
-    let cut = Usage {
-        input_tokens: 6_000,
-        output_tokens: 16_000,
-        ..Usage::default()
+    // Cut off at the first rung's cap and again at the policy's truncation ceiling: a stronger
+    // model cannot be asked for more room, so a person decides.
+    let cut = |output_tokens| {
+        Err(ProviderError::Truncated {
+            usage: Usage {
+                input_tokens: 6_000,
+                output_tokens,
+                ..Usage::default()
+            },
+        })
     };
-    let provider = FakeProvider::scripted(vec![Err(ProviderError::Truncated { usage: cut })]);
+    let provider = FakeProvider::scripted(vec![cut(16_000), cut(32_000)]);
     let worker = worker(PAGE_TEXT, 1);
     let result = read(&provider, &worker, &trusted_page()).await;
     assert_eq!(review_outcome(&result), (ReviewReason::TooLong, None));
@@ -1004,6 +1009,61 @@ async fn a_model_the_key_cannot_use_is_skipped_and_remembered() {
     assert_eq!(result.unavailable_models, [HAIKU.to_string()]);
     assert_eq!(result.calls[0].label, CallLabel::RungUnavailable);
     assert_eq!(result.calls[0].cost, Cost::ZERO);
+}
+
+#[tokio::test]
+async fn a_context_overflow_escalates_without_retrying_the_same_input() {
+    let provider = FakeProvider::scripted(vec![
+        Err(ProviderError::ContextExceeded),
+        answer_from(SONNET, &clean_reading()),
+    ]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = read(&provider, &worker, &trusted_page()).await;
+
+    assert_eq!(read_outcome(&result).0, 1);
+    assert_eq!(
+        result.calls[0].label,
+        CallLabel::Escalated(EscalationReason::InputTooLarge)
+    );
+    assert_eq!(
+        result.calls[1].kind,
+        CallKind::Escalation {
+            from: 0,
+            reason: EscalationReason::InputTooLarge
+        }
+    );
+    assert_eq!(provider.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn a_model_whose_window_cannot_hold_the_page_is_skipped() {
+    let mut cfg = config();
+    cfg.model_input_limits.insert(HAIKU.to_string(), 1_000);
+    let provider = FakeProvider::scripted(vec![answer_from(SONNET, &clean_reading())]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = finished(
+        router(&provider, &worker, cfg)
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+
+    assert_eq!(read_outcome(&result).0, 1);
+    assert_eq!(result.calls[0].label, CallLabel::NotSent(ReviewReason::TooLong));
+    assert_eq!(result.calls[0].cost, Cost::ZERO);
+    assert_eq!(provider.call_count(), 1, "only Sonnet was asked");
+}
+
+#[tokio::test]
+async fn a_context_overflow_at_every_rung_goes_to_a_person_as_too_long() {
+    let provider = FakeProvider::scripted(vec![
+        Err(ProviderError::ContextExceeded),
+        Err(ProviderError::ContextExceeded),
+        Err(ProviderError::ContextExceeded),
+    ]);
+    // The third rung draws a larger picture than the first two, which share one.
+    let worker = worker(PAGE_TEXT, 2);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert_eq!(review_outcome(&result), (ReviewReason::TooLong, None));
 }
 
 // ---------- the transport fails: the page stops and can resume ----------
@@ -1407,6 +1467,37 @@ async fn a_page_with_more_text_than_is_ever_sent_is_read_from_its_picture() {
     let result = read(&provider, &worker, &trusted_page()).await;
     assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::ArithmeticOnly));
     assert!(page_text_tag(&provider.requests()[0]).contains("source=\"none\""));
+}
+
+#[tokio::test]
+async fn text_above_the_sending_limit_is_dropped_and_counted() {
+    let long = "a".repeat(MAX_PAGE_TEXT_BYTES + 1);
+    let provider = FakeProvider::answering(|_| answer_from(HAIKU, &clean_reading()));
+    let worker = worker(&long, 1);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+
+    // The byte count is a size, never document text.
+    assert_eq!(result.text_dropped_bytes, long.len());
+    // The drop is shown, not cut: a page_text block still says to read the picture, but the
+    // too-large text itself was never sent.
+    assert!(
+        texts(&provider.requests()[0])
+            .iter()
+            .all(|block| !block.contains(&long)),
+        "the too-large text was never sent"
+    );
+}
+
+#[tokio::test]
+async fn text_within_the_limit_is_not_counted_as_dropped() {
+    let provider = FakeProvider::scripted(vec![answer(&clean_reading())]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert_eq!(result.text_dropped_bytes, 0);
 }
 
 /// A change to a stored value.

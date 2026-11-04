@@ -400,6 +400,7 @@ async fn the_audit_of_the_reading_holds_counts_and_names_and_nothing_from_the_do
             "blocking_findings": 0,
             "pages_with_orders_in_the_text": 0,
             "pages_with_unconfirmed_figures": 0,
+            "pages_text_dropped": 0,
             "conflicts": [],
             "outcome": "done",
             "rules": ROUTING_VERSION,
@@ -873,11 +874,14 @@ async fn an_outage_that_outlives_the_deadline_hands_the_document_to_a_person(poo
 async fn an_answer_cut_off_at_the_ceiling_hands_the_page_to_a_person(pool: PgPool) {
     let w = world(&pool).await;
     let worker = worker_for(&[PAGE_ONE]);
-    let provider = FakeProvider::scripted(vec![Err(ProviderError::Truncated { usage: usage() })]);
+    let provider = FakeProvider::scripted(vec![
+        Err(ProviderError::Truncated { usage: usage() }),
+        Err(ProviderError::Truncated { usage: usage() }),
+    ]);
     let (doc, job, report) = w.read(&worker, &provider, settings()).await;
     assert_eq!(report.ended, Ended::NeedsReview);
-    // The first rung's cap is already the ceiling, so raising it would change nothing.
-    assert_eq!(provider.call_count(), 1);
+    // The first cut-off is retried at the policy ceiling; the second is already there.
+    assert_eq!(provider.call_count(), 2);
     assert!(matches!(
         w.pages(doc).await[0].state,
         PageState::NeedsReview {
@@ -888,7 +892,7 @@ async fn an_answer_cut_off_at_the_ceiling_hands_the_page_to_a_person(pool: PgPoo
     let message = assert_handed_to_a_person(&w, doc, job).await;
     assert_eq!(message, "1 of 1 pages need review");
     let labels: Vec<String> = w.calls(doc).await.into_iter().map(|(label, ..)| label).collect();
-    assert_eq!(labels, ["truncated"]);
+    assert_eq!(labels, ["truncated", "truncated"]);
 }
 
 #[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
@@ -2287,4 +2291,43 @@ async fn the_earliest_of_several_matching_documents_is_the_one_named(pool: PgPoo
         &expected_duplicate(first),
         "the earliest matching document is the one named"
     );
+}
+
+use crate::read::{page_notes, text_dropped_pages};
+use clearcut_core::escalation::PageOutcome;
+
+#[test]
+fn a_page_read_from_its_picture_says_why_in_its_notes() {
+    let outcome = PageOutcome::Read {
+        rung: 0,
+        attempt: 1,
+        confidence: ConfidenceBasis::Unresolved,
+        notes: Vec::new(),
+    };
+    assert_eq!(
+        page_notes(&outcome, 200_001),
+        serde_json::json!([{ "type": "text_dropped", "bytes": 200_001 }])
+    );
+    assert_eq!(page_notes(&outcome, 0), serde_json::json!([]));
+}
+
+#[test]
+fn the_audit_counts_only_pages_whose_text_was_dropped() {
+    use clearcut_store::page_readings::{PageDetails, PageReading, PageState};
+    let page = |notes: serde_json::Value| PageReading {
+        page: 1,
+        state: PageState::InProgress {
+            carry: serde_json::json!({}),
+        },
+        details: PageDetails {
+            notes,
+            ..PageDetails::default()
+        },
+    };
+    let ended = vec![
+        page(serde_json::json!([{ "type": "text_dropped", "bytes": 200_001 }])),
+        page(serde_json::json!([{ "type": "too_long" }])),
+        page(serde_json::json!([])),
+    ];
+    assert_eq!(text_dropped_pages(&ended), 1);
 }

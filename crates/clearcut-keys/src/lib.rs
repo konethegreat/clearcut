@@ -204,6 +204,11 @@ impl TenantKeys {
         })
     }
 
+    /// Asks the checker what `key` can do, for free. It stores nothing.
+    pub async fn check(&self, key: &ApiKey) -> Result<KeyCheck, KeyCheckError> {
+        self.checker.check(key).await
+    }
+
     /// Checks `text` with Anthropic and, if it works, seals and stores it as the tenant's key.
     pub async fn set(&self, by: &Principal, text: &str) -> Result<KeySet, KeysError> {
         by.require(Scope::KeysAdmin).map_err(|_| KeysError::Forbidden)?;

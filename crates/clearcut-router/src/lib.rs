@@ -69,6 +69,7 @@ use clearcut_provider::{
 use estimate::{call_estimate, uncached_text_bytes, Sizes};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -90,6 +91,9 @@ pub struct RouterConfig {
     pub redaction: RedactionPolicy,
     /// Conventions confirmed by this tenant's reviewers; `None` until that memory exists.
     pub tenant_rules: Option<String>,
+    /// Each model's context window, when the Models API has told us. A model that is absent is
+    /// not checked: the call is made and the provider answers.
+    pub model_input_limits: BTreeMap<String, u64>,
 }
 
 impl RouterConfig {
@@ -104,7 +108,14 @@ impl RouterConfig {
             cache_ttl: CacheTtl::default(),
             redaction: RedactionPolicy::BestEffort,
             tenant_rules: None,
+            model_input_limits: BTreeMap::new(),
         }
+    }
+
+    /// The same configuration with the models' context windows, from the key's own model list.
+    pub fn with_input_limits(mut self, limits: BTreeMap<String, u64>) -> Self {
+        self.model_input_limits = limits;
+        self
     }
 }
 
@@ -222,6 +233,8 @@ pub struct PageResult {
     pub spent: Cost,
     /// Models the key cannot use. Later pages of the document should skip them.
     pub unavailable_models: Vec<String>,
+    /// Bytes of the page's text that were not sent because they were above the sending limit.
+    pub text_dropped_bytes: usize,
     pub budget_stop: Option<BudgetStop>,
     /// Kinds of instruction-like text found on the page (never the text). Flagged, never obeyed.
     pub injection_suspected: Vec<&'static str>,
@@ -360,6 +373,9 @@ struct Material {
     /// The worker's page, for the painter: its words say where the text is.
     content: Option<PageContent>,
     trust: TextTrust,
+    /// The page's text was present but larger than could be sent, so the picture was read
+    /// instead. A size, never the text.
+    text_dropped_bytes: usize,
 }
 
 /// Everything worked out about one reading.
@@ -739,6 +755,18 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             height: rendered.height(),
             max_output_tokens: plan.max_output_tokens,
         });
+        // A model whose window cannot hold the page plus its largest answer is not asked: the
+        // provider would refuse the call, and a stronger model has more room.
+        if let Some(limit) = self.config.model_input_limits.get(&plan.model).copied() {
+            let wanted = estimate
+                .prefix_tokens
+                .saturating_add(estimate.page_input_tokens)
+                .saturating_add(u64::from(estimate.max_output_tokens));
+            if wanted > limit {
+                run.record_unsent(plan, Some(manifest), CallLabel::NotSent(ReviewReason::TooLong));
+                return Attempted::just(Outcome::InputTooLarge);
+            }
+        }
         let worst = match self
             .config
             .prices
@@ -890,6 +918,12 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 record.label = CallLabel::Refused;
                 Outcome::Refused
             }
+            ProviderError::ContextExceeded => {
+                // The provider read none of it and charged nothing. A stronger model gets a
+                // larger window; the same input is never offered twice.
+                record.label = CallLabel::Escalated(EscalationReason::InputTooLarge);
+                Outcome::ContextExceeded
+            }
             ProviderError::Rejected(_) => Outcome::Rejected,
             ProviderError::ModelUnavailable => {
                 record.label = CallLabel::RungUnavailable;
@@ -978,13 +1012,31 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             }
             _ => (None, TextTrust::Unverified),
         };
-        // A page with more text than is ever sent is read from its picture, never cut.
+        // A page with more text than is ever sent is read from its picture, never cut. The drop
+        // is remembered and shown, so a reviewer knows why the picture was used.
+        let sends_text = matches!(
+            (task.route, task.text_source),
+            (ReadRoute::TextAndImage, PageTextSource::TextLayer)
+                | (ReadRoute::ImageFirst, PageTextSource::TextLayer)
+                | (ReadRoute::ImageOnly, PageTextSource::Ocr)
+        );
+        let text_dropped_bytes = content
+            .as_ref()
+            .filter(|_| sends_text)
+            .map(|page| page.text().len())
+            .filter(|len| *len > MAX_PAGE_TEXT_BYTES)
+            .unwrap_or(0);
         let text = content
             .as_ref()
             .filter(|page| page.text().len() <= MAX_PAGE_TEXT_BYTES)
             .and_then(|page| PageText::for_route(task.route, task.text_source, page.text().to_string()));
         let content = if text.is_some() { content } else { None };
-        Ok(Material { text, content, trust })
+        Ok(Material {
+            text,
+            content,
+            trust,
+            text_dropped_bytes,
+        })
     }
 
     async fn layer(&self, task: &PageTask, words: bool) -> Result<PageContent, Trouble> {
@@ -1035,6 +1087,10 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
     /// Builds the result of a page that has ended: the reading that counts, stamped with the
     /// confidence its evidence gives.
     fn finish(&self, run: Run, task: &PageTask, outcome: PageOutcome) -> PageResult {
+        let text_dropped_bytes = run
+            .material
+            .as_ref()
+            .map_or(0, |material| material.text_dropped_bytes);
         let (kept, basis) = match &outcome {
             PageOutcome::Read { confidence, .. } => (run.last.clone(), *confidence),
             PageOutcome::NeedsReview {
@@ -1083,6 +1139,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             calls: run.calls,
             spent: run.spent,
             unavailable_models: run.unavailable,
+            text_dropped_bytes,
             budget_stop: run.budget_stop,
             injection_suspected: injection,
         }

@@ -368,6 +368,19 @@ fn either_wording_of_a_covered_model_refusal_is_recognised() {
 }
 
 #[test]
+fn a_prompt_too_long_is_a_context_overflow_not_our_bug() {
+    for message in [
+        "prompt is too long: 250000 tokens > 200000 maximum",
+        "input length and `max_tokens` exceed context limit: 210000 + 32000 > 200000",
+    ] {
+        let error = map(400, None, &body("invalid_request_error", message));
+        assert!(matches!(error, ProviderError::ContextExceeded), "{message}");
+        assert_eq!(error.failure_kind(), FailureKind::NeedsReview);
+        assert_eq!(error.usage(), None, "a refused prompt is not billed");
+    }
+}
+
+#[test]
 fn december_rolls_into_january_of_the_next_year() {
     // 15 Dec 2026 12:00 UTC -> 1 Jan 2027 00:00 UTC.
     assert_eq!(

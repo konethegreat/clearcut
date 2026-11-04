@@ -247,6 +247,16 @@ async fn a_key_anthropic_rejects_is_not_used_and_not_quietly_replaced_by_the_ser
     let _ = &w.store;
 }
 
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn asking_what_a_key_can_do_uses_the_checker_and_costs_nothing(pool: PgPool) {
+    let w = world(&pool, true, KeyMode::TenantOnly, false, good).await;
+    w.keys.set(&w.admin, SENTINEL).await.unwrap();
+    let asked = w.asked.load(Ordering::SeqCst);
+    let check = w.keys.check(&ApiKey::parse(SENTINEL).unwrap()).await.unwrap();
+    assert_eq!(w.asked.load(Ordering::SeqCst), asked + 1);
+    assert_eq!(check.models.len(), 2);
+}
+
 #[test]
 fn the_key_mode_reads_only_the_two_known_words() {
     assert_eq!(KeyMode::parse(None), Ok(KeyMode::Shared));

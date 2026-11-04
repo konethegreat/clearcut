@@ -1,6 +1,6 @@
 # ADR-0012: The Anthropic adapter
 
-Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-22, with all six recommended answers below) · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
+Status: **Accepted** (approved by Kone Tshivhinda, 2026-10-22, with all six recommended answers below) · Amended 4 November 2026: a 400 whose message says the prompt is too long, or that the input and `max_tokens` exceed the context limit, maps to `ProviderError::ContextExceeded` (needs a person if it escapes the router) instead of the generic `Rejected`. The body is still read only to classify, and the error carries no usage because the call was unbilled. · Date: 2026-10-22 · Deciders: Kone Tshivhinda, Claude
 Task P2-13. Builds on [ADR-0011](0011-bring-your-own-anthropic-key.md) (the key, budgets, limits, caching), [ADR-0009](0009-worker-and-provider-boundary.md) (the `ModelProvider` trait), [ADR-0005](0005-model-strategy-escalation.md) (escalation). Facts and sources: [research 06](../research/06-anthropic-api.md). Design; the build order follows the sections.
 
 ## What it is

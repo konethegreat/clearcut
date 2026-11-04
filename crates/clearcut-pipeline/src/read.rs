@@ -115,6 +115,36 @@ impl Tally {
     }
 }
 
+/// What goes in a page's notes: the router's own notes, plus why the picture was used when the
+/// page's text was too large to send. Counts only, never text.
+pub(crate) fn page_notes(outcome: &PageOutcome, text_dropped_bytes: usize) -> Value {
+    let mut notes = match outcome {
+        PageOutcome::Read { notes, .. } => serde_json::to_value(notes).unwrap_or_else(|_| json!([])),
+        PageOutcome::NeedsReview { .. } => json!([]),
+    };
+    if text_dropped_bytes > 0 {
+        if let Some(list) = notes.as_array_mut() {
+            list.push(json!({ "type": "text_dropped", "bytes": text_dropped_bytes }));
+        }
+    }
+    notes
+}
+
+/// How many pages of a document were read from their picture because their text was too large.
+pub(crate) fn text_dropped_pages(ended: &[StoredPage]) -> u32 {
+    let count = ended
+        .iter()
+        .filter(|page| {
+            page.details.notes.as_array().is_some_and(|notes| {
+                notes
+                    .iter()
+                    .any(|note| note.get("type").and_then(Value::as_str) == Some("text_dropped"))
+            })
+        })
+        .count();
+    u32::try_from(count).unwrap_or(u32::MAX)
+}
+
 impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineHandler<O, P, M> {
     /// Reads every page of the analysed document with the model router.
     pub(crate) async fn read_pages(
@@ -357,14 +387,11 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                 draft: kept(ConfidenceBasis::Unresolved),
             },
         };
-        let notes = match &result.outcome {
-            PageOutcome::Read { notes, .. } => serde_json::to_value(notes),
-            PageOutcome::NeedsReview { .. } => Ok(json!([])),
-        };
+        let notes = page_notes(&result.outcome, result.text_dropped_bytes);
         let details = PageDetails {
             problems: serde_json::to_value(&result.problems).unwrap_or_else(|_| json!([])),
             findings: serde_json::to_value(&result.findings).unwrap_or_else(|_| json!([])),
-            notes: notes.unwrap_or_else(|_| json!([])),
+            notes,
             unconfirmed: result.unconfirmed.clone(),
             injection_suspected: result
                 .injection_suspected
@@ -425,7 +452,14 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                         action: "document.read".to_string(),
                         subject_type: "document".to_string(),
                         subject_id: document.0.to_string(),
-                        detail: audit_detail(pages, &all, spend.calls, spend.cost, completion.as_ref()),
+                        detail: audit_detail(
+                            pages,
+                            &all,
+                            spend.calls,
+                            spend.cost,
+                            text_dropped_pages(&ended),
+                            completion.as_ref(),
+                        ),
                     },
                 )
                 .await
@@ -602,7 +636,14 @@ impl Completion {
 }
 
 /// Counts and fixed names only: nothing from the document.
-fn audit_detail(pages: u32, tally: &Tally, calls: u32, cost: Cost, completion: Option<&Completion>) -> Value {
+fn audit_detail(
+    pages: u32,
+    tally: &Tally,
+    calls: u32,
+    cost: Cost,
+    text_dropped: u32,
+    completion: Option<&Completion>,
+) -> Value {
     let reasons: BTreeMap<&str, u32> = tally.review_reasons.clone();
     let rungs: BTreeMap<String, u32> = tally
         .rungs
@@ -621,6 +662,7 @@ fn audit_detail(pages: u32, tally: &Tally, calls: u32, cost: Cost, completion: O
         "blocking_findings": completion.map_or(0, |c| c.blocking),
         "pages_with_orders_in_the_text": completion.map_or(0, |c| c.injection_pages),
         "pages_with_unconfirmed_figures": completion.map_or(0, |c| c.unconfirmed_pages),
+        "pages_text_dropped": text_dropped,
         "conflicts": completion.map(|c| c.conflicts.clone()).unwrap_or_default(),
         "outcome": match completion {
             Some(c) if c.is_done() => "done",

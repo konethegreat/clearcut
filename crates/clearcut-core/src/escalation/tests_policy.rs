@@ -1,6 +1,7 @@
 // Written by Kone Tshivhinda & Claude
 use super::*;
 use crate::Error;
+use std::collections::BTreeMap;
 
 // ---------- the names that are stored and shown ----------
 
@@ -15,6 +16,7 @@ fn escalation_reasons_have_exactly_the_agreed_names() {
             "totals_mismatch",
             "text_check_failed",
             "schema_invalid",
+            "input_too_large",
             "rung_unavailable",
         ]
     );
@@ -152,6 +154,44 @@ fn models_the_key_cannot_use_are_taken_out_without_losing_the_rest() {
     // Taking every model out is allowed here (the key may be useless); the router then reports it.
     let all: Vec<&str> = policy.rungs().iter().map(|r| r.model.as_str()).collect();
     assert!(policy.without_models(&all).effective().is_empty());
+}
+
+#[test]
+fn a_rung_is_clamped_to_the_largest_answer_its_model_takes() {
+    let base = build(vec![rung("a"), rung("b")]).unwrap();
+    let limits = BTreeMap::from([("a".to_string(), 4_000)]);
+    let clamped = base.with_output_limits(&limits);
+    assert_eq!(clamped.rungs()[0].max_output_tokens, 4_000);
+    assert_eq!(clamped.rungs()[1].max_output_tokens, 8_000);
+    // A zero or an absent model changes nothing.
+    let zero = BTreeMap::from([("a".to_string(), 0)]);
+    assert_eq!(
+        base.clone().with_output_limits(&zero).rungs()[0].max_output_tokens,
+        8_000
+    );
+}
+
+#[test]
+fn a_cut_off_retry_never_asks_a_model_for_more_than_it_takes() {
+    let limits = BTreeMap::from([("claude-haiku-5-5".to_string(), 10_000)]);
+    let narrowed = RouterPolicy::default_ladder().with_output_limits(&limits);
+    assert_eq!(narrowed.retry_ceiling_for("claude-haiku-5-5"), 10_000);
+    // A model the answer did not name keeps the policy's ceiling.
+    assert_eq!(narrowed.retry_ceiling_for("claude-sonnet-5-5"), 32_000);
+    // A limit above the ceiling never raises it.
+    let generous = BTreeMap::from([("claude-sonnet-5-5".to_string(), 128_000)]);
+    assert_eq!(
+        RouterPolicy::default_ladder()
+            .with_output_limits(&generous)
+            .retry_ceiling_for("claude-sonnet-5-5"),
+        32_000
+    );
+    // A model outside the ladder narrows nothing.
+    let other = BTreeMap::from([("claude-legacy-1".to_string(), 1_000)]);
+    assert_eq!(
+        RouterPolicy::default_ladder().with_output_limits(&other),
+        RouterPolicy::default_ladder()
+    );
 }
 
 // ---------- the document's call cap ----------
@@ -306,6 +346,47 @@ fn the_call_caps_must_be_above_zero() {
         RouterPolicy::new(vec![rung("a")], 16_000, 0, 3, 10),
         Err(Error::InvalidRouterPolicy("a call cap must be above zero"))
     );
+}
+
+// ---------- the truncation ceiling (ADR-0018 amendment) ----------
+
+#[test]
+fn the_default_ladder_may_retry_a_cut_off_with_thirty_two_thousand_tokens() {
+    let policy = RouterPolicy::default_ladder();
+    assert_eq!(policy.answer_ceiling(), 16_000);
+    assert_eq!(policy.truncation_ceiling(), 32_000);
+}
+
+#[test]
+fn a_policy_built_with_new_keeps_its_old_ceiling() {
+    let policy = build(vec![rung("a")]).unwrap();
+    assert_eq!(policy.truncation_ceiling(), 16_000);
+}
+
+#[test]
+fn a_truncation_ceiling_below_the_answer_ceiling_or_over_the_provider_maximum_is_refused() {
+    let base = build(vec![rung("a")]).unwrap();
+    assert!(base.clone().with_truncation_ceiling(15_999).is_err());
+    assert!(base.clone().with_truncation_ceiling(64_001).is_err());
+    assert_eq!(
+        base.with_truncation_ceiling(32_000).unwrap().truncation_ceiling(),
+        32_000
+    );
+}
+
+#[test]
+fn a_policy_read_from_text_without_a_truncation_ceiling_gets_the_default() {
+    let mut value = serde_json::to_value(RouterPolicy::default_ladder()).unwrap();
+    value.as_object_mut().unwrap().remove("truncation_ceiling");
+    let back: RouterPolicy = serde_json::from_value(value).unwrap();
+    assert_eq!(back.truncation_ceiling(), 32_000);
+
+    // A policy whose answer ceiling is already above the default keeps its own ceiling.
+    let mut value =
+        serde_json::to_value(RouterPolicy::new(vec![rung("a")], 50_000, 5, 3, 10).unwrap()).unwrap();
+    value.as_object_mut().unwrap().remove("truncation_ceiling");
+    let back: RouterPolicy = serde_json::from_value(value).unwrap();
+    assert_eq!(back.truncation_ceiling(), 50_000);
 }
 
 // ---------- a policy read back is checked like one built ----------
