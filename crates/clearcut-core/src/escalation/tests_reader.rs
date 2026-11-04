@@ -1,6 +1,7 @@
 // Written by Kone Tshivhinda & Claude
 use super::*;
 use crate::reading::ProblemKind;
+use std::collections::BTreeMap;
 
 // ---------- the outcomes a test feeds in ----------
 
@@ -317,6 +318,46 @@ fn the_retry_after_a_cut_off_uses_the_raised_cap_only_for_that_rung() {
     let plan = call(&step);
     assert_eq!(plan.model, "claude-opus-5-5");
     assert_eq!(plan.max_output_tokens, 8_000);
+}
+
+#[test]
+fn a_cut_off_on_a_clamped_model_does_not_ask_for_more_than_it_takes() {
+    // The Models API says Haiku takes 10 000, so the rung asks for 10 000 and a cut-off at that
+    // has nowhere to go: the page ends too long instead of asking for the policy's 32 000.
+    let policy = RouterPolicy::default_ladder()
+        .with_output_limits(&BTreeMap::from([("claude-haiku-5-5".to_string(), 10_000)]));
+    let (mut reader, step) = PageReader::start(&policy, 100);
+    assert_eq!(call(&step).max_output_tokens, 10_000);
+    let step = reader.on_outcome(Outcome::Truncated);
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
+}
+
+#[test]
+fn a_cut_off_on_a_model_with_room_retries_at_its_own_limit() {
+    // Haiku's cap stays 16 000 but the model takes 20 000: the retry asks for 20 000, not the
+    // policy's 32 000, and a second cut-off ends the page.
+    let policy = RouterPolicy::default_ladder()
+        .with_output_limits(&BTreeMap::from([("claude-haiku-5-5".to_string(), 20_000)]));
+    let (mut reader, step) = PageReader::start(&policy, 100);
+    assert_eq!(call(&step).max_output_tokens, 16_000);
+    let step = reader.on_outcome(Outcome::Truncated);
+    let plan = call(&step);
+    assert_eq!(plan.kind, CallKind::RetryTruncated);
+    assert_eq!(plan.max_output_tokens, 20_000);
+    let step = reader.on_outcome(Outcome::Truncated);
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
+}
+
+#[test]
+fn a_stored_carry_without_a_retry_ceiling_retries_at_the_reader_ceiling() {
+    let (reader, _) = PageReader::start(&RouterPolicy::default_ladder(), 100);
+    let mut value = serde_json::to_value(&reader).unwrap();
+    for planned in value["rungs"].as_array_mut().unwrap() {
+        planned.as_object_mut().unwrap().remove("retry_ceiling");
+    }
+    let mut back: PageReader = serde_json::from_value(value).unwrap();
+    let step = back.on_outcome(Outcome::Truncated);
+    assert_eq!(call(&step).max_output_tokens, 32_000);
 }
 
 #[test]
@@ -825,6 +866,14 @@ fn a_stored_reader_that_breaks_its_own_rules_is_refused() {
         (
             "a picture the worker would refuse",
             Box::new(|v| v["rungs"][0]["rung"]["picture"]["max_edge"] = json!(9_999)),
+        ),
+        (
+            "a retry ceiling past the truncation ceiling",
+            Box::new(|v| v["rungs"][0]["retry_ceiling"] = json!(32_001)),
+        ),
+        (
+            "a retry ceiling under the rung's answer cap",
+            Box::new(|v| v["rungs"][0]["retry_ceiling"] = json!(15_999)),
         ),
     ];
     for (case, change) in cases {

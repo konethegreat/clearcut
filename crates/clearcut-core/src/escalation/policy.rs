@@ -54,6 +54,11 @@ pub struct RouterPolicy {
     /// The most a cut-off retry may ask for. It is at least the answer ceiling and at most the
     /// provider's own maximum. The budget still checks the retry before it is sent.
     truncation_ceiling: u32,
+    /// What the Models API said each ladder model accepts as an answer, when it said anything.
+    /// A retry never asks a model for more than this. It narrows one tenant key's policy, so it
+    /// is not written out.
+    #[serde(skip_serializing)]
+    answer_limits: BTreeMap<String, u32>,
     max_calls_per_page: u32,
     document_calls_per_page: u32,
     document_calls_extra: u32,
@@ -135,8 +140,10 @@ pub(crate) fn plain_model_id(id: &str) -> bool {
 }
 
 impl RouterPolicy {
-    /// Checks and keeps a policy. `answer_ceiling` is what a cut-off answer is retried with.
-    /// A page may make `max_calls_per_page` calls; a document of `n` pages may make
+    /// Checks and keeps a policy. `answer_ceiling` is what a cut-off answer is retried with,
+    /// which is this constructor's old behaviour; [`RouterPolicy::default_ladder`] and a policy
+    /// read from text default the truncation ceiling to 32 000 instead. A page may make
+    /// `max_calls_per_page` calls; a document of `n` pages may make
     /// `document_calls_per_page x n + document_calls_extra`.
     pub fn new(
         rungs: Vec<Rung>,
@@ -166,6 +173,7 @@ impl RouterPolicy {
             rungs,
             answer_ceiling,
             truncation_ceiling: answer_ceiling,
+            answer_limits: BTreeMap::new(),
             max_calls_per_page,
             document_calls_per_page,
             document_calls_extra,
@@ -205,6 +213,7 @@ impl RouterPolicy {
             ],
             answer_ceiling: 16_000,
             truncation_ceiling: DEFAULT_TRUNCATION_CEILING,
+            answer_limits: BTreeMap::new(),
             max_calls_per_page: 5,
             document_calls_per_page: 3,
             document_calls_extra: 10,
@@ -257,14 +266,16 @@ impl RouterPolicy {
             .find(|r| r.model == model)
             .ok_or_else(|| invalid("no such model in the ladder"))?;
         rung.enabled = enabled;
-        RouterPolicy::new(
+        let mut narrowed = RouterPolicy::new(
             rungs,
             self.answer_ceiling,
             self.max_calls_per_page,
             self.document_calls_per_page,
             self.document_calls_extra,
         )?
-        .with_truncation_ceiling(self.truncation_ceiling)
+        .with_truncation_ceiling(self.truncation_ceiling)?;
+        narrowed.answer_limits = self.answer_limits.clone();
+        Ok(narrowed)
     }
 
     /// The same policy without the models a key cannot use (from the Models API, or an answer
@@ -277,7 +288,8 @@ impl RouterPolicy {
     }
 
     /// The same policy with each rung's answer cap clamped to what its model accepts. A model
-    /// that is not named, or whose limit is zero, keeps its cap.
+    /// that is not named, or whose limit is zero, keeps its cap. The limits are remembered, so a
+    /// cut-off retry asks for [`RouterPolicy::retry_ceiling_for`], not blindly for the ceiling.
     pub fn with_output_limits(&self, limits: &BTreeMap<String, u32>) -> Self {
         let mut narrowed = self.clone();
         for rung in &mut narrowed.rungs {
@@ -285,6 +297,20 @@ impl RouterPolicy {
                 rung.max_output_tokens = rung.max_output_tokens.min(max);
             }
         }
+        narrowed.answer_limits = limits
+            .iter()
+            .filter(|(model, max)| **max > 0 && narrowed.rungs.iter().any(|rung| &rung.model == *model))
+            .map(|(model, max)| (model.clone(), *max))
+            .collect();
         narrowed
+    }
+
+    /// The largest answer a cut-off retry may ask for on `model`: the truncation ceiling, or the
+    /// model's own limit when the Models API reported a smaller one.
+    pub fn retry_ceiling_for(&self, model: &str) -> u32 {
+        match self.answer_limits.get(model).copied().filter(|max| *max > 0) {
+            Some(max) => self.truncation_ceiling.min(max),
+            None => self.truncation_ceiling,
+        }
     }
 }

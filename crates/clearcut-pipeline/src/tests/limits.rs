@@ -28,9 +28,17 @@ fn the_settings_skip_a_model_the_key_cannot_use_and_clamp_its_answer() {
 }
 
 #[test]
-fn no_limits_leave_the_ladder_as_it_was() {
+fn limits_that_name_no_ladder_model_leave_the_ladder_as_it_was() {
     let before = ReadSettings::standard();
-    let after = before.clone().with_limits(&ModelLimits::default());
-    assert_eq!(after.router().policy, before.router().policy);
-    assert!(after.router().model_input_limits.is_empty());
+    for limits in [
+        ModelLimits::default(),
+        ModelLimits {
+            unavailable: vec!["claude-legacy-1".to_string()],
+            max_output_tokens: BTreeMap::from([("claude-legacy-1".to_string(), 1_000)]),
+            max_input_tokens: BTreeMap::from([("claude-legacy-1".to_string(), 1_000)]),
+        },
+    ] {
+        let after = before.clone().with_limits(&limits);
+        assert_eq!(after.router().policy, before.router().policy);
+    }
 }

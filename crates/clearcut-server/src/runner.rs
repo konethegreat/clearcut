@@ -108,7 +108,13 @@ impl TenantProviders {
                 }
             }
         }
-        let check: KeyCheck = self.keys.check(&key).await.ok()?;
+        let check: KeyCheck = match self.keys.check(&key).await {
+            Ok(check) => check,
+            Err(error) => {
+                tracing::warn!(%error, "the key's model list could not be read; the full ladder is used");
+                return None;
+            }
+        };
         let limits = limits_from(&check);
         if let Ok(mut cache) = self.limits.lock() {
             cache.insert(
@@ -125,10 +131,13 @@ impl TenantProviders {
 }
 
 /// The ladder models the key cannot use, and the limits of those it can. A model that is absent
-/// from the list, retired, or unable to take structured output or a picture is left out.
+/// from the list, retired, or unable to take structured output or a picture is left out. An
+/// answer that names none of the ladder's models is treated as no answer at all: it must not
+/// empty the ladder for an hour.
 fn limits_from(check: &KeyCheck) -> ModelLimits {
+    let ladder = RouterPolicy::default_ladder();
     let mut limits = ModelLimits::default();
-    for rung in RouterPolicy::default_ladder().rungs() {
+    for rung in ladder.rungs() {
         let usable = check
             .model(&rung.model)
             .filter(|info| check.can_use(&rung.model) && info.structured_outputs && info.image_input);
@@ -145,6 +154,10 @@ fn limits_from(check: &KeyCheck) -> ModelLimits {
             }
             None => limits.unavailable.push(rung.model.clone()),
         }
+    }
+    if limits.unavailable.len() == ladder.rungs().len() {
+        tracing::warn!("the key's model list names none of the ladder's models; the full ladder is used");
+        return ModelLimits::default();
     }
     limits
 }
@@ -209,7 +222,7 @@ fn runner_concurrency(text: Option<&str>) -> Result<usize, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::runner_concurrency;
+    use super::{limits_from, runner_concurrency, ModelLimits};
     use clearcut_anthropic::models::{KeyCheck, ModelInfo};
     use clearcut_anthropic::Lifecycle;
 
@@ -246,12 +259,27 @@ mod tests {
             ],
             request_id: None,
         };
-        let limits = super::limits_from(&check);
+        let limits = limits_from(&check);
         assert_eq!(
             limits.unavailable,
             ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"]
         );
         assert_eq!(limits.max_output_tokens.get("claude-haiku-5-5"), Some(&64_000));
         assert_eq!(limits.max_input_tokens.get("claude-haiku-5-5"), Some(&200_000));
+    }
+
+    #[test]
+    fn an_answer_that_names_none_of_the_ladder_keeps_the_whole_ladder() {
+        let empty = KeyCheck {
+            models: Vec::new(),
+            request_id: None,
+        };
+        assert_eq!(limits_from(&empty), ModelLimits::default());
+
+        let elsewhere = KeyCheck {
+            models: vec![model("claude-legacy-1", Lifecycle::Active, true, true)],
+            request_id: None,
+        };
+        assert_eq!(limits_from(&elsewhere), ModelLimits::default());
     }
 }

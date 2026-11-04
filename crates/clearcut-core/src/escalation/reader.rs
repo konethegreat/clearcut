@@ -119,6 +119,10 @@ pub enum Step {
 struct Planned {
     index: usize,
     rung: Rung,
+    /// The most a cut-off retry may ask this rung's model for. A carry stored before the field
+    /// existed adopts the reader's truncation ceiling (see `TryFrom`).
+    #[serde(default)]
+    retry_ceiling: u32,
 }
 
 /// The state of one page. **Read back from text, it is checked** (`try_from`): a stored
@@ -188,12 +192,24 @@ impl TryFrom<UncheckedReader> for PageReader {
             .unwrap_or(raw.ceiling.max(raw.cap_override.unwrap_or(0)));
         check_truncation_ceiling(raw.ceiling, truncation_ceiling)
             .map_err(|_| broken("the truncation ceiling is outside the answer ceiling to 64000"))?;
-        for planned in &raw.rungs {
+        let mut rungs = raw.rungs;
+        for planned in &mut rungs {
             check_rung(&planned.rung, raw.ceiling)
                 .map_err(|_| broken("a rung is not one a policy could hold"))?;
+            // A carry stored before the field existed retries at the ceiling it started with.
+            if planned.retry_ceiling == 0 {
+                planned.retry_ceiling = truncation_ceiling;
+            }
+            if planned.retry_ceiling < planned.rung.max_output_tokens
+                || planned.retry_ceiling > truncation_ceiling
+            {
+                return Err(broken(
+                    "a rung's retry ceiling is outside its answer cap to the truncation ceiling",
+                ));
+            }
         }
         // A page that is still being read must have a current rung to call.
-        if raw.finished.is_none() && raw.position >= raw.rungs.len() {
+        if raw.finished.is_none() && raw.position >= rungs.len() {
             return Err(broken("the position is outside the rungs"));
         }
         if raw.calls_made > raw.call_limit {
@@ -220,7 +236,7 @@ impl TryFrom<UncheckedReader> for PageReader {
             (Some(_), Some(_)) => return Err(broken("a finished page is waiting for a call")),
             (None, None) => return Err(broken("an unfinished page is waiting for no call")),
             (None, Some(plan)) => {
-                let current = &raw.rungs[raw.position];
+                let current = &rungs[raw.position];
                 if plan.attempt != raw.issued
                     || plan.rung != current.index
                     || plan.model != current.rung.model
@@ -231,7 +247,7 @@ impl TryFrom<UncheckedReader> for PageReader {
             (Some(_), None) => {}
         }
         Ok(PageReader {
-            rungs: raw.rungs,
+            rungs,
             ceiling: raw.ceiling,
             truncation_ceiling,
             call_limit: raw.call_limit,
@@ -259,6 +275,7 @@ impl PageReader {
             .map(|(index, rung)| Planned {
                 index,
                 rung: rung.clone(),
+                retry_ceiling: policy.retry_ceiling_for(&rung.model),
             })
             .collect();
         let mut reader = PageReader {
@@ -326,12 +343,13 @@ impl PageReader {
             Outcome::Read(assessment) => self.on_read(assessment),
             Outcome::NotConverted => self.escalate(EscalationReason::ReadingProblems),
             Outcome::Truncated => {
-                if self.current_cap() < self.truncation_ceiling {
-                    self.cap_override = Some(self.truncation_ceiling);
+                let retry_ceiling = self.current().retry_ceiling;
+                if self.current_cap() < retry_ceiling {
+                    self.cap_override = Some(retry_ceiling);
                     self.retry(CallKind::RetryTruncated)
                 } else {
-                    // At the truncation ceiling: a stronger model cannot be asked for more room
-                    // than the policy allows, so a person decides (a split comes in Slice B).
+                    // At the ceiling this model takes: a stronger model cannot be asked for more
+                    // room than that, so a person decides (a split comes in Slice B).
                     self.review(ReviewReason::TooLong)
                 }
             }

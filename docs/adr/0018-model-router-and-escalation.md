@@ -235,6 +235,9 @@ The ladder is still data, and the deterministic checks are still the judge. Thre
   the provider's 64 000. A cut-off below it is retried once at it; a cut-off at it ends `too_long`.
   The budget check runs first, so a Sonnet retry at 32 000 is refused on a document whose R5 cap
   cannot hold it and the page ends `budget`. That is the honest outcome, not a lost reading.
+  When the Models API reported that a model takes less than the ceiling, that rung's retry asks
+  for the model's own limit instead, and a model already cut off at its own limit ends `too_long`
+  without a pointless retry.
 - A context overflow is its own error and outcome. It escalates to the next rung, which has a
   larger window, and never resends the same request. At the top rung it ends `too_long`.
 - Before a call, the router compares the estimated input plus the largest answer with the model's
@@ -244,8 +247,9 @@ The ladder is still data, and the deterministic checks are still the judge. Thre
 
 The server asks the Models API once per tenant key and caches the answer for an hour. A model that
 is absent, retired, or unable to take structured output or a picture is left out of the ladder. If
-the check itself fails, the full ladder is used: the provider's `ModelUnavailable` path already
-skips a rung and remembers it for the hour.
+the check itself fails, or succeeds but names none of the ladder's models, the full ladder is
+used: the provider's `ModelUnavailable` path already skips a rung and remembers it for the hour,
+and a suspiciously empty answer never empties the ladder.
 
 `PageReader` stores the truncation ceiling in its carry with a serde default, so a job that spans
 this deploy resumes at the ceiling it started with.

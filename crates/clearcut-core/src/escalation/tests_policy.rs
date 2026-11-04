@@ -171,6 +171,29 @@ fn a_rung_is_clamped_to_the_largest_answer_its_model_takes() {
     );
 }
 
+#[test]
+fn a_cut_off_retry_never_asks_a_model_for_more_than_it_takes() {
+    let limits = BTreeMap::from([("claude-haiku-5-5".to_string(), 10_000)]);
+    let narrowed = RouterPolicy::default_ladder().with_output_limits(&limits);
+    assert_eq!(narrowed.retry_ceiling_for("claude-haiku-5-5"), 10_000);
+    // A model the answer did not name keeps the policy's ceiling.
+    assert_eq!(narrowed.retry_ceiling_for("claude-sonnet-5-5"), 32_000);
+    // A limit above the ceiling never raises it.
+    let generous = BTreeMap::from([("claude-sonnet-5-5".to_string(), 128_000)]);
+    assert_eq!(
+        RouterPolicy::default_ladder()
+            .with_output_limits(&generous)
+            .retry_ceiling_for("claude-sonnet-5-5"),
+        32_000
+    );
+    // A model outside the ladder narrows nothing.
+    let other = BTreeMap::from([("claude-legacy-1".to_string(), 1_000)]);
+    assert_eq!(
+        RouterPolicy::default_ladder().with_output_limits(&other),
+        RouterPolicy::default_ladder()
+    );
+}
+
 // ---------- the document's call cap ----------
 
 #[test]
