@@ -930,7 +930,7 @@ async fn an_answer_with_an_extra_field_is_not_the_shape() {
 }
 
 #[tokio::test]
-async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_adapter_allows() {
+async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_policy_allows() {
     let cut = Usage {
         input_tokens: 6_000,
         output_tokens: 12_000,
@@ -951,7 +951,7 @@ async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_adapter_allows
 
     let requests = provider.requests();
     assert_eq!(requests[0].max_output_tokens(), 12_000);
-    assert_eq!(requests[1].max_output_tokens(), 16_000);
+    assert_eq!(requests[1].max_output_tokens(), 32_000);
     assert_eq!(requests[1].model(), SONNET);
     assert_eq!(result.calls[0].label, CallLabel::Truncated);
     assert_eq!(result.calls[1].kind, CallKind::RetryTruncated);
@@ -960,13 +960,18 @@ async fn an_answer_cut_off_is_retried_with_the_largest_answer_the_adapter_allows
 
 #[tokio::test]
 async fn a_page_too_dense_for_one_answer_goes_to_a_person() {
-    // The first rung already has the ceiling, so a stronger model would be cut off the same way.
-    let cut = Usage {
-        input_tokens: 6_000,
-        output_tokens: 16_000,
-        ..Usage::default()
+    // Cut off at the first rung's cap and again at the policy's truncation ceiling: a stronger
+    // model cannot be asked for more room, so a person decides.
+    let cut = |output_tokens| {
+        Err(ProviderError::Truncated {
+            usage: Usage {
+                input_tokens: 6_000,
+                output_tokens,
+                ..Usage::default()
+            },
+        })
     };
-    let provider = FakeProvider::scripted(vec![Err(ProviderError::Truncated { usage: cut })]);
+    let provider = FakeProvider::scripted(vec![cut(16_000), cut(32_000)]);
     let worker = worker(PAGE_TEXT, 1);
     let result = read(&provider, &worker, &trusted_page()).await;
     assert_eq!(review_outcome(&result), (ReviewReason::TooLong, None));
