@@ -18,24 +18,42 @@
 //! accounts raises it.
 
 use crate::local_env::LocalEnv;
+use clearcut_anthropic::models::KeyCheck;
 use clearcut_anthropic::provider::AnthropicProvider;
 use clearcut_anthropic::AnthropicConfig;
+use clearcut_core::escalation::RouterPolicy;
 use clearcut_docproc::HttpWorker;
 use clearcut_jobs::{Runner, RunnerConfig};
 use clearcut_keys::{Resolved, TenantKeys};
 use clearcut_objects::LocalDisk;
 use clearcut_pipeline::{
-    NoProvider, NoticeFuture, PipelineConfig, PipelineHandler, ProviderFuture, ProviderSource, ReadSettings,
+    LimitsFuture, ModelLimits, NoProvider, NoticeFuture, PipelineConfig, PipelineHandler, ProviderFuture,
+    ProviderSource, ReadSettings,
 };
 use clearcut_store::{Store, TenantId};
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tokio::sync::watch::Receiver;
 use tokio::task::JoinHandle;
+
+/// How long a key's model list is believed. The check is free, but a document does not need to
+/// ask again within an hour.
+const LIMITS_TTL: Duration = Duration::from_secs(60 * 60);
+
+struct CachedLimits {
+    /// The last four characters, so a newly set key is checked again.
+    fingerprint: String,
+    checked: Instant,
+    limits: ModelLimits,
+}
 
 /// Gives each job the provider for its tenant's own key.
 struct TenantProviders {
     keys: TenantKeys,
     config: AnthropicConfig,
+    limits: Mutex<HashMap<TenantId, CachedLimits>>,
 }
 
 impl ProviderSource<AnthropicProvider> for TenantProviders {
@@ -69,6 +87,66 @@ impl ProviderSource<AnthropicProvider> for TenantProviders {
             }
         })
     }
+
+    fn limits<'a>(&'a self, tenant: TenantId) -> LimitsFuture<'a> {
+        Box::pin(async move { self.limits_for(tenant).await })
+    }
+}
+
+impl TenantProviders {
+    /// What the tenant's key can use, cached for an hour per key. A check that fails leaves the
+    /// full ladder in place (the provider skips an unusable rung itself).
+    async fn limits_for(&self, tenant: TenantId) -> Option<ModelLimits> {
+        let Ok(Resolved::Key(key, _)) = self.keys.resolve(tenant).await else {
+            return None;
+        };
+        let fingerprint = key.fingerprint();
+        if let Ok(cache) = self.limits.lock() {
+            if let Some(cached) = cache.get(&tenant) {
+                if cached.fingerprint == fingerprint && cached.checked.elapsed() < LIMITS_TTL {
+                    return Some(cached.limits.clone());
+                }
+            }
+        }
+        let check: KeyCheck = self.keys.check(&key).await.ok()?;
+        let limits = limits_from(&check);
+        if let Ok(mut cache) = self.limits.lock() {
+            cache.insert(
+                tenant,
+                CachedLimits {
+                    fingerprint,
+                    checked: Instant::now(),
+                    limits: limits.clone(),
+                },
+            );
+        }
+        Some(limits)
+    }
+}
+
+/// The ladder models the key cannot use, and the limits of those it can. A model that is absent
+/// from the list, retired, or unable to take structured output or a picture is left out.
+fn limits_from(check: &KeyCheck) -> ModelLimits {
+    let mut limits = ModelLimits::default();
+    for rung in RouterPolicy::default_ladder().rungs() {
+        let usable = check
+            .model(&rung.model)
+            .filter(|info| check.can_use(&rung.model) && info.structured_outputs && info.image_input);
+        match usable {
+            Some(info) => {
+                if let Some(max) = info.max_tokens {
+                    limits
+                        .max_output_tokens
+                        .insert(rung.model.clone(), u32::try_from(max).unwrap_or(u32::MAX).max(1));
+                }
+                if let Some(max) = info.max_input_tokens {
+                    limits.max_input_tokens.insert(rung.model.clone(), max);
+                }
+            }
+            None => limits.unavailable.push(rung.model.clone()),
+        }
+    }
+    limits
 }
 
 /// Starts the runner if a worker is configured. `Err` is a message for the person starting the
@@ -100,6 +178,7 @@ pub fn start(
             Arc::new(TenantProviders {
                 keys,
                 config: anthropic,
+                limits: Mutex::new(HashMap::new()),
             }),
             ReadSettings::standard(),
         );
@@ -131,6 +210,8 @@ fn runner_concurrency(text: Option<&str>) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::runner_concurrency;
+    use clearcut_anthropic::models::{KeyCheck, ModelInfo};
+    use clearcut_anthropic::Lifecycle;
 
     #[test]
     fn the_concurrency_is_one_unless_asked_and_is_bounded() {
@@ -140,5 +221,43 @@ mod tests {
         for bad in ["0", "17", "-1", "many", "2.5"] {
             assert!(runner_concurrency(Some(bad)).is_err(), "{bad}");
         }
+    }
+
+    fn model(id: &str, lifecycle: Lifecycle, structured: bool, image: bool) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            lifecycle,
+            max_input_tokens: Some(200_000),
+            max_tokens: Some(64_000),
+            structured_outputs: structured,
+            image_input: image,
+            pdf_input: true,
+            batch: false,
+        }
+    }
+
+    #[test]
+    fn a_key_check_names_the_rungs_it_cannot_use_and_the_limits_it_reports() {
+        let check = KeyCheck {
+            models: vec![
+                model("claude-haiku-5-5", Lifecycle::Active, true, true),
+                model("claude-sonnet-5-5", Lifecycle::Active, false, true),
+            ],
+            request_id: None,
+        };
+        let limits = super::limits_from(&check);
+        assert_eq!(
+            limits.unavailable,
+            ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5-1"]
+        );
+        assert_eq!(
+            limits.max_output_tokens.get("claude-haiku-5-5"),
+            Some(&64_000)
+        );
+        assert_eq!(
+            limits.max_input_tokens.get("claude-haiku-5-5"),
+            Some(&200_000)
+        );
     }
 }

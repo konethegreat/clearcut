@@ -4,6 +4,7 @@
 use super::ThinkingEffort;
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The most a provider will take as the largest answer (the API's own limit).
 const PROVIDER_MAX_OUTPUT_TOKENS: u32 = 64_000;
@@ -272,6 +273,18 @@ impl RouterPolicy {
     pub fn without_models(&self, models: &[&str]) -> Self {
         let mut narrowed = self.clone();
         narrowed.rungs.retain(|r| !models.contains(&r.model.as_str()));
+        narrowed
+    }
+
+    /// The same policy with each rung's answer cap clamped to what its model accepts. A model
+    /// that is not named, or whose limit is zero, keeps its cap.
+    pub fn with_output_limits(&self, limits: &BTreeMap<String, u32>) -> Self {
+        let mut narrowed = self.clone();
+        for rung in &mut narrowed.rungs {
+            if let Some(max) = limits.get(&rung.model).copied().filter(|max| *max > 0) {
+                rung.max_output_tokens = rung.max_output_tokens.min(max);
+            }
+        }
         narrowed
     }
 }

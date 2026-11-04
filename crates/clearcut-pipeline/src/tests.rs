@@ -275,6 +275,7 @@ fn range(first: u32, last: u32) -> PageRange {
 
 const FILE: &[u8] = b"%PDF-1.7 a stand-in for a file; the fake worker never parses it";
 
+mod limits;
 mod read;
 
 // ---------- the normal case ----------

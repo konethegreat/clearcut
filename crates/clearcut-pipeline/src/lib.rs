@@ -172,6 +172,29 @@ impl ReadSettings {
     }
 }
 
+impl ReadSettings {
+    /// The same settings narrowed to what the tenant's key can use.
+    pub fn with_limits(mut self, limits: &ModelLimits) -> Self {
+        let names: Vec<&str> = limits.unavailable.iter().map(String::as_str).collect();
+        self.router.policy = self.router.policy.without_models(&names);
+        self.router.policy = self.router.policy.with_output_limits(&limits.max_output_tokens);
+        self.router.model_input_limits = limits.max_input_tokens.clone();
+        self
+    }
+}
+
+/// What the tenant's key can use, from the Models API (free; ADR-0019). Unknown limits narrow
+/// nothing: the ladder is used as it is and the provider says `ModelUnavailable` if it must.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelLimits {
+    /// The ladder models this key cannot call, or that cannot take a page picture.
+    pub unavailable: Vec<String>,
+    /// Each usable model's largest answer.
+    pub max_output_tokens: BTreeMap<String, u32>,
+    /// Each usable model's context window.
+    pub max_input_tokens: BTreeMap<String, u64>,
+}
+
 /// The provider of a handler that has none: it cannot be built, so it cannot be asked.
 pub enum NoModel {}
 
@@ -207,6 +230,7 @@ pub enum NoProvider {
 
 pub type ProviderFuture<'a, M> = Pin<Box<dyn Future<Output = Result<Arc<M>, NoProvider>> + Send + 'a>>;
 pub type NoticeFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+pub type LimitsFuture<'a> = Pin<Box<dyn Future<Output = Option<ModelLimits>> + Send + 'a>>;
 
 /// Where a job gets its model provider: one per tenant, because each tenant brings its own Anthropic
 /// key (ADR-0019). The pipeline knows nothing about keys; it asks, and waits if there is none.
@@ -216,6 +240,12 @@ pub trait ProviderSource<M>: Send + Sync + 'static {
 
     /// The provider refused the tenant's key during a job.
     fn key_rejected<'a>(&'a self, tenant: TenantId) -> NoticeFuture<'a>;
+
+    /// What the tenant's key can use, when the source knows. `None` means "not known": the
+    /// ladder is used unabridged.
+    fn limits<'a>(&'a self, _tenant: TenantId) -> LimitsFuture<'a> {
+        Box::pin(async { None })
+    }
 }
 
 /// How a handler gets its provider.
@@ -364,10 +394,13 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
         let models = match supply {
             ModelSupply::Fixed(models) => models.clone(),
             ModelSupply::PerTenant { source, settings } => match source.provider(tenant).await {
-                Ok(provider) => Models {
-                    provider,
-                    settings: settings.clone(),
-                },
+                Ok(provider) => {
+                    let settings = match source.limits(tenant).await {
+                        Some(limits) => settings.clone().with_limits(&limits),
+                        None => settings.clone(),
+                    };
+                    Models { provider, settings }
+                }
                 // Not a failure of the document: it waits, and starts soon after a key is set.
                 Err(NoProvider::NoKey) => {
                     return Err(Stop::Failed(

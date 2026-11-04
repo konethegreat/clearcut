@@ -1,6 +1,7 @@
 // Written by Kone Tshivhinda & Claude
 use super::*;
 use crate::Error;
+use std::collections::BTreeMap;
 
 // ---------- the names that are stored and shown ----------
 
@@ -153,6 +154,21 @@ fn models_the_key_cannot_use_are_taken_out_without_losing_the_rest() {
     // Taking every model out is allowed here (the key may be useless); the router then reports it.
     let all: Vec<&str> = policy.rungs().iter().map(|r| r.model.as_str()).collect();
     assert!(policy.without_models(&all).effective().is_empty());
+}
+
+#[test]
+fn a_rung_is_clamped_to_the_largest_answer_its_model_takes() {
+    let base = build(vec![rung("a"), rung("b")]).unwrap();
+    let limits = BTreeMap::from([("a".to_string(), 4_000)]);
+    let clamped = base.with_output_limits(&limits);
+    assert_eq!(clamped.rungs()[0].max_output_tokens, 4_000);
+    assert_eq!(clamped.rungs()[1].max_output_tokens, 8_000);
+    // A zero or an absent model changes nothing.
+    let zero = BTreeMap::from([("a".to_string(), 0)]);
+    assert_eq!(
+        base.clone().with_output_limits(&zero).rungs()[0].max_output_tokens,
+        8_000
+    );
 }
 
 // ---------- the document's call cap ----------
