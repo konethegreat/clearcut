@@ -21,7 +21,7 @@ use clearcut_docproc::{
     DocumentProblem, FakeWorker, PageContent, PageParts, PageSource, PageWord, ProcessError, RenderedPage,
     WordBox,
 };
-use clearcut_pack::{DocumentContext, ImageState, RedactionPolicy};
+use clearcut_pack::{DocumentContext, ImageState, RedactionPolicy, MAX_PAGE_TEXT_BYTES};
 use clearcut_provider::{
     Block, FakeProvider, ImageType, KeyProblem, ModelRequest, ModelResponse, ProviderError, Usage,
 };
@@ -1467,6 +1467,37 @@ async fn a_page_with_more_text_than_is_ever_sent_is_read_from_its_picture() {
     let result = read(&provider, &worker, &trusted_page()).await;
     assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::ArithmeticOnly));
     assert!(page_text_tag(&provider.requests()[0]).contains("source=\"none\""));
+}
+
+#[tokio::test]
+async fn text_above_the_sending_limit_is_dropped_and_counted() {
+    let long = "a".repeat(MAX_PAGE_TEXT_BYTES + 1);
+    let provider = FakeProvider::answering(|_| answer_from(HAIKU, &clean_reading()));
+    let worker = worker(&long, 1);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+
+    // The byte count is a size, never document text.
+    assert_eq!(result.text_dropped_bytes, long.len());
+    // The drop is shown, not cut: a page_text block still says to read the picture, but the
+    // too-large text itself was never sent.
+    assert!(
+        texts(&provider.requests()[0])
+            .iter()
+            .all(|block| !block.contains(&long)),
+        "the too-large text was never sent"
+    );
+}
+
+#[tokio::test]
+async fn text_within_the_limit_is_not_counted_as_dropped() {
+    let provider = FakeProvider::scripted(vec![answer(&clean_reading())]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert_eq!(result.text_dropped_bytes, 0);
 }
 
 /// A change to a stored value.
