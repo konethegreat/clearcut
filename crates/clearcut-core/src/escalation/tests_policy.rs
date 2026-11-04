@@ -15,6 +15,7 @@ fn escalation_reasons_have_exactly_the_agreed_names() {
             "totals_mismatch",
             "text_check_failed",
             "schema_invalid",
+            "input_too_large",
             "rung_unavailable",
         ]
     );

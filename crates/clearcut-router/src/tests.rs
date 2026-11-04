@@ -1011,6 +1011,43 @@ async fn a_model_the_key_cannot_use_is_skipped_and_remembered() {
     assert_eq!(result.calls[0].cost, Cost::ZERO);
 }
 
+#[tokio::test]
+async fn a_context_overflow_escalates_without_retrying_the_same_input() {
+    let provider = FakeProvider::scripted(vec![
+        Err(ProviderError::ContextExceeded),
+        answer_from(SONNET, &clean_reading()),
+    ]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = read(&provider, &worker, &trusted_page()).await;
+
+    assert_eq!(read_outcome(&result).0, 1);
+    assert_eq!(
+        result.calls[0].label,
+        CallLabel::Escalated(EscalationReason::InputTooLarge)
+    );
+    assert_eq!(
+        result.calls[1].kind,
+        CallKind::Escalation {
+            from: 0,
+            reason: EscalationReason::InputTooLarge
+        }
+    );
+    assert_eq!(provider.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn a_context_overflow_at_every_rung_goes_to_a_person_as_too_long() {
+    let provider = FakeProvider::scripted(vec![
+        Err(ProviderError::ContextExceeded),
+        Err(ProviderError::ContextExceeded),
+        Err(ProviderError::ContextExceeded),
+    ]);
+    // The third rung draws a larger picture than the first two, which share one.
+    let worker = worker(PAGE_TEXT, 2);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert_eq!(review_outcome(&result), (ReviewReason::TooLong, None));
+}
+
 // ---------- the transport fails: the page stops and can resume ----------
 
 #[tokio::test]

@@ -654,6 +654,10 @@ pub enum ProviderError {
     /// The answer hit the output cap and was cut off. Billed.
     #[error("the model's output was cut off at the token limit")]
     Truncated { usage: Usage },
+    /// The request was larger than the model's context window, so it was refused unread and
+    /// unbilled. A stronger model or a larger window may take it; the same input will not.
+    #[error("the input was larger than the model's context window")]
+    ContextExceeded,
     /// The model declined to answer. Billed.
     #[error("the model declined to answer")]
     Refused { usage: Usage },
@@ -693,9 +697,10 @@ impl ProviderError {
             ProviderError::Timeout
             | ProviderError::Truncated { .. }
             | ProviderError::InvalidOutput { .. } => FailureKind::Transient,
-            ProviderError::Refused { .. } | ProviderError::Rejected(_) | ProviderError::ModelUnavailable => {
-                FailureKind::NeedsReview
-            }
+            ProviderError::Refused { .. }
+            | ProviderError::Rejected(_)
+            | ProviderError::ModelUnavailable
+            | ProviderError::ContextExceeded => FailureKind::NeedsReview,
         }
     }
 

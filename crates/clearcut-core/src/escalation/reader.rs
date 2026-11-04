@@ -80,6 +80,11 @@ pub enum Outcome {
     BudgetRefused,
     /// The key cannot use the model.
     RungUnavailable,
+    /// The provider refused the request because it was larger than the model's context window.
+    /// It was not read, so the same input is never sent again.
+    ContextExceeded,
+    /// Nothing was sent: the page plus its answer does not fit the model's window.
+    InputTooLarge,
 }
 
 /// How a page ended.
@@ -309,7 +314,10 @@ impl PageReader {
             return Step::Done(done.clone());
         }
         self.pending = None;
-        if !matches!(outcome, Outcome::BudgetRefused | Outcome::CannotBeSentSafely) {
+        if !matches!(
+            outcome,
+            Outcome::BudgetRefused | Outcome::CannotBeSentSafely | Outcome::InputTooLarge
+        ) {
             self.calls_made += 1;
         }
         match outcome {
@@ -338,6 +346,8 @@ impl PageReader {
             Outcome::CannotBeSentSafely => self.review(ReviewReason::CannotBeSentSafely),
             Outcome::BudgetRefused => self.review(ReviewReason::Budget),
             Outcome::RungUnavailable => self.escalate(EscalationReason::RungUnavailable),
+            Outcome::ContextExceeded => self.outgrown(EscalationReason::InputTooLarge),
+            Outcome::InputTooLarge => self.outgrown(EscalationReason::InputTooLarge),
         }
     }
 
@@ -391,6 +401,15 @@ impl PageReader {
         self.invalid_retried = false;
         self.cap_override = None;
         self.issue(CallKind::Escalation { from, reason })
+    }
+
+    /// Leaves a rung that cannot hold the page. At the top rung the page is too long for every
+    /// model this policy may use, which is a person's decision, not a failure of a reading.
+    fn outgrown(&mut self, reason: EscalationReason) -> Step {
+        if self.position + 1 >= self.rungs.len() {
+            return self.review(ReviewReason::TooLong);
+        }
+        self.escalate(reason)
     }
 
     /// The same rung again.

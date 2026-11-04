@@ -890,6 +890,12 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 record.label = CallLabel::Refused;
                 Outcome::Refused
             }
+            ProviderError::ContextExceeded => {
+                // The provider read none of it and charged nothing. A stronger model gets a
+                // larger window; the same input is never offered twice.
+                record.label = CallLabel::Escalated(EscalationReason::InputTooLarge);
+                Outcome::ContextExceeded
+            }
             ProviderError::Rejected(_) => Outcome::Rejected,
             ProviderError::ModelUnavailable => {
                 record.label = CallLabel::RungUnavailable;

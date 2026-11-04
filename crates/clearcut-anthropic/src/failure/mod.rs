@@ -54,6 +54,9 @@ pub fn map_error(
         400 if error.message_has("covered model") || error.message_has("data retention") => {
             ProviderError::ModelUnavailable
         }
+        400 if error.message_has("prompt is too long") || error.message_has("context limit") => {
+            ProviderError::ContextExceeded
+        }
         401 => key_problem(KeyProblem::Rejected),
         402 => key_problem(KeyProblem::Billing),
         403 if error.message_has("model") => ProviderError::ModelUnavailable,

@@ -74,17 +74,20 @@ pub enum EscalationReason {
     TextCheckFailed,
     /// The answer was not valid against the schema, twice.
     SchemaInvalid,
+    /// The page plus its largest answer does not fit the model's context window.
+    InputTooLarge,
     /// The key cannot use the model; the next one is tried.
     RungUnavailable,
 }
 
 impl EscalationReason {
-    pub const ALL: [EscalationReason; 6] = [
+    pub const ALL: [EscalationReason; 7] = [
         EscalationReason::ReadingProblems,
         EscalationReason::LineArithmetic,
         EscalationReason::TotalsMismatch,
         EscalationReason::TextCheckFailed,
         EscalationReason::SchemaInvalid,
+        EscalationReason::InputTooLarge,
         EscalationReason::RungUnavailable,
     ];
 
@@ -95,6 +98,7 @@ impl EscalationReason {
             EscalationReason::TotalsMismatch => "totals_mismatch",
             EscalationReason::TextCheckFailed => "text_check_failed",
             EscalationReason::SchemaInvalid => "schema_invalid",
+            EscalationReason::InputTooLarge => "input_too_large",
             EscalationReason::RungUnavailable => "rung_unavailable",
         }
     }

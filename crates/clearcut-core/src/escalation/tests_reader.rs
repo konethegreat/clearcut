@@ -413,6 +413,67 @@ fn a_call_that_never_happened_is_not_counted() {
     assert_eq!(reader.calls_made(), 1);
 }
 
+// ---------- a page that is too large for the window ----------
+
+#[test]
+fn a_context_overflow_escalates_and_never_retries_the_same_input() {
+    let (mut reader, _) = default_start();
+    let step = reader.on_outcome(Outcome::ContextExceeded);
+    let plan = call(&step);
+    assert_eq!(
+        plan.kind,
+        CallKind::Escalation {
+            from: 0,
+            reason: EscalationReason::InputTooLarge
+        }
+    );
+    assert_eq!(plan.rung, 1);
+    assert_eq!(reader.calls_made(), 1, "the refused call was still a call");
+}
+
+#[test]
+fn a_context_overflow_at_the_top_rung_ends_too_long() {
+    let (mut reader, _) = default_start();
+    let step = feed(
+        &mut reader,
+        vec![
+            Outcome::ContextExceeded,
+            Outcome::ContextExceeded,
+            Outcome::ContextExceeded,
+        ],
+    );
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
+}
+
+#[test]
+fn a_rung_that_cannot_hold_the_input_is_skipped_without_counting_a_call() {
+    let (mut reader, _) = default_start();
+    let step = reader.on_outcome(Outcome::InputTooLarge);
+    assert_eq!(reader.calls_made(), 0, "nothing was sent, so nothing is counted");
+    let plan = call(&step);
+    assert_eq!(
+        plan.kind,
+        CallKind::Escalation {
+            from: 0,
+            reason: EscalationReason::InputTooLarge
+        }
+    );
+}
+
+#[test]
+fn a_rung_that_cannot_hold_the_input_at_the_top_ends_too_long() {
+    let (mut reader, _) = default_start();
+    let step = feed(
+        &mut reader,
+        vec![
+            Outcome::InputTooLarge,
+            Outcome::InputTooLarge,
+            Outcome::InputTooLarge,
+        ],
+    );
+    assert_eq!(review_of(&step), (ReviewReason::TooLong, None));
+}
+
 // ---------- a model the key cannot use ----------
 
 #[test]
@@ -575,38 +636,39 @@ fn alphabet() -> Vec<Outcome> {
         Outcome::CannotBeSentSafely,
         Outcome::BudgetRefused,
         Outcome::RungUnavailable,
+        Outcome::ContextExceeded,
+        Outcome::InputTooLarge,
     ]
 }
 
-/// Runs `outcomes` (cycling the picks) until the page ends; returns how many calls were issued.
+/// Runs `outcomes` (cycling the picks) until the page ends; returns how many calls were made.
+///
+/// A rung that cannot hold the input is skipped without a call, so the count that the caps
+/// bound is the calls made, not the plans handed out.
 fn run(policy: &RouterPolicy, doc_calls: u32, picks: &[usize], letters: &[Outcome]) -> (u32, bool) {
     let (mut reader, mut step) = PageReader::start(policy, doc_calls);
-    let mut issued = u32::from(matches!(step, Step::Call(_)));
     let mut turns = 0;
     while let Step::Call(_) = step {
         let pick = picks[turns % picks.len()];
         step = reader.on_outcome(letters[pick].clone());
-        if matches!(step, Step::Call(_)) {
-            issued += 1;
-        }
         turns += 1;
         assert!(turns <= 64, "the page did not end");
     }
-    (issued, reader.is_done())
+    (reader.calls_made(), reader.is_done())
 }
 
 #[test]
 fn every_sequence_of_outcomes_ends_within_the_page_cap() {
-    // All 12^5 sequences of five outcomes: the default cap is five calls, so each must be over.
+    // All n^5 sequences of five outcomes: the default cap is five calls, so each must be over.
     let policy = RouterPolicy::default_ladder();
     let letters = alphabet();
     let n = letters.len();
     let mut picks = [0usize; 5];
     let mut count = 0u32;
     loop {
-        let (issued, finished) = run(&policy, 1_000, &picks, &letters);
+        let (calls, finished) = run(&policy, 1_000, &picks, &letters);
         assert!(finished, "{picks:?}");
-        assert!(issued <= policy.max_calls_per_page(), "{picks:?} issued {issued}");
+        assert!(calls <= policy.max_calls_per_page(), "{picks:?} made {calls}");
         count += 1;
         // Next sequence, counting in base n.
         let mut i = 0;
@@ -647,11 +709,13 @@ fn generated_policies_and_outcomes_never_exceed_a_cap() {
         if next() % 3 == 0 {
             policy = policy.without_models(&["claude-sonnet-5-5"]);
         }
-        let picks: Vec<usize> = (0..8).map(|_| usize::try_from(next() % 12).unwrap()).collect();
-        let (issued, finished) = run(&policy, doc_calls, &picks, &letters);
+        let picks: Vec<usize> = (0..8)
+            .map(|_| usize::try_from(next() % letters.len() as u64).unwrap())
+            .collect();
+        let (calls, finished) = run(&policy, doc_calls, &picks, &letters);
         assert!(finished);
-        assert!(issued <= per_page, "{issued} calls with a cap of {per_page}");
-        assert!(issued <= doc_calls, "{issued} calls with {doc_calls} left");
+        assert!(calls <= per_page, "{calls} calls with a cap of {per_page}");
+        assert!(calls <= doc_calls, "{calls} calls with {doc_calls} left");
     }
 }
 
