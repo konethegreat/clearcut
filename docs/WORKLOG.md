@@ -13,6 +13,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **No migration, no prompt change.** The reading schema stays `reading-v3`, the prompt stays `prompt-v3`, and every new field is additive JSON.
 - **Tests:** core (policy and reader, including the stored-carry default and the 14-outcome exhaustive run), provider and adapter mapping, router pre-flight and text drop, pipeline settings narrowing and audit counting, the server's key-to-limits mapping, intake media types, and the contract check.
 **Not done:** page parts (Slice B), scans without OCR (B.2), the bounded repair round (C) and coverage evidence (D) are not started; a page that is still too dense after the 32 000 retry still ends `too_long` and is still a person's.
+**Deployed:** merged as `a82af1d`; the Johannesburg VM pulled `main`, rebuilt the server image and restarted it at 2026-11-05 01:36 SAST. `https://145-241-100-85.sslip.io/health` answers `{"status":"ok","version":"0.1.0"}` and `/` answers 200. No document was uploaded: the change is covered by the fakes, and an upload spends the owner's key.
 
 ## 2026-11-03 (part 83): what happens to a long invoice, written down
 **Done**
