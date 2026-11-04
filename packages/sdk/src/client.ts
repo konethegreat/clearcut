@@ -55,7 +55,7 @@ export interface ClearCutClientOptions {
 /** Visible ASCII only: no spaces, tabs or line breaks, which could inject headers. */
 const VALID_KEY = /^[\x21-\x7e]+$/;
 
-/** Printable ASCII, spaces allowed (as in `text/xml; charset=utf-8`); no control characters, so no header injection. */
+/** Printable ASCII, spaces allowed (as in `application/pdf; version=1.7`); no control characters, so no header injection. */
 const VALID_CONTENT_TYPE = /^[\x20-\x7e]*[\x21-\x7e][\x20-\x7e]*$/;
 
 /** A UUID in its usual text form. Ids are checked before they go into an address. */
