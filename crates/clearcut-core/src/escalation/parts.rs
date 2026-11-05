@@ -86,6 +86,10 @@ impl Part {
 }
 
 /// A checked split of one page.
+///
+/// A stored plan is checked for ordering and coverage of its own ranges, while a gap in the
+/// page's text can only be detected when the plan is built, because the plan does not carry
+/// the text length.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "UncheckedPlan")]
 pub struct PartsPlan {
@@ -95,18 +99,22 @@ pub struct PartsPlan {
 }
 
 impl PartsPlan {
+    /// The parts, in page order.
     pub fn parts(&self) -> &[Part] {
         &self.parts
     }
 
+    /// How many rows the page was grouped into.
     pub fn rows(&self) -> usize {
         self.rows
     }
 
+    /// How many words the plan covers.
     pub fn words(&self) -> usize {
         self.words
     }
 
+    /// The part numbered `index`, if the plan has one.
     pub fn part(&self, index: u8) -> Option<&Part> {
         self.parts.iter().find(|part| part.index == index)
     }
@@ -182,11 +190,13 @@ impl TryFrom<UncheckedPlan> for PartsPlan {
             if u16::from(part.of) != count as u16 || usize::from(part.index) != position + 1 {
                 return Err("a plan's parts are not numbered one to its count in order");
             }
-            if part.first_row != next_row || part.last_row < part.first_row {
+            if part.first_row != next_row || part.last_row < part.first_row || part.last_row >= raw.rows {
                 return Err("a plan's rows are missing, repeated or out of order");
             }
             next_row = part.last_row + 1;
-            words += part.words;
+            words = words
+                .checked_add(part.words)
+                .ok_or("a plan's words do not add up")?;
             if position > 0 {
                 let previous = &raw.parts[position - 1];
                 if previous.byte_end > part.byte_start {
@@ -217,15 +227,17 @@ impl TryFrom<UncheckedPlan> for PartsPlan {
 /// Splits a page into parts when it is dense enough and the words allow it; otherwise `None`.
 pub fn plan_parts(words: &[PositionedWord], text_len: usize) -> Option<PartsPlan> {
     if words.len() < MIN_WORDS
-        || words
-            .iter()
-            .any(|word| word.start >= word.end || word.end > text_len || word.top >= word.bottom)
+        || words.iter().any(|word| {
+            word.start >= word.end || word.end > text_len || word.top >= word.bottom || word.bottom > 1_000
+        })
     {
         return None;
     }
     // Words sorted top to bottom, left to right, then by their place in the text.
     let mut order: Vec<usize> = (0..words.len()).collect();
     order.sort_by_key(|&index| (words[index].top, words[index].x, words[index].start));
+    // A word whose top is at or above the current row's bottom starts a new row, so a tall
+    // header or footer word joins the row it overlaps and never causes a split by itself.
     let mut rows: Vec<Vec<usize>> = Vec::new();
     let mut row_bottom = 0u32;
     for index in order {
@@ -301,17 +313,20 @@ pub fn plan_parts(words: &[PositionedWord], text_len: usize) -> Option<PartsPlan
         } else {
             midpoint(draft.bottom, drafts[position + 1].top)
         };
-        parts.push(Part {
-            index,
-            of,
-            first_row: draft.first_row,
-            last_row: draft.last_row,
-            words: draft.words,
-            byte_start: draft.byte_start,
-            byte_end: draft.byte_end,
-            top,
-            bottom,
-        });
+        parts.push(
+            Part::try_from(UncheckedPart {
+                index,
+                of,
+                first_row: draft.first_row,
+                last_row: draft.last_row,
+                words: draft.words,
+                byte_start: draft.byte_start,
+                byte_end: draft.byte_end,
+                top,
+                bottom,
+            })
+            .ok()?,
+        );
     }
     PartsPlan::try_from(UncheckedPlan {
         parts,
@@ -322,6 +337,6 @@ pub fn plan_parts(words: &[PositionedWord], text_len: usize) -> Option<PartsPlan
 }
 
 fn midpoint(low: u16, high: u16) -> u16 {
-    let sum = u32::from(low) + u32::from(high);
-    u16::try_from(sum / 2).unwrap_or(u16::MAX)
+    // Two u16 values sum to at most 131 070, so the sum fits in u32 and the quotient in u16.
+    ((u32::from(low) + u32::from(high)) / 2) as u16
 }
