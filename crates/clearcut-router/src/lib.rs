@@ -727,6 +727,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             of: task.of,
             image: Some(image),
             text: material.text.clone(),
+            part: None,
         };
         let report = failure_report(task, material, run.last.as_ref());
         let pack = match build_pack(&settings, &input, &task.context, report.as_ref(), masker) {

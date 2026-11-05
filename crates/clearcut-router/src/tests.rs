@@ -427,7 +427,7 @@ async fn every_call_is_recorded_without_any_content() {
     assert_eq!(call.effort, ThinkingEffort::Medium);
     assert_eq!(call.kind, CallKind::First);
     assert_eq!(call.label, CallLabel::Accepted);
-    assert_eq!(call.prompt_version, "reading-v3/prompt-v3");
+    assert_eq!(call.prompt_version, "reading-v3/prompt-v4");
     assert_eq!(call.request_id.as_deref(), Some("req_1"));
     assert_eq!(call.usage.input_tokens, 6_000);
     assert_eq!(call.usage.output_tokens, 1_000);

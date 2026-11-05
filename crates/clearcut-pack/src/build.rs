@@ -193,10 +193,16 @@ pub fn build_pack_with_nonce(
         ),
     };
     let failure_block = failure.map(|f| failure_block(f, nonce));
-    let instruction = format!(
-        "Read page {} of {} now and return only the JSON.",
-        page.page, page.of
-    );
+    let instruction = match page.part {
+        Some(part) => format!(
+            "Read part {} of {} of page {} of {} now and return only the JSON.",
+            part.index, part.of, page.page, page.of
+        ),
+        None => format!(
+            "Read page {} of {} now and return only the JSON.",
+            page.page, page.of
+        ),
+    };
 
     // ---- the request
     let mut builder = ModelRequest::builder(&settings.model, settings.call.clone())
@@ -265,6 +271,7 @@ pub fn build_pack_with_nonce(
         page: page.page.get(),
         of: page.of.get(),
         text_source: page.text.as_ref().map_or("none", |t| t.source.as_str()),
+        part: page.part,
         sections,
         redaction: RedactionReport {
             policy: settings.redaction.as_str(),
@@ -302,6 +309,12 @@ fn document_context_block(
     count: &mut impl FnMut(&[redact::Span]),
 ) -> String {
     let mut lines = vec![format!("page: {} of {}", page.page, page.of)];
+    if let Some(part) = page.part {
+        lines.push(format!(
+            "part: {} of {} of page {} of {}",
+            part.index, part.of, page.page, page.of
+        ));
+    }
     if let Some(currency) = context.currency {
         lines.push(format!(
             "currency established on earlier pages: {}",

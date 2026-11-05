@@ -70,6 +70,14 @@ impl std::fmt::Debug for PageText {
     }
 }
 
+/// Which part of a page a request reads, when the page is too long for one answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PartRef {
+    /// 1-based.
+    pub index: u8,
+    pub of: u8,
+}
+
 /// One page to read. At least one of `image` and `text` must be present.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageInput {
@@ -79,6 +87,8 @@ pub struct PageInput {
     pub of: NonZeroU32,
     pub image: Option<PageImage>,
     pub text: Option<PageText>,
+    /// `Some` when this request reads one band of the page instead of all of it.
+    pub part: Option<PartRef>,
 }
 
 /// What earlier pages of the same document established. Values that were read

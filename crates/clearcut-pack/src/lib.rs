@@ -29,7 +29,8 @@ pub use build::{
 };
 pub use clearcut_core::redact::{RedactionKind, Span};
 pub use input::{
-    DocumentContext, FailureReport, PackSettings, PageImage, PageInput, PageText, RedactionPolicy, TextSource,
+    DocumentContext, FailureReport, PackSettings, PageImage, PageInput, PageText, PartRef, RedactionPolicy,
+    TextSource,
 };
 pub use manifest::{ImageState, PackManifest, RedactionReport, Section};
 pub use mask::{ImageMasker, MaskError, NoMasker};
