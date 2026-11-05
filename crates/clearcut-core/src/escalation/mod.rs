@@ -19,6 +19,7 @@
 //! Nothing here holds a word of the document: reasons, notes and paths are fixed names.
 
 mod assess;
+mod parts;
 mod policy;
 mod reader;
 
@@ -27,11 +28,14 @@ mod tests_assess;
 #[cfg(test)]
 mod tests_names;
 #[cfg(test)]
+mod tests_parts;
+#[cfg(test)]
 mod tests_policy;
 #[cfg(test)]
 mod tests_reader;
 
 pub use assess::{assess, Assessment, ReadingEvidence, TextCheck, Verdict};
+pub use parts::{plan_parts, Part, PartsPlan, PositionedWord};
 pub(crate) use policy::plain_model_id;
 pub use policy::{Picture, RouterPolicy, Rung};
 pub use reader::{CallKind, CallPlan, Outcome, PageOutcome, PageReader, Step};
