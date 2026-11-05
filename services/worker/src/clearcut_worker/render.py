@@ -80,11 +80,11 @@ def render_page(
 ) -> EncodedImage:
     """Page ``page`` (1-based) of the document as an image.
 
-    Only the band between ``top`` and ``bottom`` thousandths of the page's height is
-    drawn, cropped before encoding so that ``max_edge`` applies to the band. Raises the
-    same named refusals as reading text, plus ``PageTooBig`` for a PDF page,
-    ``ImageTooLarge`` for a picture, and ``EmptyCrop`` for a band with no height.
-    Nothing a refusal says comes from the file.
+    The picture returned holds only the band between ``top`` and ``bottom`` thousandths
+    of the page's height: the page is drawn whole and then cropped, before encoding, so
+    that ``max_edge`` applies to the band. Raises the same named refusals as reading
+    text, plus ``PageTooBig`` for a PDF page, ``ImageTooLarge`` for a picture, and
+    ``EmptyCrop`` for a band with no height. Nothing a refusal says comes from the file.
     """
     if not (MIN_PER_MILLE <= top <= MAX_PER_MILLE and MIN_PER_MILLE <= bottom <= MAX_PER_MILLE):
         raise ValueError("the crop must be given in thousandths of the page")

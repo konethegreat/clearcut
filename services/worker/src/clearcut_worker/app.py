@@ -56,7 +56,15 @@ from .logs import safe_log_text
 from .mask import MAX_BOXES
 from .ocr import OcrEngine
 from .pagetext import MAX_PAGES_PER_CALL, PageContent, PageOutOfRange, PageTooLarge
-from .render import DEFAULT_DPI, MAX_DPI, MIN_DPI, EmptyCrop, PageTooBig
+from .render import (
+    DEFAULT_DPI,
+    MAX_DPI,
+    MAX_PER_MILLE,
+    MIN_DPI,
+    MIN_PER_MILLE,
+    EmptyCrop,
+    PageTooBig,
+)
 
 log = logging.getLogger("clearcut_worker")
 
@@ -340,8 +348,8 @@ def create_app(
         dpi: Annotated[int, Query(ge=MIN_DPI, le=MAX_DPI)] = DEFAULT_DPI,
         fmt: Annotated[Literal["png", "jpeg"], Query(alias="format")] = "png",
         max_edge: Annotated[int, Query(ge=500, le=MAX_EDGE_LIMIT)] = DEFAULT_MAX_EDGE,
-        top: Annotated[int, Query(ge=0, le=1000)] = 0,
-        bottom: Annotated[int, Query(ge=0, le=1000)] = 1000,
+        top: Annotated[int, Query(ge=MIN_PER_MILLE, le=MAX_PER_MILLE)] = MIN_PER_MILLE,
+        bottom: Annotated[int, Query(ge=MIN_PER_MILLE, le=MAX_PER_MILLE)] = MAX_PER_MILLE,
     ) -> Response:
         data = await _read_body(request, settings.max_request_bytes)
         request.state.body_bytes = len(data)

@@ -68,7 +68,7 @@ from .pagetext import (
     Word,
     extract_pages,
 )
-from .render import EmptyCrop, PageTooBig, render_page
+from .render import MAX_PER_MILLE, MIN_PER_MILLE, EmptyCrop, PageTooBig, render_page
 
 log = logging.getLogger("clearcut_worker")
 
@@ -714,8 +714,8 @@ def render_isolated(
     dpi: float,
     fmt: str,
     max_edge: int,
-    top: int = 0,
-    bottom: int = 1000,
+    top: int = MIN_PER_MILLE,
+    bottom: int = MAX_PER_MILLE,
     max_pages: int,
     timeout_seconds: float,
     grace_seconds: float = 2.0,

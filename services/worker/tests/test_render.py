@@ -149,6 +149,14 @@ def test_a_crop_returns_only_the_band_between_the_marks() -> None:
     assert pixel(result.data, 200, 10) == WHITE  # above the square, still in the band
 
 
+def test_max_edge_applies_to_the_band_not_the_whole_page() -> None:
+    # 595 x 4000 points at 144 dpi is 1190 x 8000 pixels: four times the 2000 px cap on
+    # its long side. The band 0..100 is 1190 x 800, which fits the cap as it stands; were
+    # the page brought down to the cap first, the band would be 298 x 200 instead.
+    result = render(one_page("", media_box="[0 0 595 4000]"), dpi=144, top=0, bottom=100)
+    assert (result.width, result.height) == (1190, 800)
+
+
 def test_a_picture_can_be_cropped_too() -> None:
     result = render(png_of(noise(40, 30)), top=0, bottom=500)
     assert (result.width, result.height) == (40, 15)
