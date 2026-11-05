@@ -280,7 +280,7 @@ export interface PageReading {
 /** A page waiting for a person (GET /v1/documents/{id}/review). */
 export interface WaitingPage {
   page: number;
-  /** The fixed name of why it stopped, such as `tax_not_shown`, `part_failed` or `too_dense`. */
+  /** The fixed name of why it stopped, such as `tax_not_shown`, `part_conflict`, `part_failed` or `too_dense`. */
   reason: string;
   /** What could not be read exactly, and where. */
   problems: unknown;

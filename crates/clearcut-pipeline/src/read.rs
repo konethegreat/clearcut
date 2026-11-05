@@ -158,6 +158,11 @@ pub(crate) fn parts_notes(parts: &PartsEvidence) -> Vec<Value> {
     notes
 }
 
+/// The extra calls a split into `planned` parts was given.
+fn extras_for(planned: u32) -> u32 {
+    planned.saturating_sub(1).saturating_mul(EXTRA_CALLS_PER_PART)
+}
+
 /// How many calls a page needed because it was split, from its stored notes.
 pub(crate) fn part_extras(notes: &Value) -> u32 {
     let planned = notes
@@ -170,13 +175,22 @@ pub(crate) fn part_extras(notes: &Value) -> u32 {
         .and_then(|note| note.get("planned"))
         .and_then(Value::as_u64)
         .unwrap_or(0);
-    let planned = u32::try_from(planned).unwrap_or(u32::MAX);
-    planned.saturating_sub(1).saturating_mul(EXTRA_CALLS_PER_PART)
+    // A page has at most `u8::MAX` parts, so a larger stored number is damage.
+    let planned = u8::try_from(planned).unwrap_or(u8::MAX);
+    extras_for(u32::from(planned))
 }
 
-/// The extra calls a finished page's own evidence says it used.
+/// The extra calls a finished page's own evidence says it was given.
 fn parts_extra(parts: &PartsEvidence) -> u32 {
-    u32::from(parts.planned.saturating_sub(1)).saturating_mul(EXTRA_CALLS_PER_PART)
+    extras_for(u32::from(parts.planned))
+}
+
+/// The allowance after a page has ended: its calls are spent, and the extra calls its
+/// split was given pass to the pages after it.
+pub(crate) fn allowance_after(calls_left: u32, spent_calls: u32, parts: Option<&PartsEvidence>) -> u32 {
+    calls_left
+        .saturating_sub(spent_calls)
+        .saturating_add(parts.map_or(0, parts_extra))
 }
 
 /// How many pages of a document were read from their picture because their text was too large.
@@ -229,7 +243,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
             .iter()
             .filter(|page| !matches!(page.state, PageState::InProgress { .. }))
             .map(|page| part_extras(&page.details.notes))
-            .sum();
+            .fold(0, u32::saturating_add);
         let mut calls_left = self.calls_left(tenant, document, pages, models, extra).await?;
         let mut unavailable: Vec<String> = Vec::new();
         self.progress(ctx, 0, pages, "reading the pages").await?;
@@ -257,12 +271,10 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                     if let (PageState::Read(_), Some(extraction)) = (&state, &result.extraction) {
                         established.absorb(extraction);
                     }
-                    calls_left = calls_left.saturating_sub(counted_calls(&result));
-                    // Now that the page has ended, the pages after it may use what its split
-                    // was given. The router gave the page itself its extra while reading it.
-                    if let Some(parts) = &result.parts {
-                        calls_left = calls_left.saturating_add(parts_extra(parts));
-                    }
+                    // Now that the page has ended, its calls are spent and the pages after it
+                    // may use the extra its split was given. The router gave the page itself
+                    // its extra while reading it.
+                    calls_left = allowance_after(calls_left, counted_calls(&result), result.parts.as_ref());
                     for model in &result.unavailable_models {
                         if !unavailable.contains(model) {
                             unavailable.push(model.clone());
