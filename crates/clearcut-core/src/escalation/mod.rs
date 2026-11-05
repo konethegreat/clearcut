@@ -118,7 +118,7 @@ impl EscalationReason {
 pub enum ReviewReason {
     /// Every rung was tried and the last reading still failed the checks.
     TopRungFailed,
-    /// Too much on one page for one answer (cut off at the ceiling, or over 200 lines).
+    /// Too much on one page for one answer (cut off at the truncation ceiling).
     TooLong,
     /// The parts of one page read different values in the same place.
     PartConflict,
