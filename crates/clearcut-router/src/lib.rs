@@ -575,6 +575,8 @@ struct Run {
     part: Option<CurrentPart>,
     /// The plan and the parts done, when the page is read in parts.
     parts: Option<PartsCarry>,
+    /// Whether the plan came from a stored carry rather than being made in this run.
+    parts_stored: bool,
     pictures: Vec<(Picture, Option<Crop>, RenderedPage)>,
     calls: Vec<CallRecord>,
     spent: Cost,
@@ -704,6 +706,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         document_calls_left: u32,
         resume: Option<Carry>,
     ) -> PageRun {
+        let resumed = resume.is_some();
         let (machine, mut step, best, last, parts) = match resume {
             Some(carry) => {
                 let step = match (carry.machine.pending(), carry.machine.outcome()) {
@@ -729,6 +732,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             material: None,
             part: None,
             parts,
+            parts_stored: resumed,
             pictures: Vec::new(),
             calls: Vec::new(),
             spent: Cost::ZERO,
@@ -897,7 +901,8 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 .parts
                 .as_ref()
                 .ok_or_else(|| Trouble::worker_said("a part was loaded without a plan"))?;
-            if !plan_covers_page(&parts.plan, &text.content) {
+            // A plan made in this run is trusted; only a stored one is checked against the page.
+            if run.parts_stored && !plan_covers_page(&parts.plan, &text.content) {
                 return Err(Trouble::worker_said("a stored plan does not cover its page"));
             }
         }

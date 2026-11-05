@@ -87,9 +87,9 @@ impl Part {
 
 /// A checked split of one page.
 ///
-/// A stored plan is checked for ordering and coverage of its own ranges. Whether it covers
-/// the page's text exactly is checked by the router when it loads the plan, which is the
-/// first place the plan and the text are both in hand.
+/// A stored plan is checked for ordering and coverage of its own ranges. Whether it accounts
+/// for the page's text (only whitespace may lie outside the parts) is checked by the router
+/// when it loads a stored plan, the first place the plan and the text are both in hand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "UncheckedPlan")]
 pub struct PartsPlan {

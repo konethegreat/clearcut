@@ -729,7 +729,7 @@ async fn a_stored_plan_with_a_gap_is_not_read() {
     // picture covers the page. But the seam between part 1 and part 2 now leaves a byte of the
     // plan's own text outside both parts, so slicing the text by it would drop a line. The page
     // must go to a person, not be read. (One skipped byte is the seam's separating space, which
-    // the planner already leaves out; the second is the first character of part 2's first line.)
+    // the planner already leaves out; the next two are the start of part 2's first line.)
     let mut stored = serde_json::to_value(long_plan(1_203)).expect("the plan is JSON");
     let moved = stored["parts"][1]["byte_start"]
         .as_u64()
