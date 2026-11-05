@@ -2293,8 +2293,9 @@ async fn the_earliest_of_several_matching_documents_is_the_one_named(pool: PgPoo
     );
 }
 
-use crate::read::{page_notes, text_dropped_pages};
+use crate::read::{page_notes, part_extras, text_dropped_pages};
 use clearcut_core::escalation::PageOutcome;
+use clearcut_router::{PartFailure, PartsEvidence};
 
 #[test]
 fn a_page_read_from_its_picture_says_why_in_its_notes() {
@@ -2305,10 +2306,48 @@ fn a_page_read_from_its_picture_says_why_in_its_notes() {
         notes: Vec::new(),
     };
     assert_eq!(
-        page_notes(&outcome, 200_001),
+        page_notes(&outcome, 200_001, None),
         serde_json::json!([{ "type": "text_dropped", "bytes": 200_001 }])
     );
-    assert_eq!(page_notes(&outcome, 0), serde_json::json!([]));
+    assert_eq!(page_notes(&outcome, 0, None), serde_json::json!([]));
+}
+
+#[test]
+fn a_page_read_in_parts_says_how_it_was_split() {
+    let parts = PartsEvidence {
+        planned: 3,
+        read: 2,
+        seams: vec![171, 321],
+        seam_uncertain: false,
+        failed: Some(PartFailure {
+            part: 3,
+            reason: ReviewReason::PartFailed,
+        }),
+    };
+    let outcome = PageOutcome::Read {
+        rung: 0,
+        attempt: 1,
+        confidence: ConfidenceBasis::Unresolved,
+        notes: Vec::new(),
+    };
+    assert_eq!(
+        page_notes(&outcome, 0, Some(&parts)),
+        serde_json::json!([
+            { "type": "parts", "planned": 3, "read": 2, "seams": [171, 321], "seam_uncertain": false },
+            { "type": "part_failed", "part": 3, "reason": "part_failed" }
+        ])
+    );
+}
+
+#[test]
+fn only_a_split_page_widens_the_allowance() {
+    let split = serde_json::json!([{ "type": "parts", "planned": 3, "read": 3 }]);
+    assert_eq!(part_extras(&split), 6);
+    assert_eq!(
+        part_extras(&serde_json::json!([{ "type": "text_dropped", "bytes": 1 }])),
+        0
+    );
+    assert_eq!(part_extras(&serde_json::json!([])), 0);
 }
 
 #[test]
