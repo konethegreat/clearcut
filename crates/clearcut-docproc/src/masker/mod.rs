@@ -104,6 +104,8 @@ pub struct PartWindow<'a> {
     /// The part's text: exactly `page.text()[byte_start..byte_start + text.content.len()]`.
     pub text: &'a PageText,
     pub byte_start: usize,
+    /// The band the part's picture was rendered with: the boxes are mapped into it, so a
+    /// different band would place the paint somewhere else on the part.
     pub crop: Crop,
 }
 
@@ -211,9 +213,11 @@ impl WorkerMasker {
             (page.source(), window.text.source),
             (PageSource::TextLayer, TextSource::TextLayer) | (PageSource::Ocr, TextSource::Ocr)
         );
-        let expected = page
-            .text()
-            .get(window.byte_start..window.byte_start + window.text.content.len());
+        let end = window
+            .byte_start
+            .checked_add(window.text.content.len())
+            .ok_or(MaskError::Failed)?;
+        let expected = page.text().get(window.byte_start..end);
         if !same_reading || expected != Some(window.text.content.as_str()) {
             return Err(MaskError::Failed);
         }
