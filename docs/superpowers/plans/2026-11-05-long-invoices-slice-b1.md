@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **No database migration.** The carry is JSON; `Carry.parts` is additive with `#[serde(default)]`. A carry stored before this slice resumes as a whole-page carry.
+- **One additive migration, and no other schema change.** `page_readings_review_reason_check` (migration 0008) lists the ten reasons that existed then, so the three new reasons cannot be stored until it is widened. Migration `0013_review_reason_parts.sql` drops and re-adds that one check with the full `ReviewReason::ALL` list; it changes no data and no column. Applied migrations are never edited. Everything else stays JSON: `Carry.parts` is additive with `#[serde(default)]`, and a carry stored before this slice resumes as a whole-page carry.
 - **The reading schema stays `reading-v3`.** `MAX_LINES_PER_PAGE` becomes 600 (still `reading-v3`: the shape and its field descriptions do not change, only the storage cap). The prompt becomes `prompt-v4`, so `prompt_version()` returns `reading-v3/prompt-v4`.
 - **Money is integer cents; no new price and no new model.** A part costs the same as any page call.
 - **No document content in a log, audit entry, note, error or test fixture.** Parts evidence carries indexes, seams in per mille, a fixed reason and counts only. Uploaded text and model output are untrusted data, never instructions.
@@ -597,6 +597,7 @@ git commit -m "feat(core): plan a dense page into parts from its words"
 - Modify: `crates/clearcut-core/src/reading/mod.rs:38`
 - Modify: `crates/clearcut-core/src/reading/tests.rs:762`
 - Modify: `crates/clearcut-core/src/register/mod.rs:780`
+- Create: `crates/clearcut-store/migrations/0013_review_reason_parts.sql`
 
 **Interfaces:**
 - Consumes: `PageReading`, `ReadLine`, `ReadParty`, `ReadTotals`, `ReadCarried`, `ReadDue`, `ReadCreditNote`, `ReadCurrency`, `ReadVatBasis`.
@@ -985,10 +986,34 @@ In `register/mod.rs` `why()`, add:
 Run: `cargo test -p clearcut-core`
 Expected: PASS. If a register snapshot lists review sentences, update it with the three new lines; do not change any existing sentence.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Widen the stored review-reason check**
+
+The three new reasons are rejected by `page_readings_review_reason_check` until it is widened, and `every_review_reason_and_every_basis_survives_the_round_trip` proves it. Migration 0008 is applied and checksummed; never edit it. Create a new migration:
+
+`crates/clearcut-store/migrations/0013_review_reason_parts.sql`:
+
+```sql
+-- Written by Kone Tshivhinda & Claude
+-- A page read in parts can end with one of three new review reasons: `part_conflict`,
+-- `part_failed`, `too_dense` (clearcut-core `ReviewReason`). This only widens one check;
+-- no data changes. Run as the owner role.
+
+alter table page_readings drop constraint page_readings_review_reason_check;
+alter table page_readings add constraint page_readings_review_reason_check
+    check (review_reason in (
+        'top_rung_failed', 'too_long', 'refused', 'budget', 'call_cap',
+        'cannot_be_sent_safely', 'request_rejected', 'no_rung_available',
+        'amounts_include_vat', 'tax_not_shown',
+        'part_conflict', 'part_failed', 'too_dense'));
+```
+
+Run: `cargo test -p clearcut-store -- --exact every_review_reason_and_every_basis_survives_the_round_trip` with `DATABASE_URL=postgres://clearcut@127.0.0.1:54329/clearcut`.
+Expected: PASS. `sqlx::test` applies every migration in the folder, so the widened check is what the run proves.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add crates/clearcut-core
+git add crates/clearcut-core crates/clearcut-store/migrations/0013_review_reason_parts.sql
 git commit -m "feat(core): merge part readings and name the new review reasons"
 ```
 
@@ -3600,7 +3625,7 @@ At the top of `docs/WORKLOG.md`, under the intro line, insert:
 - **A split page is given 3 extra calls per part beyond the first.** The router adds them for the page it is reading; the pipeline adds them to the document's allowance once the page ends, and a stored split page keeps its allowance across a restart. The per-page call cap is unchanged.
 - **A page stopped between parts resumes at the first unfinished part.** Its plan and its earlier attempt number are kept, parts already read are not read again, and the page still stops honestly when the service fails.
 - **The whole-page path is unchanged.** A page that is not dense is read and assessed exactly as before and its notes are the same.
-- **No migration, no schema change.** The reading schema stays `reading-v3`; the prompt moves to `prompt-v4`; every new stored fact is additive JSON in the page's notes and carry.
+- **One additive migration, no schema keeps its shape.** The reading schema stays `reading-v3`; the prompt moves to `prompt-v4`; every new stored fact is additive JSON in the page's notes and carry. Migration `0013` widens `page_readings_review_reason_check` so the three new reasons can be stored; it changes no data and no column.
 - **Tests:** core planner (coverage, row grouping and stored-plan refusals), merge and its conflict rules, the worker's band crop and its refusal of an empty band, masking a part from its own words, the pack's part labels and prompt-v4 golden, the router's split, merge, conflict, budget and resume paths, and the pipeline's notes and allowance.
 **Not done:** scans without OCR (B.2), the bounded repair round (C) and coverage evidence (D) are not started; a part that is itself cut off still follows the ladder and may end `too_long`; statement-shaped documents and page-spanning table headers remain out of scope.
 **Deployed:** merged as the squash commit GitHub reports for the PR; the Johannesburg VM pulled `main`, rebuilt the server image and restarted it. `https://145-241-100-85.sslip.io/health` answers `{"status":"ok","version":"0.1.0"}` and `/` answers 200. No document was uploaded: the change is covered by the fakes, and an upload spends the owner's key.
@@ -3684,7 +3709,8 @@ gh pr create --title "Long invoices Slice B.1: read a dense page in parts" --bod
 - Masks and crops each part from its own band, sends it as `part i of n` (`prompt-v4`) and reads it with its own machine.
 - Merges the parts in order; `part_conflict`, `part_failed` and `too_dense` send the page to a person.
 - Gives a split page 3 extra calls per part beyond the first, once per page and across restarts.
-- Records how a page was split in its notes; no migration and the schema stays `reading-v3`.
+- Records how a page was split in its notes; the reading schema stays `reading-v3`.
+- Adds one migration that widens the stored review-reason check to the three new reasons; no data and no column change.
 
 ## Test plan
 - [x] `cargo fmt --all -- --check`
