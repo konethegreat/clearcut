@@ -1599,6 +1599,27 @@ async fn a_machine_that_is_already_done_finishes_without_a_call() {
     assert_eq!(provider2.call_count() + worker2.call_count(), 0);
 }
 
+// ---------- a page read in parts ----------
+
+#[tokio::test]
+async fn a_page_without_parts_reports_no_parts_evidence() {
+    let provider = FakeProvider::scripted(vec![answer(&clean_reading())]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert!(result.parts.is_none());
+}
+
+#[test]
+fn a_reading_origin_survives_being_stored() {
+    let origin = ReadingOrigin {
+        rung: 1,
+        attempt: 2,
+        model: HAIKU.to_string(),
+    };
+    let stored = serde_json::to_string(&origin).unwrap();
+    assert_eq!(serde_json::from_str::<ReadingOrigin>(&stored).unwrap(), origin);
+}
+
 // ---------- what is passed on, and the corners ----------
 
 #[tokio::test]

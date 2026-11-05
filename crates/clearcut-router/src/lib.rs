@@ -201,11 +201,31 @@ pub enum BudgetStop {
 }
 
 /// Where a reading came from: the rung and attempt that made it, and the model that answered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadingOrigin {
     pub rung: usize,
     pub attempt: u32,
     pub model: String,
+}
+
+/// How a page that was read in parts was planned and how far it got.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartsEvidence {
+    pub planned: u8,
+    pub read: u8,
+    /// The bottom of each seam, in thousandths of the page (one fewer than the parts).
+    pub seams: Vec<u16>,
+    /// A seam the planner could not place exactly. False in this slice.
+    pub seam_uncertain: bool,
+    pub failed: Option<PartFailure>,
+}
+
+/// The part that stopped a page from being read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PartFailure {
+    /// 1-based.
+    pub part: u8,
+    pub reason: ReviewReason,
 }
 
 /// The highest rung number a ladder can have (the store keeps it in a column that holds 0 to 7).
@@ -238,6 +258,8 @@ pub struct PageResult {
     pub budget_stop: Option<BudgetStop>,
     /// Kinds of instruction-like text found on the page (never the text). Flagged, never obeyed.
     pub injection_suspected: Vec<&'static str>,
+    /// How the page was split and read, when it was read in parts.
+    pub parts: Option<PartsEvidence>,
 }
 
 /// A reading kept between calls: enough to report on it, to send a stronger model what was
@@ -378,6 +400,14 @@ struct Material {
     text_dropped_bytes: usize,
 }
 
+/// The text a reading is checked against, and whether that text can be believed.
+struct View<'a> {
+    text: Option<&'a PageText>,
+    trust: TextTrust,
+    /// Compare the printed totals with the lines. False for a part of a page.
+    whole_document: bool,
+}
+
 /// Everything worked out about one reading.
 struct Evaluation {
     extraction: Extraction,
@@ -419,7 +449,7 @@ fn token_usage(usage: Usage) -> TokenUsage {
 /// the caller evaluates twice, once to decide and once to stamp.
 fn evaluate(
     task: &PageTask,
-    material: &Material,
+    view: &View<'_>,
     reading: &PageReading,
     model: &str,
     confidence: ConfidenceBasis,
@@ -437,11 +467,11 @@ fn evaluate(
     };
     let conversion = reading.into_extraction(&context)?;
     let findings = validate(&conversion.extraction).findings;
-    let report = match &material.text {
+    let report = match view.text {
         Some(text) => check_against_text(
             &conversion.extraction,
             &text.content,
-            material.trust,
+            view.trust,
             reading.amounts_include_vat == ReadVatBasis::Yes,
         ),
         None => TextCheckReport {
@@ -454,7 +484,7 @@ fn evaluate(
         problems: &conversion.problems,
         findings: &findings,
         text_check: report.result,
-        whole_document: task.of.get() == 1,
+        whole_document: view.whole_document,
     });
     Ok(Evaluation {
         extraction: conversion.extraction,
@@ -470,10 +500,10 @@ fn evaluate(
 /// can be believed), and the checks that stopped the reading. Facts about the document that
 /// no model could change (a due date before the invoice date, a missing tax-invoice field) are
 /// left out: telling a model about them only invites it to invent a fix.
-fn failure_report(task: &PageTask, material: &Material, last: Option<&Kept>) -> Option<FailureReport> {
+fn failure_report(task: &PageTask, view: &View<'_>, last: Option<&Kept>) -> Option<FailureReport> {
     let kept = last?;
     let reading: PageReading = serde_json::from_value(kept.reading.clone()).ok()?;
-    let evaluation = evaluate(task, material, &reading, &kept.model, ConfidenceBasis::Unresolved).ok()?;
+    let evaluation = evaluate(task, view, &reading, &kept.model, ConfidenceBasis::Unresolved).ok()?;
     let mut problems = evaluation.problems;
     if matches!(evaluation.report.result, TextCheck::Failed { .. }) {
         problems.extend(evaluation.report.unconfirmed.iter().map(|path| ReadingProblem {
@@ -481,7 +511,7 @@ fn failure_report(task: &PageTask, material: &Material, last: Option<&Kept>) -> 
             kind: ProblemKind::NotOnPage,
         }));
     }
-    let whole = task.of.get() == 1;
+    let whole = view.whole_document;
     let findings = evaluation
         .findings
         .into_iter()
@@ -510,6 +540,8 @@ struct Run {
     best: Option<Kept>,
     last: Option<Kept>,
     material: Option<Material>,
+    /// How the page was split and read, when it was read in parts.
+    parts: Option<PartsEvidence>,
     pictures: Vec<(Picture, RenderedPage)>,
     calls: Vec<CallRecord>,
     spent: Cost,
@@ -620,6 +652,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             best,
             last,
             material: None,
+            parts: None,
             pictures: Vec::new(),
             calls: Vec::new(),
             spent: Cost::ZERO,
@@ -729,7 +762,12 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             text: material.text.clone(),
             part: None,
         };
-        let report = failure_report(task, material, run.last.as_ref());
+        let view = View {
+            text: material.text.as_ref(),
+            trust: material.trust,
+            whole_document: task.of.get() == 1,
+        };
+        let report = failure_report(task, &view, run.last.as_ref());
         let pack = match build_pack(&settings, &input, &task.context, report.as_ref(), masker) {
             Ok(pack) => pack,
             Err(PackError::CannotBeSentSafely(_)) => {
@@ -845,7 +883,12 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         let Some(material) = run.material.as_ref() else {
             return Err(Trouble::worker_said("the page's material was not fetched"));
         };
-        let evaluation = match evaluate(task, material, &reading, &model, ConfidenceBasis::Unresolved) {
+        let view = View {
+            text: material.text.as_ref(),
+            trust: material.trust,
+            whole_document: task.of.get() == 1,
+        };
+        let evaluation = match evaluate(task, &view, &reading, &model, ConfidenceBasis::Unresolved) {
             Ok(evaluation) => evaluation,
             Err(Unevaluable) => {
                 record.label = CallLabel::Escalated(EscalationReason::ReadingProblems);
@@ -1109,7 +1152,14 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         let evaluated = match (&kept, &run.material) {
             (Some(kept), Some(material)) => PageReading::from_stored_value(kept.reading.clone())
                 .ok()
-                .and_then(|stored| evaluate(task, material, &stored.reading, &kept.model, basis).ok()),
+                .and_then(|stored| {
+                    let view = View {
+                        text: material.text.as_ref(),
+                        trust: material.trust,
+                        whole_document: task.of.get() == 1,
+                    };
+                    evaluate(task, &view, &stored.reading, &kept.model, basis).ok()
+                }),
             _ => None,
         };
         let (reading, reading_from) = match (evaluated.as_ref(), kept) {
@@ -1143,6 +1193,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             text_dropped_bytes,
             budget_stop: run.budget_stop,
             injection_suspected: injection,
+            parts: run.parts,
         }
     }
 }
