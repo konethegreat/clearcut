@@ -790,6 +790,9 @@ fn why(reason: ReviewReason) -> &'static str {
             "The amounts on this page include VAT, and it was not clear how much."
         }
         ReviewReason::TaxNotShown => "This page does not show VAT, so none was added.",
+        ReviewReason::PartConflict => "The parts of this page do not agree on a value.",
+        ReviewReason::PartFailed => "One part of this page could not be read.",
+        ReviewReason::TooDense => "This page has more lines than one page can hold.",
     }
 }
 

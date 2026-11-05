@@ -179,7 +179,7 @@ fn amounts_that_include_vat_go_to_a_person_without_escalating() {
 fn a_page_with_too_many_lines_goes_to_a_person_without_escalating() {
     let problems = [problem("lines", ProblemKind::TooManyLines)];
     let a = assess(&evidence(&problems, &[], TextCheck::Passed, true));
-    assert_eq!(a.verdict, Verdict::Review(ReviewReason::TooLong));
+    assert_eq!(a.verdict, Verdict::Review(ReviewReason::TooDense));
 }
 
 #[test]
@@ -354,7 +354,10 @@ fn a_review_problem_counts_as_blocking() {
             problem("amounts_include_vat", ProblemKind::AmountsIncludeVat),
             ReviewReason::AmountsIncludeVat,
         ),
-        (problem("lines", ProblemKind::TooManyLines), ReviewReason::TooLong),
+        (
+            problem("lines", ProblemKind::TooManyLines),
+            ReviewReason::TooDense,
+        ),
     ] {
         let problems = [problem];
         let a = assess(&evidence(&problems, &[], TextCheck::Passed, true));
@@ -394,12 +397,12 @@ fn amounts_that_include_vat_win_whatever_order_the_problems_come_in() {
 }
 
 #[test]
-fn a_page_that_is_too_long_stays_too_long_with_other_problems_around_it() {
+fn a_page_that_is_too_dense_stays_too_dense_with_other_problems_around_it() {
     let problems = [
         problem("lines", ProblemKind::TooManyLines),
         problem("totals/net", ProblemKind::BadAmount),
     ];
     let a = assess(&evidence(&problems, &[line_mismatch()], TextCheck::Passed, true));
-    assert_eq!(a.verdict, Verdict::Review(ReviewReason::TooLong));
+    assert_eq!(a.verdict, Verdict::Review(ReviewReason::TooDense));
     assert_eq!(a.blocking, 3);
 }

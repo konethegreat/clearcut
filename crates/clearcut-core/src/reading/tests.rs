@@ -759,20 +759,20 @@ fn a_line_with_a_bad_description_is_left_out() {
 }
 
 #[test]
-fn at_most_two_hundred_lines_are_kept_and_the_rest_reported() {
+fn at_most_six_hundred_lines_are_kept_and_the_rest_reported() {
     let many = |n: usize| PageReading {
         lines: (0..n)
             .map(|i| line(&format!("l{i}"), "1", "1.00", "1.00", ReadTax::Standard))
             .collect(),
         ..clean_reading()
     };
-    let fine = convert(&many(200));
-    assert_eq!(fine.extraction.lines.len(), 200);
+    let fine = convert(&many(600));
+    assert_eq!(fine.extraction.lines.len(), 600);
     assert!(fine.problems.is_empty());
 
-    let over = convert(&many(201));
-    assert_eq!(over.extraction.lines.len(), 200);
-    assert_eq!(over.extraction.lines[199].value.description, "l199");
+    let over = convert(&many(601));
+    assert_eq!(over.extraction.lines.len(), 600);
+    assert_eq!(over.extraction.lines[599].value.description, "l599");
     assert_eq!(
         over.problems
             .iter()

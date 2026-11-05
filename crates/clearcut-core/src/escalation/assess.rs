@@ -91,7 +91,7 @@ pub fn assess(evidence: &ReadingEvidence<'_>) -> Assessment {
                 blocking += 1;
             }
             ProblemKind::TooManyLines => {
-                review = review.or(Some(ReviewReason::TooLong));
+                review = review.or(Some(ReviewReason::TooDense));
                 blocking += 1;
             }
             // What is not printed cannot be read by a stronger model; it can only guess.

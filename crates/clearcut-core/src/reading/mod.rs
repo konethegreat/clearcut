@@ -35,7 +35,7 @@ use time::{Date, Month};
 pub const READING_SHAPE_VERSION: &str = "reading-v3";
 
 /// At most this many lines are kept from one page.
-pub const MAX_LINES_PER_PAGE: usize = 200;
+pub const MAX_LINES_PER_PAGE: usize = 600;
 const MAX_INVOICE_NUMBER: usize = 100;
 const MAX_NAME: usize = 200;
 const MAX_ADDRESS: usize = 500;
@@ -48,7 +48,7 @@ const LAST_YEAR: i32 = 2100;
 
 /// The currency printed on the page, or not_shown if no currency is printed or implied on this page.
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReadCurrency {
     #[serde(rename = "ZAR")]
     Zar,
@@ -59,6 +59,7 @@ pub enum ReadCurrency {
     #[serde(rename = "GBP")]
     Gbp,
     #[serde(rename = "not_shown")]
+    #[default]
     NotShown,
 }
 
@@ -79,11 +80,12 @@ pub enum ReadTax {
 /// VAT, no if they exclude it, not_shown if the page does not say. Never add or remove VAT
 /// yourself; write amounts exactly as printed.
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadVatBasis {
     Yes,
     No,
+    #[default]
     NotShown,
 }
 
