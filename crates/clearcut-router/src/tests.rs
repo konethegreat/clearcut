@@ -724,6 +724,56 @@ async fn a_stored_plan_that_does_not_match_the_page_goes_to_a_person() {
 }
 
 #[tokio::test]
+async fn a_stored_plan_with_a_gap_is_not_read() {
+    // The plan is well formed: its parts are numbered and in order, its words add up and its
+    // picture covers the page. But the seam between part 1 and part 2 now leaves a byte of the
+    // plan's own text outside both parts, so slicing the text by it would drop a line. The page
+    // must go to a person, not be read. (One skipped byte is the seam's separating space, which
+    // the planner already leaves out; the next two are the start of part 2's first line.)
+    let mut stored = serde_json::to_value(long_plan(1_203)).expect("the plan is JSON");
+    let moved = stored["parts"][1]["byte_start"]
+        .as_u64()
+        .expect("the second part has a start")
+        + 2;
+    stored["parts"][1]["byte_start"] = json!(moved);
+    let plan: PartsPlan = serde_json::from_value(stored).expect("the gapped plan is still well formed");
+    let carry = Carry {
+        machine: PageReader::start_after(&RouterPolicy::default_ladder(), 100, 0).0,
+        best: None,
+        last: None,
+        parts: Some(PartsCarry {
+            plan,
+            index: 0,
+            done: Vec::new(),
+            issued_before: 0,
+            document_calls_left: 100,
+            injection: Vec::new(),
+        }),
+    };
+    let provider = FakeProvider::scripted(vec![]);
+    let worker = long_worker(1_203, 1);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, Some(carry))
+            .await,
+    );
+    assert_eq!(
+        result.outcome,
+        PageOutcome::NeedsReview {
+            reason: ReviewReason::PartFailed,
+            draft: None,
+        }
+    );
+    assert_eq!(
+        provider.call_count(),
+        0,
+        "a page whose plan drops text is not sent"
+    );
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 0));
+}
+
+#[tokio::test]
 async fn a_carry_between_two_parts_fetches_its_page_and_reads_on() {
     // A part page always interrupts with a call in flight in practice, so a carry stored
     // between two parts is built directly: part 1 is recorded, its machine is finished, and
