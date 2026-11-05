@@ -9,7 +9,7 @@ _Newest first. Append an entry for each working session. Written by Kone Tshivhi
 - **Tests:** the three part-failure tests now assert the draft and what it holds (a refused part and a cut-off part keep the one part that read; a conflict keeps the merged three-part reading with the first part's supplier); a new test resumes a page before its first call and proves the fresh plan is read, which fails against the old provenance rule.
 - **No schema, prompt or migration change.** The reading schema stays `reading-v3` and the prompt stays `prompt-v4`.
 **Not done:** scans without OCR (B.2), the bounded repair round (C) and coverage evidence (D) are not started; the fact paths that caused a `part_conflict` are not stored in the page notes (the merged draft is), and a part still cut off at the ceiling still ends the page `too_dense`.
-**Deployed:** merged as the squash commit GitHub reports for the PR; the Johannesburg VM pulled `main`, rebuilt the server image and restarted it. `https://145-241-100-85.sslip.io/health` answers `{"status":"ok","version":"0.1.0"}` and `/` answers 200. No document was uploaded: the change is covered by the fakes, and an upload spends the owner's key.
+**Deployed:** merged as `da3cc2a`; the Johannesburg VM pulled `main`, rebuilt the server image and restarted it at 2026-11-05 19:02 SAST. `https://145-241-100-85.sslip.io/health` answers `{"status":"ok","version":"0.1.0"}` and `/` answers 200. No document was uploaded: the change is covered by the fakes, and an upload spends the owner's key.
 
 ## 2026-11-05 (part 85): a dense page is read in parts
 **Done**
