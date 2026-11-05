@@ -706,7 +706,6 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         document_calls_left: u32,
         resume: Option<Carry>,
     ) -> PageRun {
-        let resumed = resume.is_some();
         let (machine, mut step, best, last, parts) = match resume {
             Some(carry) => {
                 let step = match (carry.machine.pending(), carry.machine.outcome()) {
@@ -725,6 +724,9 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 (machine, step, None, None, None)
             }
         };
+        // Only a plan that came out of a stored carry is checked against the page; a plan made
+        // fresh in this run is trusted, whatever brought the run here.
+        let parts_stored = parts.is_some();
         let mut run = Run {
             machine,
             best,
@@ -732,7 +734,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             material: None,
             part: None,
             parts,
-            parts_stored: resumed,
+            parts_stored,
             pictures: Vec::new(),
             calls: Vec::new(),
             spent: Cost::ZERO,
@@ -775,11 +777,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 match self.start_next_part(&mut run) {
                     Ok(first) => step = first,
                     Err(_) => {
-                        let outcome = PageOutcome::NeedsReview {
-                            reason: ReviewReason::PartFailed,
-                            draft: None,
-                        };
-                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                        return self.stop_parts(run, task, ReviewReason::PartFailed);
                     }
                 }
             }
@@ -787,11 +785,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             // A resumed part page carries on with the call it had already planned; only the
             // part's words and band have to be remembered again.
             if self.load_part(&mut run).is_err() {
-                let outcome = PageOutcome::NeedsReview {
-                    reason: ReviewReason::PartFailed,
-                    draft: None,
-                };
-                return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                return self.stop_parts(run, task, ReviewReason::PartFailed);
             }
             // A carry stored between two parts has the finished machine of the part it has
             // already recorded: its outcome is in `done`, so the next part starts afresh
@@ -804,11 +798,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 match self.start_next_part(&mut run) {
                     Ok(next) => step = next,
                     Err(_) => {
-                        let outcome = PageOutcome::NeedsReview {
-                            reason: ReviewReason::PartFailed,
-                            draft: None,
-                        };
-                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                        return self.stop_parts(run, task, ReviewReason::PartFailed);
                     }
                 }
             }
@@ -829,8 +819,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 let planned = run.parts.as_ref().map_or(0, |parts| parts.plan.parts().len());
                 record_part(&mut run, done);
                 if let Some(reason) = failed {
-                    let outcome = PageOutcome::NeedsReview { reason, draft: None };
-                    return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                    return self.stop_parts(run, task, reason);
                 }
                 if run.parts.as_ref().map_or(0, |parts| parts.done.len()) == planned {
                     let outcome = self.merge_parts_outcome(&mut run, task);
@@ -839,11 +828,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 match self.start_next_part(&mut run) {
                     Ok(next) => step = next,
                     Err(_) => {
-                        let outcome = PageOutcome::NeedsReview {
-                            reason: ReviewReason::PartFailed,
-                            draft: None,
-                        };
-                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                        return self.stop_parts(run, task, ReviewReason::PartFailed);
                     }
                 }
                 continue;
@@ -996,130 +981,83 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
 
     /// Turns every part's reading into one page reading, and assesses it against the whole
     /// page's text: a conflict, a reading too large for the store, or a verdict ends the page.
+    /// The merged reading is kept as the page's draft, so a person starts from it.
     fn merge_parts_outcome(&self, run: &mut Run, task: &PageTask) -> PageOutcome {
-        let (outcome, kept) = {
-            let Some(parts) = run.parts.as_ref() else {
-                return PageOutcome::NeedsReview {
-                    reason: ReviewReason::RequestRejected,
-                    draft: None,
-                };
-            };
-            let mut readings = Vec::with_capacity(parts.done.len());
-            let mut origins = Vec::with_capacity(parts.done.len());
-            for done in &parts.done {
-                let (Some(origin), Some(value)) = (&done.reading_from, &done.reading) else {
-                    return PageOutcome::NeedsReview {
-                        reason: ReviewReason::PartFailed,
-                        draft: None,
-                    };
-                };
-                let Ok(stored) = PageReading::from_stored_value(value.clone()) else {
-                    return PageOutcome::NeedsReview {
-                        reason: ReviewReason::PartFailed,
-                        draft: None,
-                    };
-                };
-                readings.push(stored.reading);
-                origins.push(origin.clone());
-            }
-            let Ok(merged) = merge_parts(&readings) else {
+        let merged = match keep_merged_draft(run) {
+            Ok(merged) => merged,
+            Err(DraftStop::NoReading) => {
                 return PageOutcome::NeedsReview {
                     reason: ReviewReason::PartFailed,
                     draft: None,
                 };
-            };
-            if !merged.conflicts.is_empty() {
-                return PageOutcome::NeedsReview {
-                    reason: ReviewReason::PartConflict,
-                    draft: None,
-                };
             }
-            if !reading_fits_store(&merged.reading) {
+            Err(DraftStop::TooLarge) => {
                 return PageOutcome::NeedsReview {
                     reason: ReviewReason::TooDense,
                     draft: None,
                 };
             }
-            let basis = parts
-                .done
-                .iter()
-                .filter_map(|done| match &done.outcome {
-                    PageOutcome::Read { confidence, .. } => Some(*confidence),
-                    _ => None,
-                })
-                .min_by_key(|basis| basis.per_mille())
-                .unwrap_or(ConfidenceBasis::Unresolved);
-            let origin = parts
-                .done
-                .iter()
-                .zip(origins.iter())
-                .filter(|(done, _)| matches!(done.outcome, PageOutcome::Read { .. }))
-                .min_by_key(|(done, _)| match &done.outcome {
-                    PageOutcome::Read { confidence, .. } => confidence.per_mille(),
-                    _ => u16::MAX,
-                })
-                .map(|(_, origin)| origin.clone());
-            let Some(origin) = origin else {
-                return PageOutcome::NeedsReview {
-                    reason: ReviewReason::PartFailed,
-                    draft: None,
-                };
-            };
-            let Some(material) = run.material.as_ref() else {
-                return PageOutcome::NeedsReview {
-                    reason: ReviewReason::RequestRejected,
-                    draft: None,
-                };
-            };
-            let view = View {
-                text: material.text.as_ref(),
-                trust: material.trust,
-                whole_document: task.of.get() == 1,
-            };
-            let assessment = match evaluate(
-                task,
-                &view,
-                &merged.reading,
-                &origin.model,
-                ConfidenceBasis::Unresolved,
-            ) {
-                Ok(evaluation) => evaluation.assessment,
-                Err(Unevaluable) => {
-                    return PageOutcome::NeedsReview {
-                        reason: ReviewReason::TopRungFailed,
-                        draft: None,
-                    };
-                }
-            };
-            let kept = Kept {
-                attempt: origin.attempt,
-                rung: origin.rung,
-                model: origin.model.clone(),
-                reading: serde_json::to_value(&merged.reading).unwrap_or(Value::Null),
-            };
-            let outcome = match assessment.verdict {
-                Verdict::Accept => PageOutcome::Read {
-                    rung: origin.rung,
-                    attempt: origin.attempt,
-                    confidence: basis,
-                    notes: assessment.notes,
-                },
-                Verdict::Review(reason) => PageOutcome::NeedsReview {
-                    reason,
-                    draft: Some(origin.attempt),
-                },
-                Verdict::Escalate(_) => PageOutcome::NeedsReview {
-                    reason: ReviewReason::TopRungFailed,
-                    draft: Some(origin.attempt),
-                },
-            };
-            (outcome, Some(kept))
         };
-        if let Some(kept) = kept {
-            run.best = Some(kept.clone());
-            run.last = Some(kept);
+        if !merged.conflicts.is_empty() {
+            return PageOutcome::NeedsReview {
+                reason: ReviewReason::PartConflict,
+                draft: Some(merged.origin.attempt),
+            };
         }
-        outcome
+        let Some(material) = run.material.as_ref() else {
+            return PageOutcome::NeedsReview {
+                reason: ReviewReason::RequestRejected,
+                draft: Some(merged.origin.attempt),
+            };
+        };
+        let view = View {
+            text: material.text.as_ref(),
+            trust: material.trust,
+            whole_document: task.of.get() == 1,
+        };
+        let assessment = match evaluate(
+            task,
+            &view,
+            &merged.reading,
+            &merged.origin.model,
+            ConfidenceBasis::Unresolved,
+        ) {
+            Ok(evaluation) => evaluation.assessment,
+            Err(Unevaluable) => {
+                return PageOutcome::NeedsReview {
+                    reason: ReviewReason::TopRungFailed,
+                    draft: Some(merged.origin.attempt),
+                };
+            }
+        };
+        match assessment.verdict {
+            Verdict::Accept => PageOutcome::Read {
+                rung: merged.origin.rung,
+                attempt: merged.origin.attempt,
+                confidence: merged.basis,
+                notes: assessment.notes,
+            },
+            Verdict::Review(reason) => PageOutcome::NeedsReview {
+                reason,
+                draft: Some(merged.origin.attempt),
+            },
+            Verdict::Escalate(_) => PageOutcome::NeedsReview {
+                reason: ReviewReason::TopRungFailed,
+                draft: Some(merged.origin.attempt),
+            },
+        }
+    }
+
+    /// Ends a page whose part could not be built, keeping whatever the earlier parts read.
+    fn stop_parts(&self, mut run: Run, task: &PageTask, reason: ReviewReason) -> PageRun {
+        let draft = keep_merged_draft(&mut run)
+            .ok()
+            .map(|merged| merged.origin.attempt);
+        PageRun::Finished(Box::new(self.finish_parts(
+            run,
+            task,
+            PageOutcome::NeedsReview { reason, draft },
+        )))
     }
 
     /// Finishes a page read in parts, adding how it was split.
@@ -1670,6 +1608,82 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
 fn part_allowance(document_calls_left: u32, planned: usize) -> u32 {
     let parts = u32::try_from(planned).unwrap_or(u32::MAX);
     document_calls_left.saturating_add(EXTRA_CALLS_PER_PART.saturating_mul(parts.saturating_sub(1)))
+}
+
+/// What the parts read so far came to, kept as the page's draft.
+struct MergedDraft {
+    /// The least certain part that read: the attempt a reviewer starts from.
+    origin: ReadingOrigin,
+    basis: ConfidenceBasis,
+    reading: PageReading,
+    /// The facts two parts disagreed on, in first-seen order.
+    conflicts: Vec<&'static str>,
+}
+
+/// Why no draft could be kept.
+enum DraftStop {
+    /// No part gave a reading that could be converted.
+    NoReading,
+    /// The merged reading is larger than the store's column.
+    TooLarge,
+}
+
+/// Merges every part reading recorded so far and keeps the result as the page's draft, so a
+/// page that stops mid-parts still hands a person everything its parts read.
+fn keep_merged_draft(run: &mut Run) -> Result<MergedDraft, DraftStop> {
+    let Some(carry) = run.parts.as_ref() else {
+        return Err(DraftStop::NoReading);
+    };
+    let mut read: Vec<(ReadingOrigin, PageReading, Option<ConfidenceBasis>)> =
+        Vec::with_capacity(carry.done.len());
+    for done in &carry.done {
+        let (Some(origin), Some(value)) = (&done.reading_from, &done.reading) else {
+            continue;
+        };
+        let Ok(stored) = PageReading::from_stored_value(value.clone()) else {
+            continue;
+        };
+        let confidence = match &done.outcome {
+            PageOutcome::Read { confidence, .. } => Some(*confidence),
+            _ => None,
+        };
+        read.push((origin.clone(), stored.reading, confidence));
+    }
+    let readings: Vec<PageReading> = read.iter().map(|(_, reading, _)| reading.clone()).collect();
+    let merged = merge_parts(&readings).map_err(|_| DraftStop::NoReading)?;
+    if !reading_fits_store(&merged.reading) {
+        return Err(DraftStop::TooLarge);
+    }
+    let certain = read
+        .iter()
+        .filter_map(|(origin, _, confidence)| {
+            confidence.map(|confidence| (confidence.per_mille(), confidence, origin))
+        })
+        .min_by_key(|(per_mille, _, _)| *per_mille);
+    let (basis, origin) = match certain {
+        Some((_, confidence, origin)) => (confidence, origin.clone()),
+        None => (
+            ConfidenceBasis::Unresolved,
+            read.first()
+                .map(|(origin, _, _)| origin.clone())
+                .ok_or(DraftStop::NoReading)?,
+        ),
+    };
+    let reading = serde_json::to_value(&merged.reading).map_err(|_| DraftStop::NoReading)?;
+    let kept = Kept {
+        attempt: origin.attempt,
+        rung: origin.rung,
+        model: origin.model.clone(),
+        reading,
+    };
+    run.best = Some(kept.clone());
+    run.last = Some(kept);
+    Ok(MergedDraft {
+        origin,
+        basis,
+        reading: merged.reading,
+        conflicts: merged.conflicts,
+    })
 }
 
 /// The fixed reason a part's failure gives the page. A budget or a call cap is the page's too;
