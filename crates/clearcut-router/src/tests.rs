@@ -321,11 +321,17 @@ fn review_outcome(result: &PageResult) -> (ReviewReason, Option<u32>) {
 
 /// An invented dense page: `tokens` in reading order, forty to a row.
 fn token_layer(tokens: &[&str]) -> PageContent {
+    token_layer_with(tokens, |_| " ")
+}
+
+/// A dense page whose words are joined by `separator(i)` before token `i`. A separator that is
+/// not whitespace falls between two words and belongs to no word box.
+fn token_layer_with(tokens: &[&str], separator: impl Fn(usize) -> &'static str) -> PageContent {
     let mut text = String::new();
     let mut boxes = Vec::new();
     for (i, token) in tokens.iter().enumerate() {
         if i > 0 {
-            text.push(' ');
+            text.push_str(separator(i));
         }
         let start = text.len();
         text.push_str(token);
@@ -360,6 +366,12 @@ fn token_layer(tokens: &[&str]) -> PageContent {
 /// The invented dense page: `words` tokens of "R1.00", forty to a row.
 fn long_layer(words: usize) -> PageContent {
     token_layer(&vec!["R1.00"; words])
+}
+
+/// The dense page with a comma before every row, in text that no word box covers. A plan
+/// leaves each row's comma outside its parts, so this page tells a fresh plan from a stored one.
+fn comma_layer(words: usize) -> PageContent {
+    token_layer_with(&vec!["R1.00"; words], |i| if i % 40 == 0 { ", " } else { " " })
 }
 
 /// The dense page with personal data on it: `groups` groups of
@@ -505,8 +517,10 @@ async fn a_part_that_is_refused_stops_the_page() {
             .read_page(&trusted_page(), &mut budget(), 100, None)
             .await,
     );
-    assert_eq!(review_outcome(&result), (ReviewReason::PartFailed, None));
+    assert_eq!(review_outcome(&result), (ReviewReason::PartFailed, Some(1)));
     assert_eq!(provider.call_count(), 2);
+    let draft = result.extraction.as_ref().expect("the part that read is kept");
+    assert_eq!(draft.lines.len(), 1, "the parts that read are the draft");
     let parts = result.parts.expect("part evidence");
     assert_eq!((parts.planned, parts.read), (3, 1));
     assert_eq!(
@@ -538,8 +552,10 @@ async fn a_part_still_too_long_is_too_dense() {
             .read_page(&trusted_page(), &mut budget(), 100, None)
             .await,
     );
-    assert_eq!(review_outcome(&result), (ReviewReason::TooDense, None));
+    assert_eq!(review_outcome(&result), (ReviewReason::TooDense, Some(1)));
     assert_eq!(provider.call_count(), 3);
+    let draft = result.extraction.as_ref().expect("the part that read is kept");
+    assert_eq!(draft.lines.len(), 1, "the parts that read are the draft");
     let parts = result.parts.expect("part evidence");
     assert_eq!((parts.planned, parts.read), (3, 1));
     assert_eq!(
@@ -587,11 +603,27 @@ async fn two_parts_that_disagree_go_to_a_person() {
     ]);
     let worker = long_worker(1_203, 3);
     let result = read(&provider, &worker, &trusted_page()).await;
-    assert_eq!(review_outcome(&result), (ReviewReason::PartConflict, None));
+    assert_eq!(review_outcome(&result), (ReviewReason::PartConflict, Some(1)));
     assert_eq!(provider.call_count(), 3);
+    let draft = result
+        .extraction
+        .as_ref()
+        .expect("the merged draft starts a reviewer");
+    assert_eq!(draft.lines.len(), 3, "every part's lines are in the draft");
+    assert_eq!(
+        draft
+            .supplier
+            .as_ref()
+            .map(|supplier| supplier.value.name.as_str()),
+        Some("Acme (Pty) Ltd"),
+        "the first part's value is the draft"
+    );
     let parts = result.parts.expect("part evidence");
     assert_eq!((parts.planned, parts.read, parts.failed), (3, 3, None));
-    assert!(result.reading.is_none(), "a disagreed page has no draft");
+    assert!(
+        result.reading.is_some(),
+        "a disagreed page still hands over its merged draft"
+    );
 }
 
 #[tokio::test]
@@ -721,6 +753,36 @@ async fn a_stored_plan_that_does_not_match_the_page_goes_to_a_person() {
     );
     let parts = result.parts.expect("part evidence");
     assert_eq!((parts.planned, parts.read), (3, 0));
+}
+
+#[tokio::test]
+async fn a_plan_made_after_a_resume_is_not_checked_as_stored() {
+    // The page was interrupted before its first call, so its carry holds no plan. The plan it
+    // makes now is fresh and must not be judged as stored: this page has a comma between its
+    // rows that no word box covers, and the planner leaves each row's comma outside its parts.
+    let carry = Carry {
+        machine: PageReader::start_after(&RouterPolicy::default_ladder(), 100, 0).0,
+        best: None,
+        last: None,
+        parts: None,
+    };
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let worker = Arc::new(
+        FakeWorker::scripted(vec![])
+            .with_texts(vec![Ok(vec![comma_layer(1_203)])])
+            .with_renders(renders(3)),
+    );
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, Some(carry))
+            .await,
+    );
+    assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::TextConfirmed));
+    assert_eq!(provider.call_count(), 3);
 }
 
 #[tokio::test]
