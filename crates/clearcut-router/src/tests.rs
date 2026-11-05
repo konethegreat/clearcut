@@ -1,4 +1,4 @@
-﻿// Written by Kone Tshivhinda & Claude
+// Written by Kone Tshivhinda & Claude
 //! The driver for one page, against `FakeProvider` and `FakeWorker`: no key, no network, no
 //! database, no real invoice. Every text here is invented.
 
@@ -317,6 +317,583 @@ fn review_outcome(result: &PageResult) -> (ReviewReason, Option<u32>) {
     }
 }
 
+// ---------- a page read in parts ----------
+
+/// An invented dense page: `tokens` in reading order, forty to a row.
+fn token_layer(tokens: &[&str]) -> PageContent {
+    let mut text = String::new();
+    let mut boxes = Vec::new();
+    for (i, token) in tokens.iter().enumerate() {
+        if i > 0 {
+            text.push(' ');
+        }
+        let start = text.len();
+        text.push_str(token);
+        let end = text.len();
+        let row = u32::try_from(i / 40).unwrap();
+        let column = u32::try_from(i % 40).unwrap();
+        boxes.push(PageWord {
+            start,
+            end,
+            bounds: WordBox {
+                x: u16::try_from(column * 14).unwrap(),
+                y: u16::try_from(10 + row * 15).unwrap(),
+                w: 13,
+                h: 8,
+            },
+            confidence: None,
+        });
+    }
+    PageContent::from_parts(PageParts {
+        page: n(1),
+        source: PageSource::TextLayer,
+        text,
+        width_pt: 595.0,
+        height_pt: 842.0,
+        fonts: Vec::new(),
+        words: Some(boxes),
+        agreement: None,
+    })
+    .unwrap()
+}
+
+/// The invented dense page: `words` tokens of "R1.00", forty to a row.
+fn long_layer(words: usize) -> PageContent {
+    token_layer(&vec!["R1.00"; words])
+}
+
+/// The dense page with personal data on it: `groups` groups of
+/// "R1.00 Account No: 1234567890" (four words each, 1 200 words for 300 groups).
+fn personal_long_layer(groups: usize) -> PageContent {
+    let mut tokens = Vec::with_capacity(groups * 4);
+    for _ in 0..groups {
+        tokens.extend(["R1.00", "Account", "No:", "1234567890"]);
+    }
+    token_layer(&tokens)
+}
+
+fn long_worker(words: usize, pictures: usize) -> Arc<FakeWorker> {
+    Arc::new(
+        FakeWorker::scripted(vec![])
+            .with_texts(vec![Ok(vec![long_layer(words)])])
+            .with_renders(renders(pictures)),
+    )
+}
+
+fn masking_long_worker(groups: usize, pictures: usize) -> Arc<FakeWorker> {
+    Arc::new(
+        FakeWorker::scripted(vec![])
+            .with_texts(vec![Ok(vec![personal_long_layer(groups)])])
+            .with_renders(renders(pictures))
+            .with_masks(renders(pictures)),
+    )
+}
+
+/// A part plan for the dense page, built the way the router builds one.
+fn long_plan(words: usize) -> PartsPlan {
+    let layer = long_layer(words);
+    let positioned: Vec<PositionedWord> = layer
+        .words()
+        .expect("the dense layer has words")
+        .iter()
+        .map(|word| PositionedWord {
+            start: word.start,
+            end: word.end,
+            x: word.bounds.x,
+            top: word.bounds.y,
+            bottom: word.bounds.y.saturating_add(word.bounds.h),
+        })
+        .collect();
+    plan_parts(&positioned, layer.text().len()).expect("a dense page plans into parts")
+}
+
+/// What one part of the dense page "says": one line whose amount is on every row.
+fn part_reading() -> PageReading {
+    PageReading {
+        currency: ReadCurrency::Zar,
+        amounts_include_vat: ReadVatBasis::No,
+        invoice_number: String::new(),
+        invoice_date: String::new(),
+        supplier: ReadParty {
+            name: "Acme (Pty) Ltd".into(),
+            address: String::new(),
+            vat_number: String::new(),
+        },
+        recipient: ReadParty::default(),
+        lines: vec![ReadLine {
+            description: "R1.00".into(),
+            quantity: "1".into(),
+            unit_price: "1.00".into(),
+            line_total: "1.00".into(),
+            tax: ReadTax::Standard,
+        }],
+        totals: ReadTotals::default(),
+        carried: Default::default(),
+        due: ReadDue::default(),
+        credit_note: ReadCreditNote::default(),
+    }
+}
+
+fn other_supplier() -> PageReading {
+    let mut reading = part_reading();
+    reading.supplier.name = "Other (Pty) Ltd".into();
+    reading
+}
+
+#[tokio::test]
+async fn a_dense_page_is_read_in_parts_and_merged() {
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let worker = long_worker(1_203, 3);
+    let result = read(&provider, &worker, &trusted_page()).await;
+
+    assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::TextConfirmed));
+    assert_eq!(provider.call_count(), 3, "one call for each of three parts");
+    let labels: Vec<String> = provider
+        .requests()
+        .iter()
+        .map(|request| texts(request).join("\n"))
+        .collect();
+    assert!(labels[0].contains("part: 1 of 3 of page 1 of 1"), "{}", labels[0]);
+    assert!(labels[1].contains("part: 2 of 3 of page 1 of 1"), "{}", labels[1]);
+    assert!(labels[2].contains("part: 3 of 3 of page 1 of 1"), "{}", labels[2]);
+    assert_eq!(
+        result.parts,
+        Some(PartsEvidence {
+            planned: 3,
+            read: 3,
+            seams: vec![171, 321],
+            seam_uncertain: false,
+            failed: None,
+        })
+    );
+    let extraction = result.extraction.as_ref().expect("the merged page");
+    assert_eq!(extraction.lines.len(), 3, "the parts' lines are joined");
+    assert_eq!(extraction.currency, Currency::Zar);
+}
+
+#[tokio::test]
+async fn splitting_a_page_does_not_take_a_later_pages_calls() {
+    // The document has one call left. Three parts are allowed three extras each.
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let worker = long_worker(1_203, 3);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 1, None)
+            .await,
+    );
+    assert_eq!(read_outcome(&result).0, 0);
+    assert_eq!(provider.call_count(), 3);
+}
+
+#[tokio::test]
+async fn a_part_that_is_refused_stops_the_page() {
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        Err(ProviderError::Refused { usage: usage() }),
+    ]);
+    let worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::PartFailed, None));
+    assert_eq!(provider.call_count(), 2);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 1));
+    assert_eq!(
+        parts.failed,
+        Some(PartFailure {
+            part: 2,
+            reason: ReviewReason::Refused
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_part_still_too_long_is_too_dense() {
+    let cut = || {
+        Err(ProviderError::Truncated {
+            usage: Usage {
+                input_tokens: 6_000,
+                output_tokens: 16_000,
+                ..Usage::default()
+            },
+        })
+    };
+    // Part 1 reads; part 2 is cut off at its cap and again at the truncation ceiling. The page
+    // is denser than any part can hold, and splitting further is not allowed: a person decides.
+    let provider = FakeProvider::scripted(vec![answer(&part_reading()), cut(), cut()]);
+    let worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::TooDense, None));
+    assert_eq!(provider.call_count(), 3);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 1));
+    assert_eq!(
+        parts.failed,
+        Some(PartFailure {
+            part: 2,
+            reason: ReviewReason::TooDense
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_part_that_cannot_be_afforded_stops_the_page_as_a_budget_stop() {
+    let provider = FakeProvider::scripted(vec![]);
+    let worker = long_worker(1_203, 1);
+    let tiny = BudgetPolicy::new(
+        Cost::from_nano_rand(1),
+        Cost::from_nano_rand(1),
+        Cost::from_rand_cents(10_000),
+    )
+    .unwrap();
+    let mut budget = BudgetCheck::new(&tiny, 1, Cost::ZERO);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget, 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::Budget, None));
+    assert_eq!(provider.call_count(), 0, "no call is made");
+    assert_eq!(
+        result.parts.and_then(|parts| parts.failed),
+        Some(PartFailure {
+            part: 1,
+            reason: ReviewReason::Budget
+        })
+    );
+}
+
+#[tokio::test]
+async fn two_parts_that_disagree_go_to_a_person() {
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&other_supplier()),
+        answer(&part_reading()),
+    ]);
+    let worker = long_worker(1_203, 3);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert_eq!(review_outcome(&result), (ReviewReason::PartConflict, None));
+    assert_eq!(provider.call_count(), 3);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read, parts.failed), (3, 3, None));
+    assert!(result.reading.is_none(), "a disagreed page has no draft");
+}
+
+#[tokio::test]
+async fn a_page_read_in_parts_resumes_where_it_stopped() {
+    let first = FakeProvider::scripted(vec![answer(&part_reading()), Err(ProviderError::Timeout)]);
+    let first_worker = long_worker(1_203, 2);
+    let interruption = interrupted(
+        router(&first, &first_worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    let carry = interruption.carry;
+    let parts = carry.parts.as_ref().expect("the parts carry");
+    assert_eq!((parts.index, parts.done.len(), parts.issued_before), (1, 1, 1));
+    assert_eq!(carry.machine.pending().map(|plan| plan.attempt), Some(2));
+    assert_eq!(carry.machine.attempts_issued(), 2);
+    let stored = serde_json::to_string(&carry).unwrap();
+    let carry: Carry = serde_json::from_str(&stored).expect("a checked carry");
+
+    let second = FakeProvider::scripted(vec![answer(&part_reading()), answer(&part_reading())]);
+    let second_worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&second, &second_worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, Some(carry))
+            .await,
+    );
+    assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::TextConfirmed));
+    let labels: Vec<String> = second
+        .requests()
+        .iter()
+        .map(|request| texts(request).join("\n"))
+        .collect();
+    assert!(labels[0].contains("part: 2 of 3"), "{}", labels[0]);
+    assert!(labels[1].contains("part: 3 of 3"), "{}", labels[1]);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 3));
+}
+
+#[tokio::test]
+async fn a_page_keeps_the_allowance_it_was_planned_with_when_it_resumes() {
+    // Part 1 reads in one call. Part 2 then spends five calls: four answers that each lead to
+    // another call, then a timeout. On resume the document's calls left is 0, because the store
+    // has already logged this page's calls. The page must use the allowance it was planned
+    // with, not reduce it a second time: otherwise part 3 gets no call and ends the page as
+    // CallCap.
+    let invalid = || {
+        Err(ProviderError::InvalidOutput {
+            usage: usage(),
+            reason: "not json".into(),
+        })
+    };
+    let first = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        invalid(),
+        Err(ProviderError::Truncated { usage: usage() }),
+        invalid(),
+        invalid(),
+        Err(ProviderError::Timeout),
+    ]);
+    let first_worker = long_worker(1_203, 2);
+    let interruption = interrupted(
+        router(&first, &first_worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    let carry = interruption.carry;
+    let parts = carry.parts.as_ref().expect("the parts carry");
+    assert_eq!(
+        parts.document_calls_left, 100,
+        "the page remembers the allowance it was planned with"
+    );
+    assert_eq!(parts.issued_before, 1, "only part 1 is recorded");
+    assert_eq!(
+        carry.machine.attempts_issued(),
+        6,
+        "part 2 has handed out five calls"
+    );
+
+    let second = FakeProvider::scripted(vec![answer(&part_reading()), answer(&part_reading())]);
+    let second_worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&second, &second_worker, config())
+            .read_page(&trusted_page(), &mut budget(), 0, Some(carry))
+            .await,
+    );
+    assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::TextConfirmed));
+    assert_eq!(second.call_count(), 2, "part 2's pending call and part 3's call");
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 3));
+}
+
+#[tokio::test]
+async fn a_stored_plan_that_does_not_match_the_page_goes_to_a_person() {
+    // The plan was made for a dense page; the page resumed is short. A part's text is not on
+    // it, which no retry can fix, so the page must finish instead of looping.
+    let carry = Carry {
+        machine: PageReader::start_after(&RouterPolicy::default_ladder(), 100, 0).0,
+        best: None,
+        last: None,
+        parts: Some(PartsCarry {
+            plan: long_plan(1_203),
+            index: 0,
+            done: Vec::new(),
+            issued_before: 0,
+            document_calls_left: 100,
+            injection: Vec::new(),
+        }),
+    };
+    let provider = FakeProvider::scripted(vec![]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, Some(carry))
+            .await,
+    );
+    assert_eq!(
+        result.outcome,
+        PageOutcome::NeedsReview {
+            reason: ReviewReason::PartFailed,
+            draft: None,
+        }
+    );
+    assert_eq!(
+        provider.call_count(),
+        0,
+        "a page that cannot be split is not sent"
+    );
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 0));
+}
+
+#[tokio::test]
+async fn a_carry_between_two_parts_fetches_its_page_and_reads_on() {
+    // A part page always interrupts with a call in flight in practice, so a carry stored
+    // between two parts is built directly: part 1 is recorded, its machine is finished, and
+    // part 2 is still to read. The page must still be fetched, or part 2 cannot be located.
+    let policy = RouterPolicy::default_ladder();
+    let (machine, _) = PageReader::start_after(&policy, 0, 1);
+    assert!(machine.is_done(), "the stored machine has finished its part");
+    let done = PartDone {
+        index: 1,
+        outcome: PageOutcome::Read {
+            rung: 0,
+            attempt: 1,
+            confidence: ConfidenceBasis::TextConfirmed,
+            notes: Vec::new(),
+        },
+        reading: Some(serde_json::to_value(part_reading()).unwrap()),
+        reading_from: Some(ReadingOrigin {
+            rung: 0,
+            attempt: 1,
+            model: HAIKU.to_string(),
+        }),
+        issued: 1,
+    };
+    let carry = Carry {
+        machine,
+        best: None,
+        last: None,
+        parts: Some(PartsCarry {
+            plan: long_plan(1_203),
+            index: 1,
+            done: vec![done],
+            issued_before: 1,
+            document_calls_left: 100,
+            injection: Vec::new(),
+        }),
+    };
+    let stored = serde_json::to_string(&carry).unwrap();
+    let carry: Carry = serde_json::from_str(&stored).expect("a checked carry");
+
+    let provider = FakeProvider::scripted(vec![answer(&part_reading()), answer(&part_reading())]);
+    let worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, Some(carry))
+            .await,
+    );
+    assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::TextConfirmed));
+    assert_eq!(provider.call_count(), 2, "parts 2 and 3 are read");
+    let labels: Vec<String> = provider
+        .requests()
+        .iter()
+        .map(|request| texts(request).join("\n"))
+        .collect();
+    assert!(labels[0].contains("part: 2 of 3"), "{}", labels[0]);
+    assert!(labels[1].contains("part: 3 of 3"), "{}", labels[1]);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 3));
+    assert_eq!(worker.text_calls().len(), 1, "the page is fetched once");
+}
+
+#[tokio::test]
+async fn a_part_that_exhausts_its_own_call_cap_stops_the_page() {
+    // Five calls on part 1: invalid, a truncated retry, then two more that lead to a rung
+    // change and a retry. The step after that would be another call, but the part's five-call
+    // cap ends the page as CallCap.
+    let invalid = || {
+        Err(ProviderError::InvalidOutput {
+            usage: usage(),
+            reason: "not json".into(),
+        })
+    };
+    let provider = FakeProvider::scripted(vec![
+        invalid(),
+        Err(ProviderError::Truncated { usage: usage() }),
+        invalid(),
+        invalid(),
+        invalid(),
+    ]);
+    let worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::CallCap, None));
+    assert_eq!(provider.call_count(), 5);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 0));
+    assert_eq!(
+        parts.failed,
+        Some(PartFailure {
+            part: 1,
+            reason: ReviewReason::CallCap,
+        })
+    );
+}
+
+#[tokio::test]
+async fn parts_of_an_unverified_layer_are_not_painted_from_but_a_verified_one_is() {
+    // The fixture really carries personal data, or the zero-mask assertion would prove
+    // nothing: `prepare_part` short-circuits when there is nothing to hide.
+    let unverified_provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let unverified_worker = masking_long_worker(300, 3);
+    let result = finished(
+        router(&unverified_provider, &unverified_worker, config())
+            .read_page(
+                &task(ReadRoute::ImageFirst, PageTextSource::TextLayer),
+                &mut budget(),
+                100,
+                None,
+            )
+            .await,
+    );
+    assert_eq!(read_outcome(&result).0, 0);
+    assert_eq!(unverified_provider.call_count(), 3);
+    assert_eq!(
+        unverified_worker.mask_calls().len(),
+        0,
+        "an unverified layer paints nothing"
+    );
+    assert!(
+        unverified_worker.text_calls()[0].words,
+        "words are needed to plan the parts"
+    );
+
+    // The same fixture through a verified layer: now the parts are painted from, which proves
+    // the personal data is there and the assertion above is not vacuous.
+    let verified_provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let verified_worker = masking_long_worker(300, 3);
+    let result = finished(
+        router(&verified_provider, &verified_worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    assert_eq!(read_outcome(&result).0, 0);
+    assert_eq!(verified_provider.call_count(), 3);
+    assert!(
+        !verified_worker.mask_calls().is_empty(),
+        "a verified layer paints the parts"
+    );
+}
+
+#[test]
+fn a_reading_too_large_for_the_store_is_too_dense() {
+    let mut reading = part_reading();
+    let description = "x".repeat(500);
+    reading.lines = (0..600)
+        .map(|_| ReadLine {
+            description: description.clone(),
+            quantity: "1".into(),
+            unit_price: "1.00".into(),
+            line_total: "1.00".into(),
+            tax: ReadTax::Standard,
+        })
+        .collect();
+    assert!(
+        !reading_fits_store(&reading),
+        "600 long lines do not fit the store"
+    );
+    assert!(reading_fits_store(&part_reading()));
+}
+
 // ---------- the normal case ----------
 
 #[tokio::test]
@@ -427,7 +1004,7 @@ async fn every_call_is_recorded_without_any_content() {
     assert_eq!(call.effort, ThinkingEffort::Medium);
     assert_eq!(call.kind, CallKind::First);
     assert_eq!(call.label, CallLabel::Accepted);
-    assert_eq!(call.prompt_version, "reading-v3/prompt-v3");
+    assert_eq!(call.prompt_version, "reading-v3/prompt-v4");
     assert_eq!(call.request_id.as_deref(), Some("req_1"));
     assert_eq!(call.usage.input_tokens, 6_000);
     assert_eq!(call.usage.output_tokens, 1_000);
@@ -702,8 +1279,8 @@ async fn text_that_could_not_be_checked_confirms_but_never_condemns() {
         page_text_tag(request)
     );
     assert!(
-        !worker.text_calls()[0].words,
-        "the words of a layer that is only a hint are not needed"
+        worker.text_calls()[0].words,
+        "the words of an unverified layer are needed to plan parts and to paint them"
     );
 }
 
@@ -1597,6 +2174,27 @@ async fn a_machine_that_is_already_done_finishes_without_a_call() {
     );
     assert_eq!(review_outcome(&result), (ReviewReason::CallCap, None));
     assert_eq!(provider2.call_count() + worker2.call_count(), 0);
+}
+
+// ---------- a page read in parts ----------
+
+#[tokio::test]
+async fn a_page_without_parts_reports_no_parts_evidence() {
+    let provider = FakeProvider::scripted(vec![answer(&clean_reading())]);
+    let worker = worker(PAGE_TEXT, 1);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert!(result.parts.is_none());
+}
+
+#[test]
+fn a_reading_origin_survives_being_stored() {
+    let origin = ReadingOrigin {
+        rung: 1,
+        attempt: 2,
+        model: HAIKU.to_string(),
+    };
+    let stored = serde_json::to_string(&origin).unwrap();
+    assert_eq!(serde_json::from_str::<ReadingOrigin>(&stored).unwrap(), origin);
 }
 
 // ---------- what is passed on, and the corners ----------

@@ -1255,6 +1255,66 @@ async fn the_calls_a_document_has_used_count_against_its_call_cap_after_a_restar
     }
 }
 
+#[sqlx::test(migrator = "clearcut_store::MIGRATOR")]
+async fn a_split_page_read_before_a_restart_widens_the_page_that_follows_it(pool: PgPool) {
+    let w = world(&pool).await;
+    let doc = w.document(FILE).await;
+    let job = w.enqueue(doc).await;
+    w.store
+        .replace_page_reads(w.tenant, doc, &three_reads()[..2])
+        .await
+        .unwrap();
+    let kept = clearcut_store::page_readings::KeptReading {
+        rung: 0,
+        attempt: 1,
+        confidence: ConfidenceBasis::TextConfirmed,
+        model: HAIKU.to_string(),
+        reading: serde_json::to_value(first_of_three()).unwrap(),
+    };
+    let notes = serde_json::json!([
+        { "type": "parts", "planned": 3, "read": 3, "seams": [400, 700], "seam_uncertain": false }
+    ]);
+    w.store
+        .save_page_reading(
+            w.tenant,
+            doc,
+            1,
+            &PageState::Read(kept),
+            &clearcut_store::page_readings::PageDetails {
+                notes,
+                ..clearcut_store::page_readings::PageDetails::default()
+            },
+        )
+        .await
+        .unwrap();
+    abandoned_with(&w, job, analysed_checkpoint_pages(2)).await;
+
+    // A two-page document may make 3 x 2 + 10 = 16 calls. Fourteen are already in the log,
+    // so a page without a split would have two calls; page one's split gives six more.
+    let prior: Vec<NewModelCall> = (1..=14)
+        .map(|attempt| prior_call(doc, attempt, 0, "accepted"))
+        .collect();
+    w.store.record_model_calls(w.tenant, &prior).await.unwrap();
+
+    let worker = Arc::new(
+        FakeWorker::scripted(vec![])
+            .with_texts(vec![Ok(vec![text_page(2, SECOND_OF_THREE)])])
+            .with_renders(pictures(12)),
+    );
+    let provider = FakeProvider::scripted(vec![
+        answer(HAIKU, &wrong_total()),
+        answer(SONNET, &wrong_total()),
+        answer(OPUS, &wrong_total()),
+    ]);
+    w.run(w.read_handler(&worker, &provider, settings())).await;
+
+    assert_eq!(
+        provider.call_count(),
+        3,
+        "the six extra calls let the second page climb all three rungs"
+    );
+}
+
 // ---------- the usual failures of the job ----------
 
 /// A provider that asks for the job to be cancelled while it answers its first call.
@@ -2293,8 +2353,9 @@ async fn the_earliest_of_several_matching_documents_is_the_one_named(pool: PgPoo
     );
 }
 
-use crate::read::{page_notes, text_dropped_pages};
+use crate::read::{allowance_after, page_notes, part_extras, text_dropped_pages};
 use clearcut_core::escalation::PageOutcome;
+use clearcut_router::{PartFailure, PartsEvidence};
 
 #[test]
 fn a_page_read_from_its_picture_says_why_in_its_notes() {
@@ -2305,10 +2366,89 @@ fn a_page_read_from_its_picture_says_why_in_its_notes() {
         notes: Vec::new(),
     };
     assert_eq!(
-        page_notes(&outcome, 200_001),
+        page_notes(&outcome, 200_001, None),
         serde_json::json!([{ "type": "text_dropped", "bytes": 200_001 }])
     );
-    assert_eq!(page_notes(&outcome, 0), serde_json::json!([]));
+    assert_eq!(page_notes(&outcome, 0, None), serde_json::json!([]));
+}
+
+#[test]
+fn a_page_read_in_parts_says_how_it_was_split() {
+    let parts = PartsEvidence {
+        planned: 3,
+        read: 2,
+        seams: vec![171, 321],
+        seam_uncertain: false,
+        failed: Some(PartFailure {
+            part: 3,
+            reason: ReviewReason::PartFailed,
+        }),
+    };
+    let outcome = PageOutcome::Read {
+        rung: 0,
+        attempt: 1,
+        confidence: ConfidenceBasis::Unresolved,
+        notes: Vec::new(),
+    };
+    assert_eq!(
+        page_notes(&outcome, 0, Some(&parts)),
+        serde_json::json!([
+            { "type": "parts", "planned": 3, "read": 2, "seams": [171, 321], "seam_uncertain": false },
+            { "type": "part_failed", "part": 3, "reason": "part_failed" }
+        ])
+    );
+}
+
+#[test]
+fn only_a_split_page_widens_the_allowance() {
+    let split = serde_json::json!([{ "type": "parts", "planned": 3, "read": 3 }]);
+    assert_eq!(part_extras(&split), 6);
+    assert_eq!(
+        part_extras(&serde_json::json!([{ "type": "text_dropped", "bytes": 1 }])),
+        0
+    );
+    assert_eq!(part_extras(&serde_json::json!([])), 0);
+}
+
+#[test]
+fn a_split_page_hands_its_extra_calls_to_the_pages_after_it() {
+    let parts = PartsEvidence {
+        planned: 3,
+        read: 3,
+        seams: vec![171, 321],
+        seam_uncertain: false,
+        failed: None,
+    };
+    // A whole page only spends what it used.
+    assert_eq!(allowance_after(10, 5, None), 5);
+    // A split page spends its calls and passes its six extra calls on.
+    assert_eq!(allowance_after(10, 5, Some(&parts)), 11);
+    // Even a page that spends everything hands on its extra.
+    assert_eq!(allowance_after(6, 6, Some(&parts)), 6);
+    // One part is no split at all.
+    let whole = PartsEvidence {
+        planned: 1,
+        ..parts.clone()
+    };
+    assert_eq!(allowance_after(10, 5, Some(&whole)), 5);
+}
+
+#[test]
+fn a_damaged_parts_note_cannot_widen_the_allowance_without_bound() {
+    let note =
+        |planned: serde_json::Value| serde_json::json!([{ "type": "parts", "planned": planned, "read": 1 }]);
+    assert_eq!(part_extras(&note(serde_json::json!(0))), 0);
+    assert_eq!(part_extras(&note(serde_json::json!(1))), 0);
+    assert_eq!(part_extras(&note(serde_json::json!(-5))), 0);
+    assert_eq!(part_extras(&note(serde_json::json!("three"))), 0);
+    // Above what a `u8` can hold, the note is treated as the largest valid split.
+    assert_eq!(part_extras(&note(serde_json::json!(u64::MAX))), 762);
+    // Only the first parts note counts.
+    let two = serde_json::json!([
+        { "type": "parts", "planned": 2 },
+        { "type": "parts", "planned": 6 }
+    ]);
+    assert_eq!(part_extras(&two), 3);
 }
 
 #[test]

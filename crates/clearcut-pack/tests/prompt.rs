@@ -12,7 +12,7 @@ use clearcut_core::{Currency, TaxCategory};
 use clearcut_pack::{prompt_version, static_prefix, PROMPT_VERSION};
 use std::num::NonZeroU32;
 
-const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/prefix-prompt-v3.txt");
+const GOLDEN: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/prefix-prompt-v4.txt");
 
 #[test]
 fn the_prompt_has_not_changed_by_accident() {
@@ -22,7 +22,7 @@ fn the_prompt_has_not_changed_by_accident() {
         return;
     }
     let golden = std::fs::read_to_string(GOLDEN)
-        .expect("tests/prefix-prompt-v3.txt is missing; run with UPDATE_GOLDEN=1")
+        .expect("tests/prefix-prompt-v4.txt is missing; run with UPDATE_GOLDEN=1")
         .replace("\r\n", "\n");
     assert_eq!(
         current, golden,
@@ -32,10 +32,10 @@ fn the_prompt_has_not_changed_by_accident() {
 
 #[test]
 fn the_versions_are_named() {
-    assert_eq!(PROMPT_VERSION, "prompt-v3");
-    assert_eq!(prompt_version(), format!("{READING_SHAPE_VERSION}/prompt-v3"));
-    assert_eq!(prompt_version(), "reading-v3/prompt-v3");
-    assert!(GOLDEN.ends_with("prefix-prompt-v3.txt"));
+    assert_eq!(PROMPT_VERSION, "prompt-v4");
+    assert_eq!(prompt_version(), format!("{READING_SHAPE_VERSION}/prompt-v4"));
+    assert_eq!(prompt_version(), "reading-v3/prompt-v4");
+    assert!(GOLDEN.ends_with("prefix-prompt-v4.txt"));
 }
 
 #[test]
@@ -65,6 +65,7 @@ fn the_rules_tell_the_model_what_is_data_and_what_to_return() {
         "day/month/year",
         "15%",
         "not_shown",
+        "only that part of the page",
     ] {
         assert!(prefix.contains(needed), "the prompt no longer says {needed:?}");
     }

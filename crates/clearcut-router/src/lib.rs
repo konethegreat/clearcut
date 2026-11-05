@@ -33,6 +33,7 @@
 //! caller stores them as events.
 
 mod estimate;
+pub mod parts;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -41,9 +42,9 @@ mod tests_estimate;
 use bytes::Bytes;
 use clearcut_core::cost::{BudgetCheck, BudgetScope, Cost, ExchangeRate, PriceTable, TokenUsage};
 use clearcut_core::escalation::{
-    assess, Assessment, CallKind, CallPlan, ConfidenceBasis, EscalationReason, Outcome, PageOutcome,
-    PageReader, Picture, ReadingEvidence, ReviewReason, RouterPolicy, Step, TextCheck, ThinkingEffort,
-    Verdict,
+    assess, merge_parts, plan_parts, Assessment, CallKind, CallPlan, ConfidenceBasis, EscalationReason,
+    Outcome, PageOutcome, PageReader, Part, PartsPlan, Picture, PositionedWord, ReadingEvidence,
+    ReviewReason, RouterPolicy, Step, TextCheck, ThinkingEffort, Verdict,
 };
 use clearcut_core::event::{Confidence, DocumentId, Extractor};
 use clearcut_core::extraction::{validate, Extraction, Finding};
@@ -56,17 +57,19 @@ use clearcut_core::redact;
 use clearcut_core::text_check::{check_against_text, TextCheckReport, TextTrust};
 use clearcut_core::Currency;
 use clearcut_docproc::{
-    DocumentProcessor, ImageFormat, PageContent, PageRange, PageSource, ProcessError, RenderOptions,
-    RenderedPage, WorkerMasker,
+    Crop, DocumentProcessor, ImageFormat, PageContent, PageRange, PageSource, PartWindow, ProcessError,
+    RenderOptions, RenderedPage, WorkerMasker,
 };
 use clearcut_pack::{
     build_pack, prompt_version, DocumentContext, FailureReport, ImageMasker, NoMasker, PackError,
-    PackManifest, PackSettings, PageImage, PageInput, PageText, RedactionPolicy, MAX_PAGE_TEXT_BYTES,
+    PackManifest, PackSettings, PageImage, PageInput, PageText, PartRef, RedactionPolicy,
+    MAX_PAGE_TEXT_BYTES,
 };
 use clearcut_provider::{
     CacheTtl, CallContext, Effort, ModelProvider, ModelResponse, ProviderError, Purpose, Usage,
 };
 use estimate::{call_estimate, uncached_text_bytes, Sizes};
+use parts::{PartDone, PartsCarry, EXTRA_CALLS_PER_PART};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -201,15 +204,43 @@ pub enum BudgetStop {
 }
 
 /// Where a reading came from: the rung and attempt that made it, and the model that answered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadingOrigin {
     pub rung: usize,
     pub attempt: u32,
     pub model: String,
 }
 
+/// How a page that was read in parts was planned and how far it got.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartsEvidence {
+    pub planned: u8,
+    pub read: u8,
+    /// The bottom of each seam, in thousandths of the page (one fewer than the parts).
+    pub seams: Vec<u16>,
+    /// A seam the planner could not place exactly. False in this slice.
+    pub seam_uncertain: bool,
+    pub failed: Option<PartFailure>,
+}
+
+/// The part that stopped a page from being read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PartFailure {
+    /// 1-based.
+    pub part: u8,
+    pub reason: ReviewReason,
+}
+
 /// The highest rung number a ladder can have (the store keeps it in a column that holds 0 to 7).
 const MAX_RUNG: usize = 7;
+
+/// The most JSON a merged reading may take; the store's reading column holds at most 256 KB.
+const MAX_STORED_READING_BYTES: usize = 240_000;
+
+/// Whether a merged reading fits the store's column.
+fn reading_fits_store(reading: &PageReading) -> bool {
+    serde_json::to_vec(reading).is_ok_and(|json| json.len() <= MAX_STORED_READING_BYTES)
+}
 
 /// A page, finished: read, or handed to a person.
 #[derive(Debug, Clone)]
@@ -237,7 +268,9 @@ pub struct PageResult {
     pub text_dropped_bytes: usize,
     pub budget_stop: Option<BudgetStop>,
     /// Kinds of instruction-like text found on the page (never the text). Flagged, never obeyed.
-    pub injection_suspected: Vec<&'static str>,
+    pub injection_suspected: Vec<String>,
+    /// How the page was split and read, when it was read in parts.
+    pub parts: Option<PartsEvidence>,
 }
 
 /// A reading kept between calls: enough to report on it, to send a stronger model what was
@@ -262,6 +295,9 @@ pub struct Carry {
     pub best: Option<Kept>,
     /// The latest reading that could be converted: what the next model is told was wrong.
     pub last: Option<Kept>,
+    /// The plan and the parts done, when the page is read in parts; `None` for a whole page.
+    #[serde(default)]
+    pub parts: Option<PartsCarry>,
 }
 
 #[derive(Deserialize)]
@@ -269,6 +305,8 @@ struct UncheckedCarry {
     machine: PageReader,
     best: Option<Kept>,
     last: Option<Kept>,
+    #[serde(default)]
+    parts: Option<PartsCarry>,
 }
 
 impl TryFrom<UncheckedCarry> for Carry {
@@ -307,6 +345,7 @@ impl TryFrom<UncheckedCarry> for Carry {
             machine: raw.machine,
             best: raw.best,
             last: raw.last,
+            parts: raw.parts,
         })
     }
 }
@@ -328,6 +367,8 @@ pub struct Interruption {
     pub calls: Vec<CallRecord>,
     pub spent: Cost,
     pub unavailable_models: Vec<String>,
+    /// How the page was split and how far it got, when it was read in parts.
+    pub parts: Option<PartsEvidence>,
 }
 
 #[derive(Debug)]
@@ -378,6 +419,26 @@ struct Material {
     text_dropped_bytes: usize,
 }
 
+/// The part being read: its slice of the page's text and its band of the picture.
+#[derive(Clone)]
+struct CurrentPart {
+    /// 1-based.
+    index: u8,
+    of: u8,
+    text: PageText,
+    /// Where `text.content` begins in the page's text, for the painter's words.
+    byte_start: usize,
+    crop: Crop,
+}
+
+/// The text a reading is checked against, and whether that text can be believed.
+struct View<'a> {
+    text: Option<&'a PageText>,
+    trust: TextTrust,
+    /// Compare the printed totals with the lines. False for a part of a page.
+    whole_document: bool,
+}
+
 /// Everything worked out about one reading.
 struct Evaluation {
     extraction: Extraction,
@@ -419,7 +480,7 @@ fn token_usage(usage: Usage) -> TokenUsage {
 /// the caller evaluates twice, once to decide and once to stamp.
 fn evaluate(
     task: &PageTask,
-    material: &Material,
+    view: &View<'_>,
     reading: &PageReading,
     model: &str,
     confidence: ConfidenceBasis,
@@ -437,11 +498,11 @@ fn evaluate(
     };
     let conversion = reading.into_extraction(&context)?;
     let findings = validate(&conversion.extraction).findings;
-    let report = match &material.text {
+    let report = match view.text {
         Some(text) => check_against_text(
             &conversion.extraction,
             &text.content,
-            material.trust,
+            view.trust,
             reading.amounts_include_vat == ReadVatBasis::Yes,
         ),
         None => TextCheckReport {
@@ -454,7 +515,7 @@ fn evaluate(
         problems: &conversion.problems,
         findings: &findings,
         text_check: report.result,
-        whole_document: task.of.get() == 1,
+        whole_document: view.whole_document,
     });
     Ok(Evaluation {
         extraction: conversion.extraction,
@@ -470,10 +531,10 @@ fn evaluate(
 /// can be believed), and the checks that stopped the reading. Facts about the document that
 /// no model could change (a due date before the invoice date, a missing tax-invoice field) are
 /// left out: telling a model about them only invites it to invent a fix.
-fn failure_report(task: &PageTask, material: &Material, last: Option<&Kept>) -> Option<FailureReport> {
+fn failure_report(task: &PageTask, view: &View<'_>, last: Option<&Kept>) -> Option<FailureReport> {
     let kept = last?;
     let reading: PageReading = serde_json::from_value(kept.reading.clone()).ok()?;
-    let evaluation = evaluate(task, material, &reading, &kept.model, ConfidenceBasis::Unresolved).ok()?;
+    let evaluation = evaluate(task, view, &reading, &kept.model, ConfidenceBasis::Unresolved).ok()?;
     let mut problems = evaluation.problems;
     if matches!(evaluation.report.result, TextCheck::Failed { .. }) {
         problems.extend(evaluation.report.unconfirmed.iter().map(|path| ReadingProblem {
@@ -481,7 +542,7 @@ fn failure_report(task: &PageTask, material: &Material, last: Option<&Kept>) -> 
             kind: ProblemKind::NotOnPage,
         }));
     }
-    let whole = task.of.get() == 1;
+    let whole = view.whole_document;
     let findings = evaluation
         .findings
         .into_iter()
@@ -510,19 +571,27 @@ struct Run {
     best: Option<Kept>,
     last: Option<Kept>,
     material: Option<Material>,
-    pictures: Vec<(Picture, RenderedPage)>,
+    /// The part being read, when the page is read in parts.
+    part: Option<CurrentPart>,
+    /// The plan and the parts done, when the page is read in parts.
+    parts: Option<PartsCarry>,
+    pictures: Vec<(Picture, Option<Crop>, RenderedPage)>,
     calls: Vec<CallRecord>,
     spent: Cost,
     unavailable: Vec<String>,
     budget_stop: Option<BudgetStop>,
-    injection: Vec<&'static str>,
+    injection: Vec<String>,
 }
 
 impl Run {
     fn note_injection(&mut self, kinds: &[&'static str]) {
-        for kind in kinds {
-            if !self.injection.contains(kind) {
-                self.injection.push(kind);
+        self.note_names(&kinds.iter().map(|kind| (*kind).to_string()).collect::<Vec<_>>());
+    }
+
+    fn note_names(&mut self, names: &[String]) {
+        for name in names {
+            if !self.injection.contains(name) {
+                self.injection.push(name.clone());
             }
         }
     }
@@ -544,6 +613,40 @@ impl Run {
             request_id: None,
             label,
         });
+    }
+
+    /// The interruption a run gives when the service fails.
+    fn into_interruption(mut self, trouble: Trouble) -> Interruption {
+        if let Some(parts) = self.parts.as_mut() {
+            parts.injection = self.injection.clone();
+        }
+        let evidence = evidence_of(self.parts.as_ref());
+        let Run {
+            machine,
+            best,
+            last,
+            parts,
+            calls,
+            spent,
+            unavailable,
+            ..
+        } = self;
+        Interruption {
+            failure: trouble.failure,
+            message: trouble.message,
+            retry_after: trouble.retry_after,
+            key_rejected: trouble.key_rejected,
+            carry: Carry {
+                machine,
+                best,
+                last,
+                parts,
+            },
+            calls,
+            spent,
+            unavailable_models: unavailable,
+            parts: evidence,
+        }
     }
 }
 
@@ -587,6 +690,10 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
     /// Reads one page, escalating up the ladder on evidence, or resumes a page that was
     /// interrupted (`resume` is the [`Carry`] the interruption gave).
     ///
+    /// A page dense enough to need it is planned into parts from its own words; each part is
+    /// read by its own state machine (attempt numbers stay page-global) and the readings are
+    /// merged. A page with no plan is read whole, exactly as before.
+    ///
     /// `budget` is the document's spending so far and is updated with every call's real cost.
     /// `document_calls_left` is what the document may still spend in calls
     /// (`RouterPolicy::document_call_cap` less what earlier pages used).
@@ -597,7 +704,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         document_calls_left: u32,
         resume: Option<Carry>,
     ) -> PageRun {
-        let (machine, mut step, best, last) = match resume {
+        let (machine, mut step, best, last, parts) = match resume {
             Some(carry) => {
                 let step = match (carry.machine.pending(), carry.machine.outcome()) {
                     (Some(plan), _) => Step::Call(plan.clone()),
@@ -608,11 +715,11 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                         draft: None,
                     }),
                 };
-                (carry.machine, step, carry.best, carry.last)
+                (carry.machine, step, carry.best, carry.last, carry.parts)
             }
             None => {
                 let (machine, step) = PageReader::start(&self.config.policy, document_calls_left);
-                (machine, step, None, None)
+                (machine, step, None, None, None)
             }
         };
         let mut run = Run {
@@ -620,6 +727,8 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             best,
             last,
             material: None,
+            part: None,
+            parts,
             pictures: Vec::new(),
             calls: Vec::new(),
             spent: Cost::ZERO,
@@ -627,9 +736,119 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             budget_stop: None,
             injection: Vec::new(),
         };
+        let injected = run
+            .parts
+            .as_ref()
+            .map(|parts| parts.injection.clone())
+            .unwrap_or_default();
+        run.note_names(&injected);
+
+        // The page's text chooses its parts and tells the painter where the words are. It is
+        // fetched before the first call so a worker failure interrupts the page before any
+        // call is made, and a resumed part page has it before its next call. A whole page whose
+        // machine is already done (no rung, or no calls left) has no call to prepare for; a
+        // part page always does, even when the machine that finished the previous part is done.
+        if run.material.is_none()
+            && (run.parts.is_some() || (run.machine.calls_made() == 0 && !run.machine.is_done()))
+        {
+            match self.fetch_material(task).await {
+                Ok(material) => run.material = Some(material),
+                Err(trouble) => {
+                    return PageRun::Interrupted(Box::new(run.into_interruption(trouble)));
+                }
+            }
+        }
+        if run.parts.is_none() && run.machine.calls_made() == 0 && !run.machine.is_done() {
+            if let Some(plan) = plan_page_parts(run.material.as_ref()) {
+                run.parts = Some(PartsCarry {
+                    plan,
+                    index: 0,
+                    done: Vec::new(),
+                    issued_before: 0,
+                    document_calls_left,
+                    injection: Vec::new(),
+                });
+                match self.start_next_part(&mut run) {
+                    Ok(first) => step = first,
+                    Err(_) => {
+                        let outcome = PageOutcome::NeedsReview {
+                            reason: ReviewReason::PartFailed,
+                            draft: None,
+                        };
+                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                    }
+                }
+            }
+        } else if run.parts.is_some() && run.part.is_none() {
+            // A resumed part page carries on with the call it had already planned; only the
+            // part's words and band have to be remembered again.
+            if self.load_part(&mut run).is_err() {
+                let outcome = PageOutcome::NeedsReview {
+                    reason: ReviewReason::PartFailed,
+                    draft: None,
+                };
+                return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+            }
+            // A carry stored between two parts has the finished machine of the part it has
+            // already recorded: its outcome is in `done`, so the next part starts afresh
+            // instead of being recorded with the previous part's outcome.
+            let belongs_to_a_recorded_part = run
+                .parts
+                .as_ref()
+                .is_some_and(|parts| run.machine.attempts_issued() <= parts.issued_before);
+            if run.machine.is_done() && belongs_to_a_recorded_part {
+                match self.start_next_part(&mut run) {
+                    Ok(next) => step = next,
+                    Err(_) => {
+                        let outcome = PageOutcome::NeedsReview {
+                            reason: ReviewReason::PartFailed,
+                            draft: None,
+                        };
+                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                    }
+                }
+            }
+        }
+
         loop {
+            if run.parts.is_some() {
+                let done = match self.read_part(&mut run, task, budget, step).await {
+                    Ok(done) => done,
+                    Err(trouble) => {
+                        return PageRun::Interrupted(Box::new(run.into_interruption(trouble)));
+                    }
+                };
+                let failed = match &done.outcome {
+                    PageOutcome::Read { .. } => None,
+                    other => Some(page_reason_for_failed_part(other)),
+                };
+                let planned = run.parts.as_ref().map_or(0, |parts| parts.plan.parts().len());
+                record_part(&mut run, done);
+                if let Some(reason) = failed {
+                    let outcome = PageOutcome::NeedsReview { reason, draft: None };
+                    return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                }
+                if run.parts.as_ref().map_or(0, |parts| parts.done.len()) == planned {
+                    let outcome = self.merge_parts_outcome(&mut run, task);
+                    return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                }
+                match self.start_next_part(&mut run) {
+                    Ok(next) => step = next,
+                    Err(_) => {
+                        let outcome = PageOutcome::NeedsReview {
+                            reason: ReviewReason::PartFailed,
+                            draft: None,
+                        };
+                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                    }
+                }
+                continue;
+            }
+
             let plan = match step {
-                Step::Done(outcome) => return PageRun::Finished(Box::new(self.finish(run, task, outcome))),
+                Step::Done(outcome) => {
+                    return PageRun::Finished(Box::new(self.finish(run, task, outcome)));
+                }
                 Step::Call(plan) => plan,
             };
             match self.attempt(&mut run, task, &plan, budget).await {
@@ -643,23 +862,258 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                     }
                 }
                 Err(trouble) => {
-                    return PageRun::Interrupted(Box::new(Interruption {
-                        failure: trouble.failure,
-                        message: trouble.message,
-                        retry_after: trouble.retry_after,
-                        key_rejected: trouble.key_rejected,
-                        carry: Carry {
-                            machine: run.machine,
-                            best: run.best,
-                            last: run.last,
-                        },
-                        calls: run.calls,
-                        spent: run.spent,
-                        unavailable_models: run.unavailable,
-                    }));
+                    return PageRun::Interrupted(Box::new(run.into_interruption(trouble)));
                 }
             }
         }
+    }
+
+    /// Remembers the part to read next: its slice of the text and its band of the picture.
+    fn load_part(&self, run: &mut Run) -> Result<(), Trouble> {
+        let part = {
+            let parts = run
+                .parts
+                .as_ref()
+                .ok_or_else(|| Trouble::worker_said("a part was loaded without a plan"))?;
+            let index = parts.index + 1;
+            let index = u8::try_from(index)
+                .map_err(|_| Trouble::worker_said("a page has more parts than a plan can hold"))?;
+            parts
+                .plan
+                .part(index)
+                .ok_or_else(|| Trouble::worker_said("a part is not in the plan"))?
+                .clone()
+        };
+        let material = run
+            .material
+            .as_ref()
+            .ok_or_else(|| Trouble::worker_said("a part was loaded before its page was read"))?;
+        let text = material
+            .text
+            .as_ref()
+            .ok_or_else(|| Trouble::worker_said("a page without text cannot be split"))?;
+        let content = text
+            .content
+            .get(part.byte_start()..part.byte_end())
+            .ok_or_else(|| Trouble::worker_said("a part's text is not on its page"))?;
+        let crop = Crop::new(part.top(), part.bottom())
+            .map_err(|_| Trouble::worker_said("a part's band is outside its page"))?;
+        run.part = Some(CurrentPart {
+            index: part.index(),
+            of: part.of(),
+            text: PageText {
+                source: text.source,
+                content: content.to_string(),
+            },
+            byte_start: part.byte_start(),
+            crop,
+        });
+        Ok(())
+    }
+
+    /// Starts the next part's state machine, with the calls made so far counted. The page's
+    /// allowance comes from the calls the document had left when the page was planned, not
+    /// from what it has left now: the document has already been charged for this page's calls.
+    fn start_next_part(&self, run: &mut Run) -> Result<Step, Trouble> {
+        let (planned, issued_before, document_calls_left) = {
+            let parts = run
+                .parts
+                .as_ref()
+                .ok_or_else(|| Trouble::worker_said("a part was started without a plan"))?;
+            (
+                parts.plan.parts().len(),
+                parts.issued_before,
+                parts.document_calls_left,
+            )
+        };
+        self.load_part(run)?;
+        let left = part_allowance(document_calls_left, planned).saturating_sub(issued_before);
+        let (machine, step) = PageReader::start_after(&self.config.policy, left, issued_before);
+        run.machine = machine;
+        run.best = None;
+        run.last = None;
+        Ok(step)
+    }
+
+    /// Reads one part to its end. The part is done when its own machine has nothing to do.
+    async fn read_part(
+        &self,
+        run: &mut Run,
+        task: &PageTask,
+        budget: &mut BudgetCheck,
+        mut step: Step,
+    ) -> Result<PartDone, Trouble> {
+        loop {
+            let plan = match step {
+                Step::Done(outcome) => {
+                    let part = run
+                        .part
+                        .as_ref()
+                        .ok_or_else(|| Trouble::worker_said("a part ended without its words"))?;
+                    let index = part.index;
+                    let issued = run
+                        .machine
+                        .attempts_issued()
+                        .saturating_sub(run.parts.as_ref().map_or(0, |parts| parts.issued_before));
+                    return Ok(PartDone {
+                        index,
+                        outcome,
+                        reading: run.last.as_ref().map(|kept| kept.reading.clone()),
+                        reading_from: run.last.as_ref().map(|kept| ReadingOrigin {
+                            rung: kept.rung,
+                            attempt: kept.attempt,
+                            model: kept.model.clone(),
+                        }),
+                        issued,
+                    });
+                }
+                Step::Call(plan) => plan,
+            };
+            let attempted = self.attempt(run, task, &plan, budget).await?;
+            step = run.machine.on_outcome(attempted.outcome);
+            if let Some(kept) = attempted.kept {
+                if run.machine.best_attempt() == Some(kept.attempt) {
+                    run.best = Some(kept.clone());
+                }
+                run.last = Some(kept);
+            }
+        }
+    }
+
+    /// Turns every part's reading into one page reading, and assesses it against the whole
+    /// page's text: a conflict, a reading too large for the store, or a verdict ends the page.
+    fn merge_parts_outcome(&self, run: &mut Run, task: &PageTask) -> PageOutcome {
+        let (outcome, kept) = {
+            let Some(parts) = run.parts.as_ref() else {
+                return PageOutcome::NeedsReview {
+                    reason: ReviewReason::RequestRejected,
+                    draft: None,
+                };
+            };
+            let mut readings = Vec::with_capacity(parts.done.len());
+            let mut origins = Vec::with_capacity(parts.done.len());
+            for done in &parts.done {
+                let (Some(origin), Some(value)) = (&done.reading_from, &done.reading) else {
+                    return PageOutcome::NeedsReview {
+                        reason: ReviewReason::PartFailed,
+                        draft: None,
+                    };
+                };
+                let Ok(stored) = PageReading::from_stored_value(value.clone()) else {
+                    return PageOutcome::NeedsReview {
+                        reason: ReviewReason::PartFailed,
+                        draft: None,
+                    };
+                };
+                readings.push(stored.reading);
+                origins.push(origin.clone());
+            }
+            let Ok(merged) = merge_parts(&readings) else {
+                return PageOutcome::NeedsReview {
+                    reason: ReviewReason::PartFailed,
+                    draft: None,
+                };
+            };
+            if !merged.conflicts.is_empty() {
+                return PageOutcome::NeedsReview {
+                    reason: ReviewReason::PartConflict,
+                    draft: None,
+                };
+            }
+            if !reading_fits_store(&merged.reading) {
+                return PageOutcome::NeedsReview {
+                    reason: ReviewReason::TooDense,
+                    draft: None,
+                };
+            }
+            let basis = parts
+                .done
+                .iter()
+                .filter_map(|done| match &done.outcome {
+                    PageOutcome::Read { confidence, .. } => Some(*confidence),
+                    _ => None,
+                })
+                .min_by_key(|basis| basis.per_mille())
+                .unwrap_or(ConfidenceBasis::Unresolved);
+            let origin = parts
+                .done
+                .iter()
+                .zip(origins.iter())
+                .filter(|(done, _)| matches!(done.outcome, PageOutcome::Read { .. }))
+                .min_by_key(|(done, _)| match &done.outcome {
+                    PageOutcome::Read { confidence, .. } => confidence.per_mille(),
+                    _ => u16::MAX,
+                })
+                .map(|(_, origin)| origin.clone());
+            let Some(origin) = origin else {
+                return PageOutcome::NeedsReview {
+                    reason: ReviewReason::PartFailed,
+                    draft: None,
+                };
+            };
+            let Some(material) = run.material.as_ref() else {
+                return PageOutcome::NeedsReview {
+                    reason: ReviewReason::RequestRejected,
+                    draft: None,
+                };
+            };
+            let view = View {
+                text: material.text.as_ref(),
+                trust: material.trust,
+                whole_document: task.of.get() == 1,
+            };
+            let assessment = match evaluate(
+                task,
+                &view,
+                &merged.reading,
+                &origin.model,
+                ConfidenceBasis::Unresolved,
+            ) {
+                Ok(evaluation) => evaluation.assessment,
+                Err(Unevaluable) => {
+                    return PageOutcome::NeedsReview {
+                        reason: ReviewReason::TopRungFailed,
+                        draft: None,
+                    };
+                }
+            };
+            let kept = Kept {
+                attempt: origin.attempt,
+                rung: origin.rung,
+                model: origin.model.clone(),
+                reading: serde_json::to_value(&merged.reading).unwrap_or(Value::Null),
+            };
+            let outcome = match assessment.verdict {
+                Verdict::Accept => PageOutcome::Read {
+                    rung: origin.rung,
+                    attempt: origin.attempt,
+                    confidence: basis,
+                    notes: assessment.notes,
+                },
+                Verdict::Review(reason) => PageOutcome::NeedsReview {
+                    reason,
+                    draft: Some(origin.attempt),
+                },
+                Verdict::Escalate(_) => PageOutcome::NeedsReview {
+                    reason: ReviewReason::TopRungFailed,
+                    draft: Some(origin.attempt),
+                },
+            };
+            (outcome, Some(kept))
+        };
+        if let Some(kept) = kept {
+            run.best = Some(kept.clone());
+            run.last = Some(kept);
+        }
+        outcome
+    }
+
+    /// Finishes a page read in parts, adding how it was split.
+    fn finish_parts(&self, run: Run, task: &PageTask, outcome: PageOutcome) -> PageResult {
+        let evidence = evidence_of(run.parts.as_ref());
+        let mut result = self.finish(run, task, outcome);
+        result.parts = evidence;
+        result
     }
 
     /// Makes one planned call and says what came of it.
@@ -673,7 +1127,10 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         if run.material.is_none() {
             run.material = Some(self.fetch_material(task).await?);
         }
-        let rendered = self.picture(run, task, plan.picture).await?;
+        let part = run.part.clone();
+        let rendered = self
+            .picture(run, task, plan.picture, part.as_ref().map(|part| part.crop))
+            .await?;
         let image = PageImage {
             media: rendered.media(),
             bytes: rendered.bytes().to_vec(),
@@ -683,12 +1140,33 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         // the pack will compute for the same text. A text that cannot vouch for the picture
         // (an unverified layer) is not painted from, and the pack records the picture as
         // unchecked. A painter that fails is a masker that says so, and the policy decides.
-        let painter = match run.material.as_ref() {
-            Some(Material {
-                text: Some(text),
-                content: Some(content),
-                ..
-            }) => {
+        let painter = match (run.material.as_ref(), part.as_ref()) {
+            (
+                Some(Material {
+                    text: Some(_),
+                    content: Some(content),
+                    ..
+                }),
+                Some(part),
+            ) => {
+                let spans = redact::redact(&part.text.content).spans;
+                let window = PartWindow {
+                    text: &part.text,
+                    byte_start: part.byte_start,
+                    crop: part.crop,
+                };
+                WorkerMasker::prepare_part(&*self.worker, &image, content, &window, &spans)
+                    .await
+                    .ok()
+            }
+            (
+                Some(Material {
+                    text: Some(text),
+                    content: Some(content),
+                    ..
+                }),
+                None,
+            ) => {
                 // (The painter itself refuses an unverified layer, without asking the worker.)
                 let spans = redact::redact(&text.content).spans;
                 WorkerMasker::prepare(&*self.worker, &image, content, text, &spans)
@@ -726,9 +1204,17 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             page: task.page,
             of: task.of,
             image: Some(image),
-            text: material.text.clone(),
+            text: match &part {
+                Some(part) => Some(part.text.clone()),
+                None => material.text.clone(),
+            },
+            part: part.as_ref().map(|part| PartRef {
+                index: part.index,
+                of: part.of,
+            }),
         };
-        let report = failure_report(task, material, run.last.as_ref());
+        let view = view_of(task, material, part.as_ref());
+        let report = failure_report(task, &view, run.last.as_ref());
         let pack = match build_pack(&settings, &input, &task.context, report.as_ref(), masker) {
             Ok(pack) => pack,
             Err(PackError::CannotBeSentSafely(_)) => {
@@ -844,7 +1330,8 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         let Some(material) = run.material.as_ref() else {
             return Err(Trouble::worker_said("the page's material was not fetched"));
         };
-        let evaluation = match evaluate(task, material, &reading, &model, ConfidenceBasis::Unresolved) {
+        let view = view_of(task, material, run.part.as_ref());
+        let evaluation = match evaluate(task, &view, &reading, &model, ConfidenceBasis::Unresolved) {
             Ok(evaluation) => evaluation,
             Err(Unevaluable) => {
                 record.label = CallLabel::Escalated(EscalationReason::ReadingProblems);
@@ -993,9 +1480,10 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             (ReadRoute::TextAndImage, PageTextSource::TextLayer) => {
                 (Some(self.layer(task, true).await?), TextTrust::Trusted)
             }
-            // Only a hint: its words would not be painted from.
+            // Only a hint: its words would not be painted from, but a part needs them to be
+            // planned and to be located in the picture.
             (ReadRoute::ImageFirst, PageTextSource::TextLayer) => {
-                (Some(self.layer(task, false).await?), TextTrust::Unverified)
+                (Some(self.layer(task, true).await?), TextTrust::Unverified)
             }
             (ReadRoute::ImageOnly, PageTextSource::Ocr) => {
                 let page = self
@@ -1058,29 +1546,38 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         }
     }
 
-    /// The picture of the page at the size the rung wants, drawn once per size.
+    /// The picture of the page, or of a part of it, at the size the rung wants, drawn once per
+    /// size and band.
     async fn picture(
         &self,
         run: &mut Run,
         task: &PageTask,
         picture: Picture,
+        crop: Option<Crop>,
     ) -> Result<RenderedPage, Trouble> {
-        if let Some((_, rendered)) = run.pictures.iter().find(|(drawn, _)| *drawn == picture) {
+        if let Some((_, _, rendered)) = run
+            .pictures
+            .iter()
+            .find(|(drawn, drawn_crop, _)| *drawn == picture && *drawn_crop == crop)
+        {
             return Ok(rendered.clone());
         }
-        let options =
+        let mut options =
             RenderOptions::new(picture.dpi, ImageFormat::Png, picture.max_edge).map_err(|_| Trouble {
                 failure: FailureKind::NeedsReview,
                 message: "a rung asks for a picture size the worker does not draw".to_string(),
                 retry_after: None,
                 key_rejected: false,
             })?;
+        if let Some(crop) = crop {
+            options = options.with_crop(crop);
+        }
         let rendered = self
             .worker
             .render_page(task.file.clone(), task.page, options)
             .await
             .map_err(Trouble::worker)?;
-        run.pictures.push((picture, rendered.clone()));
+        run.pictures.push((picture, crop, rendered.clone()));
         Ok(rendered)
     }
 
@@ -1108,7 +1605,14 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         let evaluated = match (&kept, &run.material) {
             (Some(kept), Some(material)) => PageReading::from_stored_value(kept.reading.clone())
                 .ok()
-                .and_then(|stored| evaluate(task, material, &stored.reading, &kept.model, basis).ok()),
+                .and_then(|stored| {
+                    let view = View {
+                        text: material.text.as_ref(),
+                        trust: material.trust,
+                        whole_document: task.of.get() == 1,
+                    };
+                    evaluate(task, &view, &stored.reading, &kept.model, basis).ok()
+                }),
             _ => None,
         };
         let (reading, reading_from) = match (evaluated.as_ref(), kept) {
@@ -1142,6 +1646,126 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             text_dropped_bytes,
             budget_stop: run.budget_stop,
             injection_suspected: injection,
+            // A page read in parts adds its evidence in `finish_parts`, never here.
+            parts: None,
         }
     }
+}
+
+/// The calls a stored page carries on after its first part.
+fn part_allowance(document_calls_left: u32, planned: usize) -> u32 {
+    let parts = u32::try_from(planned).unwrap_or(u32::MAX);
+    document_calls_left.saturating_add(EXTRA_CALLS_PER_PART.saturating_mul(parts.saturating_sub(1)))
+}
+
+/// The fixed reason a part's failure gives the page. A budget or a call cap is the page's too;
+/// a part still cut off at the ceiling makes the page too dense, since splitting further is not
+/// allowed; anything else is a part that could not be read. This may differ from
+/// [`evidence_reason_for_failed_part`] by design: the page reason takes precedence, while the
+/// evidence reports the part's own reason.
+fn page_reason_for_failed_part(outcome: &PageOutcome) -> ReviewReason {
+    match outcome {
+        PageOutcome::NeedsReview {
+            reason: reason @ (ReviewReason::Budget | ReviewReason::CallCap | ReviewReason::CannotBeSentSafely),
+            ..
+        } => *reason,
+        PageOutcome::NeedsReview {
+            reason: ReviewReason::TooLong,
+            ..
+        } => ReviewReason::TooDense,
+        _ => ReviewReason::PartFailed,
+    }
+}
+
+/// The reason a part's own failure is reported under in the evidence: a part cut off at the
+/// ceiling is too dense for its part; any other reason is the part's own. This may differ from
+/// [`page_reason_for_failed_part`] by design: the page reason takes precedence, while the
+/// evidence reports the part's own reason.
+fn evidence_reason_for_failed_part(outcome: &PageOutcome) -> ReviewReason {
+    match outcome {
+        PageOutcome::NeedsReview {
+            reason: ReviewReason::TooLong,
+            ..
+        } => ReviewReason::TooDense,
+        PageOutcome::NeedsReview { reason, .. } => *reason,
+        _ => ReviewReason::PartFailed,
+    }
+}
+
+/// Splits the page from its words and text; `None` when it is not dense enough or the words
+/// do not allow it.
+fn plan_page_parts(material: Option<&Material>) -> Option<PartsPlan> {
+    let material = material?;
+    let text = material.text.as_ref()?;
+    let words = material.content.as_ref()?.words()?;
+    let positioned: Vec<PositionedWord> = words
+        .iter()
+        .map(|word| PositionedWord {
+            start: word.start,
+            end: word.end,
+            x: word.bounds.x,
+            top: word.bounds.y,
+            bottom: word.bounds.y.saturating_add(word.bounds.h),
+        })
+        .collect();
+    plan_parts(&positioned, text.content.len())
+}
+
+/// What a reading is checked against: a part's own text, or the whole page's.
+fn view_of<'a>(task: &PageTask, material: &'a Material, part: Option<&'a CurrentPart>) -> View<'a> {
+    match part {
+        Some(part) => View {
+            text: Some(&part.text),
+            trust: material.trust,
+            whole_document: false,
+        },
+        None => View {
+            text: material.text.as_ref(),
+            trust: material.trust,
+            whole_document: task.of.get() == 1,
+        },
+    }
+}
+
+/// Records a finished part and clears the part's own readings for the next one.
+fn record_part(run: &mut Run, done: PartDone) {
+    let issued = run.machine.attempts_issued();
+    if let Some(parts) = run.parts.as_mut() {
+        parts.done.push(done);
+        parts.index = u32::try_from(parts.done.len()).unwrap_or(u32::MAX);
+        parts.issued_before = issued;
+        parts.injection = run.injection.clone();
+    }
+    run.part = None;
+    run.best = None;
+    run.last = None;
+}
+
+/// How a page was split and how far it got. Counts, seams and a fixed reason only.
+fn evidence_of(parts: Option<&PartsCarry>) -> Option<PartsEvidence> {
+    let parts = parts?;
+    let plan = &parts.plan;
+    let read = parts
+        .done
+        .iter()
+        .filter(|done| matches!(done.outcome, PageOutcome::Read { .. }))
+        .count();
+    Some(PartsEvidence {
+        planned: u8::try_from(plan.parts().len()).unwrap_or(u8::MAX),
+        read: u8::try_from(read).unwrap_or(u8::MAX),
+        seams: plan
+            .parts()
+            .split_last()
+            .map(|(_, rest)| rest.iter().map(Part::bottom).collect())
+            .unwrap_or_default(),
+        seam_uncertain: false,
+        failed: parts
+            .done
+            .last()
+            .filter(|done| !matches!(done.outcome, PageOutcome::Read { .. }))
+            .map(|done| PartFailure {
+                part: done.index,
+                reason: evidence_reason_for_failed_part(&done.outcome),
+            }),
+    })
 }

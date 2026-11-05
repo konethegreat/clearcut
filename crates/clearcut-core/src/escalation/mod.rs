@@ -19,19 +19,27 @@
 //! Nothing here holds a word of the document: reasons, notes and paths are fixed names.
 
 mod assess;
+mod merge;
+mod parts;
 mod policy;
 mod reader;
 
 #[cfg(test)]
 mod tests_assess;
 #[cfg(test)]
+mod tests_merge;
+#[cfg(test)]
 mod tests_names;
+#[cfg(test)]
+mod tests_parts;
 #[cfg(test)]
 mod tests_policy;
 #[cfg(test)]
 mod tests_reader;
 
 pub use assess::{assess, Assessment, ReadingEvidence, TextCheck, Verdict};
+pub use merge::{merge_parts, MergeError, Merged};
+pub use parts::{plan_parts, Part, PartsPlan, PositionedWord};
 pub(crate) use policy::plain_model_id;
 pub use policy::{Picture, RouterPolicy, Rung};
 pub use reader::{CallKind, CallPlan, Outcome, PageOutcome, PageReader, Step};
@@ -110,8 +118,14 @@ impl EscalationReason {
 pub enum ReviewReason {
     /// Every rung was tried and the last reading still failed the checks.
     TopRungFailed,
-    /// Too much on one page for one answer (cut off at the ceiling, or over 200 lines).
+    /// Too much on one page for one answer (cut off at the truncation ceiling).
     TooLong,
+    /// The parts of one page read different values in the same place.
+    PartConflict,
+    /// One part of a page could not be read.
+    PartFailed,
+    /// More lines than one page can hold (600, or more JSON than the store takes).
+    TooDense,
     /// The model declined to answer.
     Refused,
     /// The next call would have broken a budget.
@@ -133,7 +147,7 @@ pub enum ReviewReason {
 }
 
 impl ReviewReason {
-    pub const ALL: [ReviewReason; 10] = [
+    pub const ALL: [ReviewReason; 13] = [
         ReviewReason::TopRungFailed,
         ReviewReason::TooLong,
         ReviewReason::Refused,
@@ -144,6 +158,9 @@ impl ReviewReason {
         ReviewReason::NoRungAvailable,
         ReviewReason::AmountsIncludeVat,
         ReviewReason::TaxNotShown,
+        ReviewReason::PartConflict,
+        ReviewReason::PartFailed,
+        ReviewReason::TooDense,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -158,6 +175,9 @@ impl ReviewReason {
             ReviewReason::NoRungAvailable => "no_rung_available",
             ReviewReason::AmountsIncludeVat => "amounts_include_vat",
             ReviewReason::TaxNotShown => "tax_not_shown",
+            ReviewReason::PartConflict => "part_conflict",
+            ReviewReason::PartFailed => "part_failed",
+            ReviewReason::TooDense => "too_dense",
         }
     }
 

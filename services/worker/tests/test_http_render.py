@@ -20,7 +20,7 @@ from clearcut_worker.inspect import (
     Unreadable,
 )
 from clearcut_worker.pagetext import PageOutOfRange
-from clearcut_worker.render import PageTooBig
+from clearcut_worker.render import EmptyCrop, PageTooBig
 
 from .conftest import AUTH, make_encrypted_pdf, settings
 from .pdfs import PageSpec, PdfBuilder, one_page, pages_of_text
@@ -132,6 +132,8 @@ def test_a_picture_document_is_rendered_upright_without_its_metadata(client: Tes
         {"max_edge": 499},
         {"max_edge": 2577},
         {"max_edge": "wide"},
+        {"top": 1001},
+        {"bottom": -1},
     ],
 )
 def test_a_bad_parameter_is_a_400_that_says_nothing_else(
@@ -241,10 +243,37 @@ def test_the_app_hands_the_renderer_what_was_asked_for_and_the_settings() -> Non
         "dpi": 200,
         "fmt": "jpeg",
         "max_edge": 1500,
+        "top": 0,
+        "bottom": 1000,
         "max_pages": 77,
         "timeout_seconds": 12.5,
     }
     assert response.headers["x-image-width"] == "7"
+
+
+def test_the_crop_is_handed_to_the_renderer() -> None:
+    renderer = canned()
+    app = create_app(settings(), renderer=renderer)
+    response = TestClient(app).post(
+        RENDER,
+        content=b"%PDF-1.4 bytes",
+        headers=AUTH,
+        params={"top": 250, "bottom": 750},
+    )
+    assert response.status_code == 200
+    ((_, kwargs),) = renderer.calls
+    assert (kwargs["top"], kwargs["bottom"]) == (250, 750)
+
+
+def test_an_empty_crop_is_a_422_that_names_it() -> None:
+    def renderer(*args: Any, **kwargs: Any) -> EncodedImage:
+        raise EmptyCrop
+
+    response = TestClient(create_app(settings(), renderer=renderer)).post(
+        RENDER, content=b"%PDF-x", headers=AUTH, params={"top": 800, "bottom": 800}
+    )
+    assert response.status_code == 422
+    assert response.json() == {"error": "the crop is empty"}
 
 
 def test_without_parameters_the_renderer_gets_the_defaults() -> None:
@@ -255,6 +284,7 @@ def test_without_parameters_the_renderer_gets_the_defaults() -> None:
     ((args, kwargs),) = renderer.calls
     assert args == (b"%PDF-x", 1)
     assert (kwargs["dpi"], kwargs["fmt"], kwargs["max_edge"]) == (150, "png", 2000)
+    assert (kwargs["top"], kwargs["bottom"]) == (0, 1000)
 
 
 @pytest.mark.parametrize(

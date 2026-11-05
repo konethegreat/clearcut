@@ -62,6 +62,7 @@ fn page(content: &str) -> PageInput {
         of: n(5),
         image: Some(image()),
         text: Some(text(content)),
+        part: None,
     }
 }
 
@@ -119,6 +120,7 @@ fn the_cached_prefix_is_byte_identical_for_every_page_document_and_tenant() {
         of: n(30),
         image: None,
         text: Some(text("something else entirely")),
+        part: None,
     };
     let packs = [
         build_pack_with_nonce(
@@ -230,6 +232,8 @@ fn the_page_part_is_image_then_context_then_text_then_the_instruction() {
     assert_eq!(parts[0], "IMAGE image/png 4");
     assert!(parts[1].starts_with(&format!("<document_context id=\"{NONCE}\">")));
     assert!(parts[1].contains("page: 2 of 5"));
+    assert!(!parts[1].contains("part:"), "{parts:?}");
+    assert!(pack.manifest.part.is_none());
     assert!(parts[1].ends_with(&format!("</document_context id=\"{NONCE}\">")));
     assert_eq!(
         parts[2],
@@ -238,6 +242,26 @@ fn the_page_part_is_image_then_context_then_text_then_the_instruction() {
         )
     );
     assert_eq!(parts[3], "Read page 2 of 5 now and return only the JSON.");
+}
+
+#[test]
+fn a_part_is_named_in_the_context_and_the_instruction() {
+    let mut input = page("Invoice No: INV-1");
+    input.part = Some(PartRef { index: 2, of: 3 });
+    let pack = build(&settings(), &input);
+    let blocks = blocks(&pack.request);
+    let context = &blocks[1];
+    assert!(
+        context.contains("page: 2 of 5\npart: 2 of 3 of page 2 of 5"),
+        "{blocks:?}"
+    );
+    assert!(
+        blocks
+            .iter()
+            .any(|b| b.contains("Read part 2 of 3 of page 2 of 5 now and return only the JSON.")),
+        "{blocks:?}"
+    );
+    assert_eq!(pack.manifest.part, Some(PartRef { index: 2, of: 3 }));
 }
 
 #[test]
@@ -291,6 +315,7 @@ fn a_page_with_nothing_to_read_is_refused() {
         of: n(1),
         image: None,
         text: None,
+        part: None,
     };
     let error = build_pack_with_nonce(
         &settings(),
@@ -747,7 +772,7 @@ fn the_manifest_names_what_was_sent_and_holds_no_text() {
         );
     }
     let m = &pack.manifest;
-    assert_eq!(m.prompt_version, "reading-v3/prompt-v3");
+    assert_eq!(m.prompt_version, "reading-v3/prompt-v4");
     assert_eq!(m.prefix_sha256.len(), 64);
     assert_eq!(m.schema_sha256.len(), 64);
     assert_eq!((m.page, m.of), (2, 5));

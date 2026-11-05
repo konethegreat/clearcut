@@ -50,7 +50,8 @@ use clearcut_jobs::{Failure, Finished, JobContext};
 use clearcut_objects::ObjectStore;
 use clearcut_pack::DocumentContext;
 use clearcut_provider::ModelProvider;
-use clearcut_router::{Carry, PageResult, PageRun, PageTask, Router};
+use clearcut_router::parts::EXTRA_CALLS_PER_PART;
+use clearcut_router::{Carry, PageResult, PageRun, PageTask, PartsEvidence, Router};
 use clearcut_store::page_readings::{KeptReading, PageDetails, PageReading as StoredPage, PageState};
 use clearcut_store::{AuditEntry, DocId, Job, TenantId};
 use serde_json::{json, Value};
@@ -115,9 +116,12 @@ impl Tally {
     }
 }
 
-/// What goes in a page's notes: the router's own notes, plus why the picture was used when the
-/// page's text was too large to send. Counts only, never text.
-pub(crate) fn page_notes(outcome: &PageOutcome, text_dropped_bytes: usize) -> Value {
+/// The notes a page carries: what the router said, what it dropped, and how it was split.
+pub(crate) fn page_notes(
+    outcome: &PageOutcome,
+    text_dropped_bytes: usize,
+    parts: Option<&PartsEvidence>,
+) -> Value {
     let mut notes = match outcome {
         PageOutcome::Read { notes, .. } => serde_json::to_value(notes).unwrap_or_else(|_| json!([])),
         PageOutcome::NeedsReview { .. } => json!([]),
@@ -127,7 +131,66 @@ pub(crate) fn page_notes(outcome: &PageOutcome, text_dropped_bytes: usize) -> Va
             list.push(json!({ "type": "text_dropped", "bytes": text_dropped_bytes }));
         }
     }
+    if let Some(parts) = parts {
+        if let Some(list) = notes.as_array_mut() {
+            list.extend(parts_notes(parts));
+        }
+    }
     notes
+}
+
+/// What a split page says about itself: the plan, the seams and a part that failed.
+pub(crate) fn parts_notes(parts: &PartsEvidence) -> Vec<Value> {
+    let mut notes = vec![json!({
+        "type": "parts",
+        "planned": parts.planned,
+        "read": parts.read,
+        "seams": parts.seams,
+        "seam_uncertain": parts.seam_uncertain,
+    })];
+    if let Some(failed) = &parts.failed {
+        notes.push(json!({
+            "type": "part_failed",
+            "part": failed.part,
+            "reason": failed.reason.as_str(),
+        }));
+    }
+    notes
+}
+
+/// The extra calls a split into `planned` parts was given.
+fn extras_for(planned: u32) -> u32 {
+    planned.saturating_sub(1).saturating_mul(EXTRA_CALLS_PER_PART)
+}
+
+/// How many calls a page needed because it was split, from its stored notes.
+pub(crate) fn part_extras(notes: &Value) -> u32 {
+    let planned = notes
+        .as_array()
+        .and_then(|notes| {
+            notes
+                .iter()
+                .find(|note| note.get("type").and_then(Value::as_str) == Some("parts"))
+        })
+        .and_then(|note| note.get("planned"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    // A page has at most `u8::MAX` parts, so a larger stored number is damage.
+    let planned = u8::try_from(planned).unwrap_or(u8::MAX);
+    extras_for(u32::from(planned))
+}
+
+/// The extra calls a finished page's own evidence says it was given.
+fn parts_extra(parts: &PartsEvidence) -> u32 {
+    extras_for(u32::from(parts.planned))
+}
+
+/// The allowance after a page has ended: its calls are spent, and the extra calls its
+/// split was given pass to the pages after it.
+pub(crate) fn allowance_after(calls_left: u32, spent_calls: u32, parts: Option<&PartsEvidence>) -> u32 {
+    calls_left
+        .saturating_sub(spent_calls)
+        .saturating_add(parts.map_or(0, parts_extra))
 }
 
 /// How many pages of a document were read from their picture because their text was too large.
@@ -174,7 +237,14 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
         self.replay(document, &reads, &stored, &mut established);
 
         let mut budget = self.budget_for(tenant, document, pages, models).await?;
-        let mut calls_left = self.calls_left(tenant, document, pages, models).await?;
+        // A page read in parts is given extra calls. Only pages that have ended are counted
+        // here: the router gives the page it is reading its own extra, once it has planned it.
+        let extra: u32 = stored
+            .iter()
+            .filter(|page| !matches!(page.state, PageState::InProgress { .. }))
+            .map(|page| part_extras(&page.details.notes))
+            .fold(0, u32::saturating_add);
+        let mut calls_left = self.calls_left(tenant, document, pages, models, extra).await?;
         let mut unavailable: Vec<String> = Vec::new();
         self.progress(ctx, 0, pages, "reading the pages").await?;
 
@@ -201,7 +271,10 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                     if let (PageState::Read(_), Some(extraction)) = (&state, &result.extraction) {
                         established.absorb(extraction);
                     }
-                    calls_left = calls_left.saturating_sub(counted_calls(&result));
+                    // Now that the page has ended, its calls are spent and the pages after it
+                    // may use the extra its split was given. The router gave the page itself
+                    // its extra while reading it.
+                    calls_left = allowance_after(calls_left, counted_calls(&result), result.parts.as_ref());
                     for model in &result.unavailable_models {
                         if !unavailable.contains(model) {
                             unavailable.push(model.clone());
@@ -220,6 +293,13 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                         .map_err(|e| store_failure(&e))?;
                     // Keeps the page where it stopped. If the carry cannot be stored the page
                     // is simply read again from the start next time.
+                    let details = match &interruption.parts {
+                        Some(parts) => PageDetails {
+                            notes: Value::Array(parts_notes(parts)),
+                            ..PageDetails::default()
+                        },
+                        None => PageDetails::default(),
+                    };
                     if let Ok(carry) = serde_json::to_value(&interruption.carry) {
                         let saved = self
                             .store
@@ -228,7 +308,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                                 document,
                                 page,
                                 &PageState::InProgress { carry },
-                                &PageDetails::default(),
+                                &details,
                             )
                             .await;
                         if let Err(error) = saved {
@@ -302,13 +382,14 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
         Ok(budget)
     }
 
-    /// How many calls the document may still make.
+    /// How many calls the document may still make, including what its split pages were given.
     async fn calls_left(
         &self,
         tenant: TenantId,
         document: DocId,
         pages: u32,
         models: &Models<M>,
+        extra: u32,
     ) -> Step<u32> {
         let used = self
             .store
@@ -321,6 +402,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
             .router
             .policy
             .document_call_cap(pages)
+            .saturating_add(extra)
             .saturating_sub(used))
     }
 
@@ -387,17 +469,13 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
                 draft: kept(ConfidenceBasis::Unresolved),
             },
         };
-        let notes = page_notes(&result.outcome, result.text_dropped_bytes);
+        let notes = page_notes(&result.outcome, result.text_dropped_bytes, result.parts.as_ref());
         let details = PageDetails {
             problems: serde_json::to_value(&result.problems).unwrap_or_else(|_| json!([])),
             findings: serde_json::to_value(&result.findings).unwrap_or_else(|_| json!([])),
             notes,
             unconfirmed: result.unconfirmed.clone(),
-            injection_suspected: result
-                .injection_suspected
-                .iter()
-                .map(|kind| (*kind).to_string())
-                .collect(),
+            injection_suspected: result.injection_suspected.clone(),
         };
         self.store
             .save_page_reading(tenant, document, page, &state, &details)

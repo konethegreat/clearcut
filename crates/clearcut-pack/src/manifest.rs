@@ -5,6 +5,7 @@
 //! keeping what was read: sizes, names, hashes and counts only. **No document
 //! text, no redacted value, no nonce.**
 
+use crate::input::PartRef;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -44,7 +45,7 @@ pub struct RedactionReport {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackManifest {
-    /// `reading-v3/prompt-v3`: the shape and the prompt that produced this call.
+    /// `reading-v3/prompt-v4`: the shape and the prompt that produced this call.
     pub prompt_version: String,
     /// SHA-256 of the cached prefix (all system blocks); equal hashes mean a cache can hit.
     pub prefix_sha256: String,
@@ -58,6 +59,8 @@ pub struct PackManifest {
     pub of: u32,
     /// `text_layer`, `ocr`, or `none`.
     pub text_source: &'static str,
+    /// Which part of the page this call read; `None` for a whole page.
+    pub part: Option<PartRef>,
     pub sections: Vec<Section>,
     pub redaction: RedactionReport,
     /// Kinds of instruction-like text found (never the text).

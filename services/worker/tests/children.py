@@ -232,7 +232,7 @@ def text_echo(
 
 
 # ---- stand-ins for the rendering child:
-#      (conn, data, page, dpi, fmt, max_edge, max_pages, timeout, max_bytes)
+#      (conn, data, page, dpi, fmt, max_edge, top, bottom, max_pages, timeout, max_bytes)
 
 
 def render_hang(
@@ -242,6 +242,8 @@ def render_hang(
     dpi: float,
     fmt: str,
     max_edge: int,
+    top: int,
+    bottom: int,
     max_pages: int,
     t: float,
     cap: int,
@@ -257,6 +259,8 @@ def render_crash(
     dpi: float,
     fmt: str,
     max_edge: int,
+    top: int,
+    bottom: int,
     max_pages: int,
     t: float,
     cap: int,
@@ -272,6 +276,8 @@ def render_echo(
     dpi: float,
     fmt: str,
     max_edge: int,
+    top: int,
+    bottom: int,
     max_pages: int,
     t: float,
     cap: int,

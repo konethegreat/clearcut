@@ -207,6 +207,7 @@ mod tests {
             page: 2,
             of: 3,
             text_source: "text_layer",
+            part: None,
             sections: vec![Section {
                 kind: "page_text",
                 bytes: 1_200,

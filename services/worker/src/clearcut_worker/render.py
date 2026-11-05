@@ -6,6 +6,10 @@ single page. Either way the result goes through ``images.encode_image``, so what
 is plain pixels in a PNG (or a JPEG when the PNG is too big): no metadata, no colour
 profile, nothing but the picture.
 
+A page can also be drawn as a band of itself: ``top`` and ``bottom`` are thousandths of
+its height, and the band is cropped out before encoding, so ``max_edge`` applies to the
+band rather than to the whole page. A band with no height is refused.
+
 The sizes are checked **before** anything is drawn: a page more than 14 400 points on a
 side, or one that would need more than 40 million pixels at the dpi asked for, is
 refused, because drawing it would use memory the worker does not have.
@@ -51,6 +55,14 @@ class PageTooBig(InspectError):
     """The page would be too big to draw: too long on a side, or too many pixels."""
 
 
+class EmptyCrop(InspectError):
+    """The band asked for has no height."""
+
+
+MIN_PER_MILLE = 0
+MAX_PER_MILLE = 1000
+
+
 def render_page(
     data: bytes,
     page: int,
@@ -58,6 +70,8 @@ def render_page(
     dpi: float = DEFAULT_DPI,
     fmt: str = "png",
     max_edge: int = DEFAULT_MAX_EDGE,
+    top: int = MIN_PER_MILLE,
+    bottom: int = MAX_PER_MILLE,
     max_bytes: int = MAX_IMAGE_BYTES,
     max_pages: int,
     deadline: float,
@@ -66,9 +80,16 @@ def render_page(
 ) -> EncodedImage:
     """Page ``page`` (1-based) of the document as an image.
 
-    Raises the same named refusals as reading text, plus ``PageTooBig`` for a PDF page
-    and ``ImageTooLarge`` for a picture. Nothing a refusal says comes from the file.
+    The picture returned holds only the band between ``top`` and ``bottom`` thousandths
+    of the page's height: the page is drawn whole and then cropped, before encoding, so
+    that ``max_edge`` applies to the band. Raises the same named refusals as reading
+    text, plus ``PageTooBig`` for a PDF page, ``ImageTooLarge`` for a picture, and
+    ``EmptyCrop`` for a band with no height. Nothing a refusal says comes from the file.
     """
+    if not (MIN_PER_MILLE <= top <= MAX_PER_MILLE and MIN_PER_MILLE <= bottom <= MAX_PER_MILLE):
+        raise ValueError("the crop must be given in thousandths of the page")
+    if top >= bottom:
+        raise EmptyCrop
     if page < 1:
         raise ValueError("the page must be 1 or later")
     if sniff(data) in ("png", "jpeg"):
@@ -77,6 +98,7 @@ def render_page(
             raise PageOutOfRange(1)
         picture = open_image(data, max_pixels=max_pixels)
         check_time(deadline)
+        picture = _crop(picture, top, bottom)
         return encode_image(picture, fmt=fmt, max_edge=max_edge, max_bytes=max_bytes)
 
     _reader, count = read_structure(data, max_pages=max_pages, deadline=deadline)
@@ -95,6 +117,7 @@ def render_page(
     finally:
         document.close()
     check_time(deadline)
+    picture = _crop(picture, top, bottom)
     return encode_image(picture, fmt=fmt, max_edge=max_edge, max_bytes=max_bytes)
 
 
@@ -117,3 +140,11 @@ def _draw(engine_page: object, dpi: float, max_pixels: int):  # type: ignore[no-
         return bitmap.to_pil()
     finally:
         engine_page.close()  # type: ignore[attr-defined]
+
+
+def _crop(picture: object, top: int, bottom: int):  # type: ignore[no-untyped-def]
+    """The horizontal band of a picture between two thousandths of its height."""
+    width, height = picture.size  # type: ignore[attr-defined]
+    first = height * top // 1000
+    last = (height * bottom + 999) // 1000
+    return picture.crop((0, first, width, last))  # type: ignore[attr-defined]

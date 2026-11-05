@@ -40,14 +40,14 @@ pub use http::{
     ConfigError, HttpWorker, DEFAULT_TIMEOUT, MAX_IMAGE_RESPONSE_BYTES, MAX_RESPONSE_BYTES,
     MAX_TEXT_RESPONSE_BYTES,
 };
-pub use masker::{boxes_for_spans, MaskPlanError, WorkerMasker, MASK_MARGIN_PER_MILLE};
+pub use masker::{boxes_for_spans, MaskPlanError, PartWindow, WorkerMasker, MASK_MARGIN_PER_MILLE};
 pub use page::{
     InvalidImage, InvalidPage, PageContent, PageParts, PageSource, PageWord, RenderedPage, WordBox,
     MAX_FONTS, MAX_IMAGE_EDGE, MAX_PAGE_TEXT_BYTES, MAX_WORDS_PER_PAGE,
 };
 pub use request::{
-    ImageFormat, InvalidRequest, MaskBox, PageRange, RenderOptions, MAX_BOXES, MAX_DPI, MAX_EDGE, MIN_DPI,
-    MIN_EDGE,
+    Crop, ImageFormat, InvalidRequest, MaskBox, PageRange, RenderOptions, MAX_BOXES, MAX_DPI, MAX_EDGE,
+    MIN_DPI, MIN_EDGE,
 };
 
 // ------------------------------------------------------------------ results ----

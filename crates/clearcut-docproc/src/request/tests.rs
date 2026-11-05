@@ -64,6 +64,18 @@ fn the_resolution_and_longest_side_are_kept_within_what_the_worker_allows() {
     assert_eq!((MIN_EDGE, MAX_EDGE), (500, 2576));
 }
 
+#[test]
+fn a_crop_is_a_band_between_two_thousandths_of_the_page() {
+    assert!(Crop::new(0, 1000).is_ok());
+    assert!(Crop::new(250, 750).is_ok());
+    assert!(Crop::new(500, 500).is_err(), "an empty band");
+    assert!(Crop::new(600, 400).is_err(), "upside down");
+    assert!(Crop::new(0, 1001).is_err(), "past the page");
+    let options = RenderOptions::default().with_crop(Crop::new(250, 750).unwrap());
+    assert_eq!(options.crop().map(|c| (c.top(), c.bottom())), Some((250, 750)));
+    assert!(RenderOptions::default().crop().is_none());
+}
+
 // ---------- boxes ----------
 
 #[test]

@@ -65,6 +65,7 @@ fn input() -> PageInput {
             source: TextSource::TextLayer,
             content: TEXT.to_string(),
         }),
+        part: None,
     }
 }
 

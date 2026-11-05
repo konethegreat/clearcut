@@ -25,7 +25,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::request::{ImageFormat, MaskBox, MAX_BOXES, MAX_EDGE};
+use crate::request::{Crop, ImageFormat, MaskBox, MAX_BOXES, MAX_EDGE};
 use crate::{DocumentProcessor, PageContent, PageSource, PageWord};
 use bytes::Bytes;
 use clearcut_core::redact::Span;
@@ -99,6 +99,50 @@ pub fn boxes_for_spans(
     Ok(boxes)
 }
 
+/// The slice of a page a part holds, and the band of the picture it was drawn from.
+pub struct PartWindow<'a> {
+    /// The part's text: exactly `page.text()[byte_start..byte_start + text.content.len()]`.
+    pub text: &'a PageText,
+    pub byte_start: usize,
+    /// The band the part's picture was rendered with: the boxes are mapped into it, so a
+    /// different band would place the paint somewhere else on the part.
+    pub crop: Crop,
+}
+
+/// A page word moved into the part: its bytes from the start of the slice, its box from the
+/// top of the band. `None` when the word lies outside the slice or the band.
+fn word_in_part(word: &PageWord, window: &PartWindow<'_>) -> Option<PageWord> {
+    let start = word.start.checked_sub(window.byte_start)?;
+    let end = word.end.checked_sub(window.byte_start)?;
+    if end > window.text.content.len()
+        || !window.text.content.is_char_boundary(start)
+        || !window.text.content.is_char_boundary(end)
+    {
+        return None;
+    }
+    let b = word.bounds;
+    let (top, bottom) = (u32::from(window.crop.top()), u32::from(window.crop.bottom()));
+    let first = u32::from(b.y);
+    let last = first.checked_add(u32::from(b.h))?;
+    if first < top || last > bottom {
+        return None;
+    }
+    let height = bottom - top;
+    let mapped_y = u16::try_from((first - top) * 1000 / height).ok()?;
+    let mapped_bottom = u16::try_from(((last - top) * 1000).div_ceil(height)).ok()?;
+    Some(PageWord {
+        start,
+        end,
+        bounds: crate::WordBox {
+            x: b.x,
+            y: mapped_y,
+            w: b.w,
+            h: mapped_bottom.saturating_sub(mapped_y).max(1),
+        },
+        confidence: word.confidence,
+    })
+}
+
 /// An [`ImageMasker`] that has already had the worker paint one page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerMasker {
@@ -149,6 +193,61 @@ impl WorkerMasker {
         Ok(WorkerMasker {
             original: image.clone(),
             text: text.clone(),
+            spans: spans.to_vec(),
+            masked,
+        })
+    }
+
+    /// Has the worker paint over `spans` (byte ranges of `window.text.content`) inside the band.
+    ///
+    /// The page's words are mapped into the part; a word that lies outside the slice or the band
+    /// is left out, so a span on it cannot be located and the mask fails (fail closed).
+    pub async fn prepare_part<P: DocumentProcessor>(
+        processor: &P,
+        image: &PageImage,
+        page: &PageContent,
+        window: &PartWindow<'_>,
+        spans: &[Span],
+    ) -> Result<WorkerMasker, MaskError> {
+        let same_reading = matches!(
+            (page.source(), window.text.source),
+            (PageSource::TextLayer, TextSource::TextLayer) | (PageSource::Ocr, TextSource::Ocr)
+        );
+        let end = window
+            .byte_start
+            .checked_add(window.text.content.len())
+            .ok_or(MaskError::Failed)?;
+        let expected = page.text().get(window.byte_start..end);
+        if !same_reading || expected != Some(window.text.content.as_str()) {
+            return Err(MaskError::Failed);
+        }
+        let masked = if spans.is_empty() {
+            image.clone()
+        } else {
+            let words = page.words().ok_or(MaskError::Failed)?;
+            let mapped: Vec<PageWord> = words
+                .iter()
+                .filter_map(|word| word_in_part(word, window))
+                .collect();
+            let boxes =
+                boxes_for_spans(&window.text.content, &mapped, spans).map_err(|_| MaskError::Failed)?;
+            let painted = processor
+                .mask_image(
+                    Bytes::from(image.bytes.clone()),
+                    boxes,
+                    ImageFormat::of(image.media),
+                    MAX_EDGE,
+                )
+                .await
+                .map_err(|_| MaskError::Failed)?;
+            PageImage {
+                media: painted.media(),
+                bytes: painted.bytes().to_vec(),
+            }
+        };
+        Ok(WorkerMasker {
+            original: image.clone(),
+            text: window.text.clone(),
             spans: spans.to_vec(),
             masked,
         })
