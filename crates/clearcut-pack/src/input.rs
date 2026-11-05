@@ -75,6 +75,7 @@ impl std::fmt::Debug for PageText {
 pub struct PartRef {
     /// 1-based.
     pub index: u8,
+    /// How many parts this page is cut into.
     pub of: u8,
 }
 

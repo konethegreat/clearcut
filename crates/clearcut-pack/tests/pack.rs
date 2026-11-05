@@ -232,6 +232,8 @@ fn the_page_part_is_image_then_context_then_text_then_the_instruction() {
     assert_eq!(parts[0], "IMAGE image/png 4");
     assert!(parts[1].starts_with(&format!("<document_context id=\"{NONCE}\">")));
     assert!(parts[1].contains("page: 2 of 5"));
+    assert!(!parts[1].contains("part:"), "{parts:?}");
+    assert!(pack.manifest.part.is_none());
     assert!(parts[1].ends_with(&format!("</document_context id=\"{NONCE}\">")));
     assert_eq!(
         parts[2],
@@ -248,8 +250,9 @@ fn a_part_is_named_in_the_context_and_the_instruction() {
     input.part = Some(PartRef { index: 2, of: 3 });
     let pack = build(&settings(), &input);
     let blocks = blocks(&pack.request);
+    let context = &blocks[1];
     assert!(
-        blocks.iter().any(|b| b.contains("part: 2 of 3 of page 2 of 5")),
+        context.contains("page: 2 of 5\npart: 2 of 3 of page 2 of 5"),
         "{blocks:?}"
     );
     assert!(
