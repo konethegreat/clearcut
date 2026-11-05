@@ -253,6 +253,8 @@ Per document, in the `document.read` audit detail: pages read, pages banded, par
 
 **No database migration.** The page state, details and carry are JSON; the new fields are additive and validated. The reading schema stays `reading-v3`. The prompt becomes `prompt-v4`, so the prompt golden is regenerated and gold-set scores before and after are not directly comparable, as ADR-0013 requires.
 
+**Correction (5 November 2026):** migration `0013_review_reason_parts.sql` widens the stored review-reason check so `part_conflict`, `part_failed` and `too_dense` can be stored; it changes no data and no column.
+
 **New review reasons:** `part_conflict`, `part_failed` and `too_dense`. The SDK and OpenAPI enums and the review copy gain them. An uncertain seam is a note, not a reason, because a page with one can still be accepted. The fixed order of reasons is documented in one place.
 
 **Deployment order:** worker first (new endpoints and parameters are additive), verify `/health` lists the band capabilities, then the server. A new server on an old worker reads whole pages and behaves exactly as today.
