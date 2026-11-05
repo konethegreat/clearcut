@@ -40,6 +40,10 @@ pub struct PartsCarry {
     pub done: Vec<PartDone>,
     /// The attempts issued on the page before the current part's reader started.
     pub issued_before: u32,
+    /// The document's calls left when this page was planned. The page's allowance is defined
+    /// from this value, so it is kept as it was: on resume the document has already been
+    /// charged for this page's calls, and using the new lower value would end the page early.
+    pub document_calls_left: u32,
     /// Instruction-like kinds seen in the parts read so far (never the text).
     #[serde(default)]
     pub injection: Vec<String>,
@@ -51,6 +55,7 @@ struct UncheckedPartsCarry {
     index: u32,
     done: Vec<PartDone>,
     issued_before: u32,
+    document_calls_left: u32,
     #[serde(default)]
     injection: Vec<String>,
 }
@@ -85,7 +90,11 @@ impl TryFrom<UncheckedPartsCarry> for PartsCarry {
                 }
             }
         }
-        let issued: u32 = raw.done.iter().map(|part| part.issued).sum();
+        let issued = raw
+            .done
+            .iter()
+            .try_fold(0u32, |total, part| total.checked_add(part.issued))
+            .ok_or("the calls of the parts done are too many")?;
         if issued != raw.issued_before {
             return Err("the calls of the parts done do not add up");
         }
@@ -97,6 +106,7 @@ impl TryFrom<UncheckedPartsCarry> for PartsCarry {
             index: raw.index,
             done: raw.done,
             issued_before: raw.issued_before,
+            document_calls_left: raw.document_calls_left,
             injection: raw.injection,
         })
     }

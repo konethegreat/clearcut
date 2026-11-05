@@ -745,11 +745,11 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
 
         // The page's text chooses its parts and tells the painter where the words are. It is
         // fetched before the first call so a worker failure interrupts the page before any
-        // call is made, and a resumed part page has it before its next call. A machine that is
-        // already done (no rung, or no calls left) has no call to prepare for.
-        if (run.parts.is_some() || run.machine.calls_made() == 0)
-            && !run.machine.is_done()
-            && run.material.is_none()
+        // call is made, and a resumed part page has it before its next call. A whole page whose
+        // machine is already done (no rung, or no calls left) has no call to prepare for; a
+        // part page always does, even when the machine that finished the previous part is done.
+        if run.material.is_none()
+            && (run.parts.is_some() || (run.machine.calls_made() == 0 && !run.machine.is_done()))
         {
             match self.fetch_material(task).await {
                 Ok(material) => run.material = Some(material),
@@ -765,20 +765,48 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                     index: 0,
                     done: Vec::new(),
                     issued_before: 0,
+                    document_calls_left,
                     injection: Vec::new(),
                 });
-                match self.start_next_part(&mut run, document_calls_left) {
+                match self.start_next_part(&mut run) {
                     Ok(first) => step = first,
-                    Err(trouble) => {
-                        return PageRun::Interrupted(Box::new(run.into_interruption(trouble)));
+                    Err(_) => {
+                        let outcome = PageOutcome::NeedsReview {
+                            reason: ReviewReason::PartFailed,
+                            draft: None,
+                        };
+                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
                     }
                 }
             }
         } else if run.parts.is_some() && run.part.is_none() {
             // A resumed part page carries on with the call it had already planned; only the
             // part's words and band have to be remembered again.
-            if let Err(trouble) = self.load_part(&mut run) {
-                return PageRun::Interrupted(Box::new(run.into_interruption(trouble)));
+            if self.load_part(&mut run).is_err() {
+                let outcome = PageOutcome::NeedsReview {
+                    reason: ReviewReason::PartFailed,
+                    draft: None,
+                };
+                return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+            }
+            // A carry stored between two parts has the finished machine of the part it has
+            // already recorded: its outcome is in `done`, so the next part starts afresh
+            // instead of being recorded with the previous part's outcome.
+            let belongs_to_a_recorded_part = run
+                .parts
+                .as_ref()
+                .is_some_and(|parts| run.machine.attempts_issued() <= parts.issued_before);
+            if run.machine.is_done() && belongs_to_a_recorded_part {
+                match self.start_next_part(&mut run) {
+                    Ok(next) => step = next,
+                    Err(_) => {
+                        let outcome = PageOutcome::NeedsReview {
+                            reason: ReviewReason::PartFailed,
+                            draft: None,
+                        };
+                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
+                    }
+                }
             }
         }
 
@@ -792,7 +820,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                 };
                 let failed = match &done.outcome {
                     PageOutcome::Read { .. } => None,
-                    other => Some(part_review_reason(other)),
+                    other => Some(page_reason_for_failed_part(other)),
                 };
                 let planned = run.parts.as_ref().map_or(0, |parts| parts.plan.parts().len());
                 record_part(&mut run, done);
@@ -804,10 +832,14 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
                     let outcome = self.merge_parts_outcome(&mut run, task);
                     return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
                 }
-                match self.start_next_part(&mut run, document_calls_left) {
+                match self.start_next_part(&mut run) {
                     Ok(next) => step = next,
-                    Err(trouble) => {
-                        return PageRun::Interrupted(Box::new(run.into_interruption(trouble)));
+                    Err(_) => {
+                        let outcome = PageOutcome::NeedsReview {
+                            reason: ReviewReason::PartFailed,
+                            draft: None,
+                        };
+                        return PageRun::Finished(Box::new(self.finish_parts(run, task, outcome)));
                     }
                 }
                 continue;
@@ -879,14 +911,20 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
         Ok(())
     }
 
-    /// Starts the next part's state machine, with the calls made so far counted.
-    fn start_next_part(&self, run: &mut Run, document_calls_left: u32) -> Result<Step, Trouble> {
-        let (planned, issued_before) = {
+    /// Starts the next part's state machine, with the calls made so far counted. The page's
+    /// allowance comes from the calls the document had left when the page was planned, not
+    /// from what it has left now: the document has already been charged for this page's calls.
+    fn start_next_part(&self, run: &mut Run) -> Result<Step, Trouble> {
+        let (planned, issued_before, document_calls_left) = {
             let parts = run
                 .parts
                 .as_ref()
                 .ok_or_else(|| Trouble::worker_said("a part was started without a plan"))?;
-            (parts.plan.parts().len(), parts.issued_before)
+            (
+                parts.plan.parts().len(),
+                parts.issued_before,
+                parts.document_calls_left,
+            )
         };
         self.load_part(run)?;
         let left = part_allowance(document_calls_left, planned).saturating_sub(issued_before);
@@ -1614,7 +1652,7 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
     }
 }
 
-/// The writes a stored page carries on after its first part.
+/// The calls a stored page carries on after its first part.
 fn part_allowance(document_calls_left: u32, planned: usize) -> u32 {
     let parts = u32::try_from(planned).unwrap_or(u32::MAX);
     document_calls_left.saturating_add(EXTRA_CALLS_PER_PART.saturating_mul(parts.saturating_sub(1)))
@@ -1622,8 +1660,10 @@ fn part_allowance(document_calls_left: u32, planned: usize) -> u32 {
 
 /// The fixed reason a part's failure gives the page. A budget or a call cap is the page's too;
 /// a part still cut off at the ceiling makes the page too dense, since splitting further is not
-/// allowed; anything else is a part that could not be read.
-fn part_review_reason(outcome: &PageOutcome) -> ReviewReason {
+/// allowed; anything else is a part that could not be read. This may differ from
+/// [`evidence_reason_for_failed_part`] by design: the page reason takes precedence, while the
+/// evidence reports the part's own reason.
+fn page_reason_for_failed_part(outcome: &PageOutcome) -> ReviewReason {
     match outcome {
         PageOutcome::NeedsReview {
             reason: reason @ (ReviewReason::Budget | ReviewReason::CallCap | ReviewReason::CannotBeSentSafely),
@@ -1638,8 +1678,10 @@ fn part_review_reason(outcome: &PageOutcome) -> ReviewReason {
 }
 
 /// The reason a part's own failure is reported under in the evidence: a part cut off at the
-/// ceiling is too dense for its part; any other reason is the part's own.
-fn part_failure_reason(outcome: &PageOutcome) -> ReviewReason {
+/// ceiling is too dense for its part; any other reason is the part's own. This may differ from
+/// [`page_reason_for_failed_part`] by design: the page reason takes precedence, while the
+/// evidence reports the part's own reason.
+fn evidence_reason_for_failed_part(outcome: &PageOutcome) -> ReviewReason {
     match outcome {
         PageOutcome::NeedsReview {
             reason: ReviewReason::TooLong,
@@ -1723,7 +1765,7 @@ fn evidence_of(parts: Option<&PartsCarry>) -> Option<PartsEvidence> {
             .filter(|done| !matches!(done.outcome, PageOutcome::Read { .. }))
             .map(|done| PartFailure {
                 part: done.index,
-                reason: part_failure_reason(&done.outcome),
+                reason: evidence_reason_for_failed_part(&done.outcome),
             }),
     })
 }
