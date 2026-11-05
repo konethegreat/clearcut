@@ -892,6 +892,15 @@ impl<P: ModelProvider, W: DocumentProcessor> Router<P, W> {
             .text
             .as_ref()
             .ok_or_else(|| Trouble::worker_said("a page without text cannot be split"))?;
+        {
+            let parts = run
+                .parts
+                .as_ref()
+                .ok_or_else(|| Trouble::worker_said("a part was loaded without a plan"))?;
+            if !plan_covers_page(&parts.plan, &text.content) {
+                return Err(Trouble::worker_said("a stored plan does not cover its page"));
+            }
+        }
         let content = text
             .content
             .get(part.byte_start()..part.byte_end())
@@ -1690,6 +1699,23 @@ fn evidence_reason_for_failed_part(outcome: &PageOutcome) -> ReviewReason {
         PageOutcome::NeedsReview { reason, .. } => *reason,
         _ => ReviewReason::PartFailed,
     }
+}
+
+/// Whether a stored plan accounts for the page's text: no word outside the parts' span and
+/// no word in the gap between two parts. The planner leaves each seam's separating space
+/// outside both neighbours, and a real page may begin or end with whitespace, so whitespace
+/// may be skipped; anything else in a gap would be a lost line.
+fn plan_covers_page(plan: &PartsPlan, text: &str) -> bool {
+    let parts = plan.parts();
+    let (Some(first), Some(last)) = (parts.first(), parts.last()) else {
+        return false;
+    };
+    let only_space = |from: usize, to: usize| text.get(from..to).is_some_and(|slice| slice.trim().is_empty());
+    only_space(0, first.byte_start())
+        && only_space(last.byte_end(), text.len())
+        && parts
+            .windows(2)
+            .all(|pair| only_space(pair[0].byte_end(), pair[1].byte_start()))
 }
 
 /// Splits the page from its words and text; `None` when it is not dense enough or the words
