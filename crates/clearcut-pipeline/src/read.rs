@@ -393,11 +393,7 @@ impl<O: ObjectStore + 'static, P: DocumentProcessor, M: ModelProvider> PipelineH
             findings: serde_json::to_value(&result.findings).unwrap_or_else(|_| json!([])),
             notes,
             unconfirmed: result.unconfirmed.clone(),
-            injection_suspected: result
-                .injection_suspected
-                .iter()
-                .map(|kind| (*kind).to_string())
-                .collect(),
+            injection_suspected: result.injection_suspected.clone(),
         };
         self.store
             .save_page_reading(tenant, document, page, &state, &details)

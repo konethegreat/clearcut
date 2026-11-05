@@ -1020,3 +1020,14 @@ fn the_outcome_is_known_once_the_page_is_done_and_not_before() {
     };
     assert_eq!(reader.outcome(), Some(&done));
 }
+
+#[test]
+fn a_part_reader_numbers_its_attempts_after_the_page_s_earlier_calls() {
+    let policy = RouterPolicy::default_ladder();
+    let (reader, step) = PageReader::start_after(&policy, 5, 2);
+    let Step::Call(plan) = step else {
+        panic!("a fresh part asks for its first call");
+    };
+    assert_eq!(plan.attempt, 3, "the page's earlier calls are counted");
+    assert_eq!(reader.attempts_issued(), 3);
+}

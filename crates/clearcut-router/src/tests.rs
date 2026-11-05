@@ -317,6 +317,321 @@ fn review_outcome(result: &PageResult) -> (ReviewReason, Option<u32>) {
     }
 }
 
+// ---------- a page read in parts ----------
+
+/// The invented dense page: `words` tokens of "R1.00", forty to a row.
+fn long_layer(words: usize) -> PageContent {
+    let mut text = String::new();
+    let mut boxes = Vec::new();
+    for i in 0..words {
+        if i > 0 {
+            text.push(' ');
+        }
+        let start = text.len();
+        text.push_str("R1.00");
+        let end = text.len();
+        let row = u32::try_from(i / 40).unwrap();
+        let column = u32::try_from(i % 40).unwrap();
+        boxes.push(PageWord {
+            start,
+            end,
+            bounds: WordBox {
+                x: u16::try_from(column * 14).unwrap(),
+                y: u16::try_from(10 + row * 15).unwrap(),
+                w: 13,
+                h: 8,
+            },
+            confidence: None,
+        });
+    }
+    PageContent::from_parts(PageParts {
+        page: n(1),
+        source: PageSource::TextLayer,
+        text,
+        width_pt: 595.0,
+        height_pt: 842.0,
+        fonts: Vec::new(),
+        words: Some(boxes),
+        agreement: None,
+    })
+    .unwrap()
+}
+
+fn long_worker(words: usize, pictures: usize) -> Arc<FakeWorker> {
+    Arc::new(
+        FakeWorker::scripted(vec![])
+            .with_texts(vec![Ok(vec![long_layer(words)])])
+            .with_renders(renders(pictures)),
+    )
+}
+
+/// What one part of the dense page "says": one line whose amount is on every row.
+fn part_reading() -> PageReading {
+    PageReading {
+        currency: ReadCurrency::Zar,
+        amounts_include_vat: ReadVatBasis::No,
+        invoice_number: String::new(),
+        invoice_date: String::new(),
+        supplier: ReadParty {
+            name: "Acme (Pty) Ltd".into(),
+            address: String::new(),
+            vat_number: String::new(),
+        },
+        recipient: ReadParty::default(),
+        lines: vec![ReadLine {
+            description: "R1.00".into(),
+            quantity: "1".into(),
+            unit_price: "1.00".into(),
+            line_total: "1.00".into(),
+            tax: ReadTax::Standard,
+        }],
+        totals: ReadTotals::default(),
+        carried: Default::default(),
+        due: ReadDue::default(),
+        credit_note: ReadCreditNote::default(),
+    }
+}
+
+fn other_supplier() -> PageReading {
+    let mut reading = part_reading();
+    reading.supplier.name = "Other (Pty) Ltd".into();
+    reading
+}
+
+#[tokio::test]
+async fn a_dense_page_is_read_in_parts_and_merged() {
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let worker = long_worker(1_203, 3);
+    let result = read(&provider, &worker, &trusted_page()).await;
+
+    assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::TextConfirmed));
+    assert_eq!(provider.call_count(), 3, "one call for each of three parts");
+    let labels: Vec<String> = provider
+        .requests()
+        .iter()
+        .map(|request| texts(request).join("\n"))
+        .collect();
+    assert!(labels[0].contains("part: 1 of 3 of page 1 of 1"), "{}", labels[0]);
+    assert!(labels[1].contains("part: 2 of 3 of page 1 of 1"), "{}", labels[1]);
+    assert!(labels[2].contains("part: 3 of 3 of page 1 of 1"), "{}", labels[2]);
+    assert_eq!(
+        result.parts,
+        Some(PartsEvidence {
+            planned: 3,
+            read: 3,
+            seams: vec![171, 321],
+            seam_uncertain: false,
+            failed: None,
+        })
+    );
+    let extraction = result.extraction.as_ref().expect("the merged page");
+    assert_eq!(extraction.lines.len(), 3, "the parts' lines are joined");
+    assert_eq!(extraction.currency, Currency::Zar);
+}
+
+#[tokio::test]
+async fn splitting_a_page_does_not_take_a_later_pages_calls() {
+    // The document has one call left. Three parts are allowed three extras each.
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let worker = long_worker(1_203, 3);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 1, None)
+            .await,
+    );
+    assert_eq!(read_outcome(&result).0, 0);
+    assert_eq!(provider.call_count(), 3);
+}
+
+#[tokio::test]
+async fn a_part_that_is_refused_stops_the_page() {
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        Err(ProviderError::Refused { usage: usage() }),
+    ]);
+    let worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::PartFailed, None));
+    assert_eq!(provider.call_count(), 2);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 1));
+    assert_eq!(
+        parts.failed,
+        Some(PartFailure {
+            part: 2,
+            reason: ReviewReason::Refused
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_part_still_too_long_is_too_dense() {
+    let cut = || {
+        Err(ProviderError::Truncated {
+            usage: Usage {
+                input_tokens: 6_000,
+                output_tokens: 16_000,
+                ..Usage::default()
+            },
+        })
+    };
+    // Part 1 reads; part 2 is cut off at its cap and again at the truncation ceiling. The page
+    // is denser than any part can hold, and splitting further is not allowed: a person decides.
+    let provider = FakeProvider::scripted(vec![answer(&part_reading()), cut(), cut()]);
+    let worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::TooDense, None));
+    assert_eq!(provider.call_count(), 3);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 1));
+    assert_eq!(
+        parts.failed,
+        Some(PartFailure {
+            part: 2,
+            reason: ReviewReason::TooDense
+        })
+    );
+}
+
+#[tokio::test]
+async fn a_part_that_cannot_be_afforded_stops_the_page_as_a_budget_stop() {
+    let provider = FakeProvider::scripted(vec![]);
+    let worker = long_worker(1_203, 1);
+    let tiny = BudgetPolicy::new(
+        Cost::from_nano_rand(1),
+        Cost::from_nano_rand(1),
+        Cost::from_rand_cents(10_000),
+    )
+    .unwrap();
+    let mut budget = BudgetCheck::new(&tiny, 1, Cost::ZERO);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(&trusted_page(), &mut budget, 100, None)
+            .await,
+    );
+    assert_eq!(review_outcome(&result), (ReviewReason::Budget, None));
+    assert_eq!(provider.call_count(), 0, "no call is made");
+    assert_eq!(
+        result.parts.and_then(|parts| parts.failed),
+        Some(PartFailure {
+            part: 1,
+            reason: ReviewReason::Budget
+        })
+    );
+}
+
+#[tokio::test]
+async fn two_parts_that_disagree_go_to_a_person() {
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&other_supplier()),
+        answer(&part_reading()),
+    ]);
+    let worker = long_worker(1_203, 3);
+    let result = read(&provider, &worker, &trusted_page()).await;
+    assert_eq!(review_outcome(&result), (ReviewReason::PartConflict, None));
+    assert_eq!(provider.call_count(), 3);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read, parts.failed), (3, 3, None));
+    assert!(result.reading.is_none(), "a disagreed page has no draft");
+}
+
+#[tokio::test]
+async fn a_page_read_in_parts_resumes_where_it_stopped() {
+    let first = FakeProvider::scripted(vec![answer(&part_reading()), Err(ProviderError::Timeout)]);
+    let first_worker = long_worker(1_203, 2);
+    let interruption = interrupted(
+        router(&first, &first_worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, None)
+            .await,
+    );
+    let carry = interruption.carry;
+    let parts = carry.parts.as_ref().expect("the parts carry");
+    assert_eq!((parts.index, parts.done.len(), parts.issued_before), (1, 1, 1));
+    assert_eq!(carry.machine.pending().map(|plan| plan.attempt), Some(2));
+    assert_eq!(carry.machine.attempts_issued(), 2);
+    let stored = serde_json::to_string(&carry).unwrap();
+    let carry: Carry = serde_json::from_str(&stored).expect("a checked carry");
+
+    let second = FakeProvider::scripted(vec![answer(&part_reading()), answer(&part_reading())]);
+    let second_worker = long_worker(1_203, 2);
+    let result = finished(
+        router(&second, &second_worker, config())
+            .read_page(&trusted_page(), &mut budget(), 100, Some(carry))
+            .await,
+    );
+    assert_eq!(read_outcome(&result), (0, 1, ConfidenceBasis::TextConfirmed));
+    let labels: Vec<String> = second
+        .requests()
+        .iter()
+        .map(|request| texts(request).join("\n"))
+        .collect();
+    assert!(labels[0].contains("part: 2 of 3"), "{}", labels[0]);
+    assert!(labels[1].contains("part: 3 of 3"), "{}", labels[1]);
+    let parts = result.parts.expect("part evidence");
+    assert_eq!((parts.planned, parts.read), (3, 3));
+}
+
+#[tokio::test]
+async fn parts_of_an_unverified_layer_are_not_painted_from() {
+    let provider = FakeProvider::scripted(vec![
+        answer(&part_reading()),
+        answer(&part_reading()),
+        answer(&part_reading()),
+    ]);
+    let worker = long_worker(1_203, 3);
+    let result = finished(
+        router(&provider, &worker, config())
+            .read_page(
+                &task(ReadRoute::ImageFirst, PageTextSource::TextLayer),
+                &mut budget(),
+                100,
+                None,
+            )
+            .await,
+    );
+    assert_eq!(read_outcome(&result).0, 0);
+    assert_eq!(provider.call_count(), 3);
+    assert_eq!(worker.mask_calls().len(), 0, "an unverified layer paints nothing");
+    assert!(worker.text_calls()[0].words, "words are needed to plan the parts");
+}
+
+#[test]
+fn a_reading_too_large_for_the_store_is_too_dense() {
+    let mut reading = part_reading();
+    let description = "x".repeat(500);
+    reading.lines = (0..600)
+        .map(|_| ReadLine {
+            description: description.clone(),
+            quantity: "1".into(),
+            unit_price: "1.00".into(),
+            line_total: "1.00".into(),
+            tax: ReadTax::Standard,
+        })
+        .collect();
+    assert!(
+        !reading_fits_store(&reading),
+        "600 long lines do not fit the store"
+    );
+    assert!(reading_fits_store(&part_reading()));
+}
+
 // ---------- the normal case ----------
 
 #[tokio::test]
@@ -702,8 +1017,8 @@ async fn text_that_could_not_be_checked_confirms_but_never_condemns() {
         page_text_tag(request)
     );
     assert!(
-        !worker.text_calls()[0].words,
-        "the words of a layer that is only a hint are not needed"
+        worker.text_calls()[0].words,
+        "the words of an unverified layer are needed to plan parts and to paint them"
     );
 }
 

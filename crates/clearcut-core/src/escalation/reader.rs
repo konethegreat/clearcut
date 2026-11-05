@@ -267,6 +267,16 @@ impl PageReader {
     /// Starts a page. `document_calls_left` is what the document may still spend in calls
     /// (`RouterPolicy::document_call_cap` less what earlier pages used).
     pub fn start(policy: &RouterPolicy, document_calls_left: u32) -> (PageReader, Step) {
+        PageReader::start_after(policy, document_calls_left, 0)
+    }
+
+    /// Starts a part of a page whose earlier attempts are already spent. Attempt numbers keep
+    /// counting from `attempts_before`, so every call of the page is numbered once.
+    pub fn start_after(
+        policy: &RouterPolicy,
+        document_calls_left: u32,
+        attempts_before: u32,
+    ) -> (PageReader, Step) {
         let rungs: Vec<Planned> = policy
             .rungs()
             .iter()
@@ -285,7 +295,7 @@ impl PageReader {
             call_limit: policy.max_calls_per_page().min(document_calls_left),
             position: 0,
             calls_made: 0,
-            issued: 0,
+            issued: attempts_before,
             invalid_retried: false,
             cap_override: None,
             best: None,
@@ -300,6 +310,11 @@ impl PageReader {
             reader.issue(CallKind::First)
         };
         (reader, step)
+    }
+
+    /// How many calls have been handed out on this page, across every part of it.
+    pub fn attempts_issued(&self) -> u32 {
+        self.issued
     }
 
     /// How many calls were really made on this page.
