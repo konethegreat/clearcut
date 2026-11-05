@@ -1,6 +1,6 @@
 // Written by Kone Tshivhinda & Claude
 use super::*;
-use crate::{FakeWorker, PageParts, PageSource, ProcessError, RenderedPage, WordBox};
+use crate::{Crop, FakeWorker, PageParts, PageSource, PartWindow, ProcessError, RenderedPage, WordBox};
 use clearcut_core::redact::RedactionKind;
 use clearcut_pack::TextSource;
 use clearcut_provider::ImageType;
@@ -531,4 +531,64 @@ async fn an_unverified_text_layer_is_never_a_basis_for_painting() {
         assert_eq!(result.unwrap_err(), MaskError::Failed);
         assert_eq!(fake.call_count(), 0, "nothing was asked of the worker");
     }
+}
+
+// ---------- a part is masked from its own words and its own band ----------
+
+#[tokio::test]
+async fn a_part_paints_only_its_own_words_in_its_own_band() {
+    // Rows at y=100 (the two heading words) and y=300 (the number); the band is 300..600.
+    let page = page_content(
+        PageSource::TextLayer,
+        "Account No:\n1234567890",
+        Some(vec![
+            word(0, 7, 100, 100, 300, 40),
+            word(8, 11, 420, 100, 100, 40),
+            word(12, 22, 540, 300, 250, 40),
+        ]),
+    );
+    let part = PageText {
+        source: TextSource::TextLayer,
+        content: "1234567890".to_string(),
+    };
+    let window = PartWindow {
+        text: &part,
+        byte_start: 12,
+        crop: Crop::new(300, 600).unwrap(),
+    };
+    let fake = FakeWorker::scripted(vec![]).with_masks(vec![Ok(painted(ImageType::Png))]);
+    let masker = WorkerMasker::prepare_part(&fake, &image(), &page, &window, &[span(0, 10)])
+        .await
+        .unwrap();
+    assert_eq!(fake.mask_calls()[0].boxes, [mask_box(537, 0, 256, 137)]);
+    assert!(masker.mask(&image(), &part, &[span(0, 10)]).is_ok());
+}
+
+#[tokio::test]
+async fn a_word_that_crosses_the_part_edge_cannot_be_painted() {
+    let page = page_content(
+        PageSource::TextLayer,
+        "1234567890",
+        Some(vec![word(0, 10, 540, 280, 250, 40)]), // y 280..320 crosses 300
+    );
+    let part = PageText {
+        source: TextSource::TextLayer,
+        content: "1234567890".to_string(),
+    };
+    let window = PartWindow {
+        text: &part,
+        byte_start: 0,
+        crop: Crop::new(300, 600).unwrap(),
+    };
+    let fake = FakeWorker::scripted(vec![]);
+    assert!(
+        WorkerMasker::prepare_part(&fake, &image(), &page, &window, &[span(0, 10)])
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        fake.call_count(),
+        0,
+        "nothing is sent when the words cannot vouch for the picture"
+    );
 }

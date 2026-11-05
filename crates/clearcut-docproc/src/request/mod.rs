@@ -98,12 +98,38 @@ impl ImageFormat {
     }
 }
 
+/// A horizontal band of the page: from `top` to `bottom` thousandths of its height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Crop {
+    top: u16,
+    bottom: u16,
+}
+
+impl Crop {
+    /// A band with a height: `top < bottom`, both at most 1000.
+    pub fn new(top: u16, bottom: u16) -> Result<Self, InvalidRequest> {
+        if top >= bottom || bottom > 1000 {
+            return Err(InvalidRequest);
+        }
+        Ok(Crop { top, bottom })
+    }
+
+    pub fn top(&self) -> u16 {
+        self.top
+    }
+
+    pub fn bottom(&self) -> u16 {
+        self.bottom
+    }
+}
+
 /// How a page is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderOptions {
     dpi: u16,
     format: ImageFormat,
     max_edge: u16,
+    crop: Option<Crop>,
 }
 
 impl RenderOptions {
@@ -115,6 +141,7 @@ impl RenderOptions {
             dpi,
             format,
             max_edge,
+            crop: None,
         })
     }
 
@@ -129,6 +156,15 @@ impl RenderOptions {
     pub fn max_edge(&self) -> u16 {
         self.max_edge
     }
+
+    pub fn with_crop(mut self, crop: Crop) -> Self {
+        self.crop = Some(crop);
+        self
+    }
+
+    pub fn crop(&self) -> Option<Crop> {
+        self.crop
+    }
 }
 
 impl Default for RenderOptions {
@@ -138,6 +174,7 @@ impl Default for RenderOptions {
             dpi: 150,
             format: ImageFormat::Png,
             max_edge: 2000,
+            crop: None,
         }
     }
 }

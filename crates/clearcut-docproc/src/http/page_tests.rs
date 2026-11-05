@@ -5,7 +5,7 @@
 use super::tests::{script, serve, stub, worker, Script, Stub, TOKEN};
 use super::*;
 use crate::{
-    DocumentProblem, DocumentProcessor, ImageFormat, MaskBox, PageContent, PageRange, PageSource,
+    Crop, DocumentProblem, DocumentProcessor, ImageFormat, MaskBox, PageContent, PageRange, PageSource,
     ProcessError, RenderOptions, MAX_IMAGE_RESPONSE_BYTES, MAX_TEXT_RESPONSE_BYTES,
 };
 use axum::http::Method;
@@ -529,6 +529,24 @@ async fn a_page_is_drawn_with_the_options_in_the_query_and_comes_back_as_a_pictu
         ])
     );
     assert_eq!(request.body, b"%PDF-1.7 the document");
+}
+
+#[tokio::test]
+async fn a_cropped_page_sends_the_band_in_the_query() {
+    let s = serve(picture_script("image/png", "1000", "500", PNG)).await;
+    let options = RenderOptions::default().with_crop(Crop::new(250, 750).unwrap());
+    render(&s, options).await.unwrap();
+    assert_eq!(
+        query_of(&s.requests()[0]),
+        pairs(&[
+            ("page", "2"),
+            ("dpi", "150"),
+            ("format", "png"),
+            ("max_edge", "2000"),
+            ("top", "250"),
+            ("bottom", "750"),
+        ])
+    );
 }
 
 #[tokio::test]

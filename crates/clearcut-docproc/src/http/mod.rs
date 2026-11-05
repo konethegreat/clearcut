@@ -241,6 +241,11 @@ impl DocumentProcessor for HttpWorker {
             .append_pair("dpi", &options.dpi().to_string())
             .append_pair("format", options.format().as_str())
             .append_pair("max_edge", &options.max_edge().to_string());
+        if let Some(crop) = options.crop() {
+            url.query_pairs_mut()
+                .append_pair("top", &crop.top().to_string())
+                .append_pair("bottom", &crop.bottom().to_string());
+        }
         let (headers, body) = self
             .send(
                 url,
