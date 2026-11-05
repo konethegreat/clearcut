@@ -87,9 +87,9 @@ impl Part {
 
 /// A checked split of one page.
 ///
-/// A stored plan is checked for ordering and coverage of its own ranges, while a gap in the
-/// page's text can only be detected when the plan is built, because the plan does not carry
-/// the text length.
+/// A stored plan is checked for ordering and coverage of its own ranges. Whether it covers
+/// the page's text exactly is checked by the router when it loads the plan, which is the
+/// first place the plan and the text are both in hand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "UncheckedPlan")]
 pub struct PartsPlan {
