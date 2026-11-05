@@ -1007,7 +1007,7 @@ alter table page_readings add constraint page_readings_review_reason_check
         'part_conflict', 'part_failed', 'too_dense'));
 ```
 
-Run: `cargo test -p clearcut-store -- --exact every_review_reason_and_every_basis_survives_the_round_trip` with `DATABASE_URL=postgres://clearcut@127.0.0.1:54329/clearcut`.
+Run: `cargo test -p clearcut-store every_review_reason` with `DATABASE_URL=postgres://clearcut@127.0.0.1:54329/clearcut`. Do not add `-- --exact`: the test is module-qualified (`page_readings::tests::…`), so `--exact` matches nothing and passes without running it.
 Expected: PASS. `sqlx::test` applies every migration in the folder, so the widened check is what the run proves.
 
 - [ ] **Step 8: Commit**
