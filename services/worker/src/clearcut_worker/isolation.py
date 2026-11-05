@@ -68,7 +68,7 @@ from .pagetext import (
     Word,
     extract_pages,
 )
-from .render import PageTooBig, render_page
+from .render import EmptyCrop, PageTooBig, render_page
 
 log = logging.getLogger("clearcut_worker")
 
@@ -647,6 +647,7 @@ _RENDER_REFUSALS: dict[str, type[InspectError]] = {
     "Unreadable": Unreadable,
     "TooSlow": TooSlow,
     "PageTooBig": PageTooBig,
+    "EmptyCrop": EmptyCrop,
     "ImageTooLarge": ImageTooLarge,
 }
 
@@ -658,6 +659,8 @@ def _render_child(
     dpi: float,
     fmt: str,
     max_edge: int,
+    top: int,
+    bottom: int,
     max_pages: int,
     timeout_seconds: float,
     max_bytes: int,
@@ -678,6 +681,8 @@ def _render_child(
                     dpi=dpi,
                     fmt=fmt,
                     max_edge=max_edge,
+                    top=top,
+                    bottom=bottom,
                     max_bytes=max_bytes,
                     max_pages=max_pages,
                     deadline=deadline,
@@ -709,6 +714,8 @@ def render_isolated(
     dpi: float,
     fmt: str,
     max_edge: int,
+    top: int = 0,
+    bottom: int = 1000,
     max_pages: int,
     timeout_seconds: float,
     grace_seconds: float = 2.0,
@@ -717,14 +724,14 @@ def render_isolated(
     max_answer_bytes: int = DEFAULT_RENDER_ANSWER_BYTES,
     max_bytes: int = MAX_IMAGE_BYTES,
 ) -> EncodedImage:
-    """Draws page ``page`` in a child process and returns the picture.
+    """Draws the band ``top``..``bottom`` of page ``page`` in a child process, and returns it.
 
     The child's answer is checked (``decode_render_answer``) before anything in it is
     believed; the picture itself is never decoded by the parent.
     """
     raw = run_in_child(
         target,
-        (data, page, dpi, fmt, max_edge, max_pages, timeout_seconds, max_bytes),
+        (data, page, dpi, fmt, max_edge, top, bottom, max_pages, timeout_seconds, max_bytes),
         timeout_seconds=timeout_seconds,
         max_answer_bytes=max_answer_bytes,
         grace_seconds=grace_seconds,

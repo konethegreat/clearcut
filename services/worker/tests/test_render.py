@@ -18,6 +18,7 @@ from clearcut_worker.render import (
     MAX_DPI,
     MAX_PAGE_POINTS,
     MIN_DPI,
+    EmptyCrop,
     PageTooBig,
     render_page,
 )
@@ -135,6 +136,27 @@ def test_the_picture_carries_no_metadata_at_all() -> None:
     result = render(one_page(SQUARE))
     assert b"tEXt" not in result.data
     assert b"iCCP" not in result.data
+
+
+# ---------- a band of a page ----------
+
+
+def test_a_crop_returns_only_the_band_between_the_marks() -> None:
+    # The page is 400 x 400 at 144 dpi and the square covers y 100 to 300.
+    result = render(one_page(SQUARE), dpi=144, top=200, bottom=700)
+    assert (result.width, result.height) == (400, 200)
+    assert pixel(result.data, 200, 100) == BLACK  # the square, inside the band
+    assert pixel(result.data, 200, 10) == WHITE  # above the square, still in the band
+
+
+def test_a_picture_can_be_cropped_too() -> None:
+    result = render(png_of(noise(40, 30)), top=0, bottom=500)
+    assert (result.width, result.height) == (40, 15)
+
+
+def test_an_empty_crop_is_refused() -> None:
+    with pytest.raises(EmptyCrop):
+        render(one_page(SQUARE), top=500, bottom=500)
 
 
 # ---------- what is refused ----------

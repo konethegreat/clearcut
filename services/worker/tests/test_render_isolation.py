@@ -19,7 +19,7 @@ from clearcut_worker.isolation import (
     render_isolated,
 )
 from clearcut_worker.pagetext import PageOutOfRange
-from clearcut_worker.render import PageTooBig, render_page
+from clearcut_worker.render import EmptyCrop, PageTooBig, render_page
 
 from . import children
 from .conftest import make_encrypted_pdf
@@ -82,8 +82,16 @@ def test_every_kind_of_refusal_survives_the_trip_back_from_the_child() -> None:
         render(one_page("", media_box="[0 0 14401 100]"))
     with pytest.raises(ImageTooLarge):
         render(claims_to_be(30_000, 30_000))
+    with pytest.raises(EmptyCrop):
+        render(one_page(SQUARE), top=500, bottom=500)
     with pytest.raises(TooSlow):
         render(pages_of_text("a"), timeout_seconds=0.0)
+
+
+def test_the_crop_is_passed_to_the_child_and_comes_back_cropped() -> None:
+    # SQUARE covers y 100 to 300 of a 400 x 400 page at 144 dpi.
+    image = render(one_page(SQUARE), top=200, bottom=700)
+    assert (image.width, image.height) == (400, 200)
 
 
 # ---------- hostile children ----------
