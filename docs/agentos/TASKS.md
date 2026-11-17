@@ -3,13 +3,12 @@
 Work through phases in order, one small reviewed pull request per task. Follow `AGENTS.md` and `CONTRIBUTING.md`, keep all tests and CI checks green, never commit secrets or `.env` files, and append one line to `docs/agentos/REPORT.md` in each pull request.
 
 ## Phase 1: CI Health, Dependency Audit, and Operational Hygiene
-- [ ] Research and diagnose the failing `Audit` workflow run (check `cargo audit`, `npm audit`, and `pip-audit` outputs) and document the root cause and remediation plan in a short note under `docs/agentos/`.
-- [ ] Review and resolve or document exceptions for the open Dependabot Cargo and npm PRs (`printpdf`, `uuid`, `zip`, `rmcp`, `rust_xlsxwriter`, `@types/node`) so `Audit` passes cleanly.
+- [ ] Research and diagnose the failing `Audit` workflow on `main` (run `43877942661`: `cargo audit` advisories `RUSTSEC-2026-0459` in `libsqlite3-sys`, `RUSTSEC-2026-0462` in `rmcp`, `RUSTSEC-2026-0429` in `zip`, and `RUSTSEC-2026-0486` warning in `rustix`) and document the root cause and remediation plan under `docs/agentos/`.
+- [ ] Review and resolve or document exceptions for the open Dependabot PRs (`#151` `printpdf`, `#150` `uuid`, `#149` `zip`, `#148` `rmcp`, `#138` `rust_xlsxwriter`, `#137` `@types/node`) and `libsqlite3-sys` so `Audit` passes cleanly.
 - [ ] Update `README.md` alpha status and quick-start summary to match `docs/LAUNCH.md` (reflecting that ingestion, narration, and multi-format export are built while gold-set scoring and e-invoicing remain open).
-- [ ] Add a unit/integration check verifying `security.txt` expiry (`2027-04-30`) and `contracts/openapi.json` freshness in `cargo test`.
 
 ## Phase 2: Long-Invoice Completeness and Pipeline Hardening
-- [ ] Review and test Slice B.2 (band planning and `/v1/bands` for scans without OCR) against `docs/superpowers/plans/2026-11-06-long-invoices-slice-b2-scans.md` and ensure all `clearcut-core`, `clearcut-docproc`, and `services/worker` tests pass.
+- [ ] Design and implement Slice B.2 (scans without OCR: whitespace bands, capability negotiation, and uncertain seams) per `docs/superpowers/specs/2026-11-03-long-invoice-completeness-design.md` with tests across `clearcut-core`, `clearcut-docproc`, and `services/worker`.
 - [ ] Implement per-call `model_calls` logging as each provider call completes in `clearcut-router` / `clearcut-pipeline` so a mid-page crash does not under-count tenant spend (`docs/LAUNCH.md` section 5).
 - [ ] Add row-level locking in `clearcut-store` `erase_document` to prevent races with concurrent `enqueue_job` or identical-byte re-upload, plus an orphan-file sweep for failed deletions (`docs/LAUNCH.md` section 5).
 - [ ] Design and implement Slice C (bounded document-level repair round) per `docs/superpowers/specs/2026-11-03-long-invoice-completeness-design.md` with deterministic tests in `clearcut-pipeline`.
