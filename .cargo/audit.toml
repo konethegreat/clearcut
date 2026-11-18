@@ -1,12 +1,23 @@
 # Written by Kone Tshivhinda & Claude
 # Settings for `cargo audit` (RustSec). See docs/THREAT-MODEL.md section 5.
 [advisories]
-# zip 8.6.0 arrives through the Word library (docx-rs). All three advisories are about
-# EXTRACTING a ZIP file (ZipArchive::extract and friends). ClearCut only ever WRITES ZIP files
-# (the Word and Excel exports) and never extracts one, so none of them can be triggered by our code.
+# zip 8.6.0 arrives through the Word library (docx-rs). All eight advisories are about
+# EXTRACTING or READING a ZIP file (ZipArchive::extract, ZipStreamReader, legacy decoders,
+# AES decryption). ClearCut only ever WRITES ZIP files (the Word and Excel exports) and
+# never extracts an untrusted archive, so none of them can be triggered by our code.
 # Revisit when docx-rs moves to zip 9; remove these lines then. Any NEW advisory still fails the audit.
+#
+# libsqlite3-sys 0.37.0 arrives in Cargo.lock as an optional dependency of sqlx-sqlite 0.9.0.
+# ClearCut only enables sqlx's postgres feature (never sqlite), so libsqlite3-sys is never
+# compiled or linked. Revisit when sqlx-sqlite supports libsqlite3-sys >= 0.39.0.
 ignore = [
     "RUSTSEC-2026-0367",
     "RUSTSEC-2026-0368",
     "RUSTSEC-2026-0369",
+    "RUSTSEC-2026-0429",
+    "RUSTSEC-2026-0545",
+    "RUSTSEC-2026-0546",
+    "RUSTSEC-2026-0547",
+    "RUSTSEC-2026-0548",
+    "RUSTSEC-2026-0459",
 ]
