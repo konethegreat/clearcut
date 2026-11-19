@@ -10,7 +10,7 @@
 
 </div>
 
-> **Alpha.** Built today: invoice calculation, lifecycle rules, SA VAT compliance, multi-page document ingestion (PDF, DOCX, XLSX, CSV, images, and scanned PDFs), event grouping and narration, human review UI (`#/review`, `#/demo`, `#/trust`), multi-format export (JSON, CSV, XLSX, PDF), tenant-scoped API keys with Postgres RLS, and a stdio MCP server. **Still open:** gold-set accuracy scoring on real invoices, e-invoicing (UBL/Peppol), issuing/payments, and deployment/contract hardening. See [docs/LAUNCH.md](docs/LAUNCH.md) and the [roadmap](docs/PHASES.md). Not tax advice.
+> **Alpha.** Built today: invoice calculation, lifecycle rules, SA VAT compliance, multi-page document ingestion (PDF, PNG, and JPEG, including scanned PDFs), event grouping and narration, human review UI (`#/review`, `#/demo`, `#/trust`), multi-format export (JSON, CSV, XLSX, PDF), tenant-scoped API keys with Postgres RLS, and a stdio MCP server. **Still open:** gold-set accuracy scoring on real invoices, e-invoicing (UBL/Peppol), issuing/payments, and deployment/contract hardening. See [docs/LAUNCH.md](docs/LAUNCH.md) and the [roadmap](docs/PHASES.md). Not tax advice.
 
 ## Why ClearCut
 
@@ -57,7 +57,7 @@ Add to your MCP config:
 ```json
 { "mcpServers": { "clearcut": { "command": "cargo", "args": ["run", "--quiet", "--release", "-p", "clearcut-mcp"] } } }
 ```
-Tools: `calculate_invoice`, `za_required_tax_invoice`, `check_status_transition`, `upload_document`, `list_documents`, `get_document`, `wait_for_document`, `get_events`, `narrate_document`, `export_document`, `get_review_queue`, `confirm_page`, `erase_document`.
+Tools: `calculate_invoice`, `za_required_tax_invoice`, `check_status_transition`, `upload_document`, `list_documents`, `get_document`, `wait_for_document`, `get_events`, `narrate_document`, `export_document`, `get_review_queue`, `review_extraction`, `delete_document`.
 
 ## Layout
 
