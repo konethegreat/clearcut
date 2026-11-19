@@ -5,7 +5,7 @@ Work through phases in order, one small reviewed pull request per task. Follow `
 ## Phase 1: CI Health, Dependency Audit, and Operational Hygiene
 - [x] Research and diagnose the failing `Audit` workflow on `main` (run `43877942661`: `cargo audit` advisories `RUSTSEC-2026-0459` in `libsqlite3-sys`, `RUSTSEC-2026-0462` in `rmcp`, `RUSTSEC-2026-0429` in `zip`, and `RUSTSEC-2026-0486` warning in `rustix`) and document the root cause and remediation plan under `docs/agentos/` (see [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md)).
 - [x] Review and resolve or document exceptions for the open Dependabot PRs (`#151` `printpdf`, `#150` `uuid`, `#149` `zip`, `#148` `rmcp`, `#138` `rust_xlsxwriter`, `#137` `@types/node`) and `libsqlite3-sys` so `Audit` passes cleanly.
-- [ ] Update `README.md` alpha status and quick-start summary to match `docs/LAUNCH.md` (reflecting that ingestion, narration, and multi-format export are built while gold-set scoring and e-invoicing remain open).
+- [x] Update `README.md` alpha status and quick-start summary to match `docs/LAUNCH.md` (reflecting that ingestion, narration, and multi-format export are built while gold-set scoring and e-invoicing remain open).
 
 ## Phase 2: Long-Invoice Completeness and Pipeline Hardening
 - [ ] Design and implement Slice B.2 (scans without OCR: whitespace bands, capability negotiation, and uncertain seams) per `docs/superpowers/specs/2026-11-03-long-invoice-completeness-design.md` with tests across `clearcut-core`, `clearcut-docproc`, and `services/worker`.
